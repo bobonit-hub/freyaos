@@ -70,7 +70,7 @@ APP_CFLAGS:= $(CPUFLAGS) $(BOARD_DEF) -std=gnu11 -Os -g3 -ffreestanding \
              -fno-common -fno-builtin -Wall -Wextra -Wno-unused-parameter -Iinclude
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink
+SAMPLES   := blink tetris
 SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(SAMPLES))
 
 # A board that reserves part of its flash for a program image supplies a

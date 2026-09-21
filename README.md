@@ -256,7 +256,8 @@ supplies the header, and the board's `app.ld`. A program is built for one board
 — the load address is part of the header and the loader refuses an image linked
 for somewhere else. `samples/` works the same way through
 the `SAMPLES` variable and builds into `build/samples/`; `samples/blink` is a
-minimal starting point.
+minimal starting point, and `samples/tetris` is a console game (keys in
+`samples/tetris/README.md`).
 
 ```
 freya:/> run hello.bin
@@ -448,7 +449,7 @@ is measured rather than guessed).
 | `src/shell.c` | line editing and the commands |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples, `blink` to start from |
+| `samples/` | small standalone samples: `blink`, `tetris` |
 | `tests/` | host side tests |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
