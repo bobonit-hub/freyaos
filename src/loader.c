@@ -323,8 +323,9 @@ static int check_xip_header(const freya_app_header_t *hdr, uint32_t want,
         return -1;
     }
     if (want == 0 || want > FREYA_APP_FLASH_SIZE) {
-        kprintf("%s: image does not fit the %u KiB program flash region\r\n",
-                who, (unsigned)(FREYA_APP_FLASH_SIZE / 1024));
+        kprintf("%s: image does not fit the program flash region (", who);
+        kput_size(FREYA_APP_FLASH_SIZE);
+        kprintf(")\r\n");
         return -1;
     }
     if (hdr->entry < base || hdr->entry >= base + want) {
@@ -620,7 +621,10 @@ int app_install(const char *path)
         return -1;
     }
 
-    pages = (want + page - 1) / page;
+    {
+        uint32_t erase0 = FREYA_APP_FLASH_ADDR & ~(page - 1);
+        pages = (FREYA_APP_FLASH_ADDR + want - erase0 + page - 1) / page;
+    }
     kprintf("install: console input is dropped while flash is busy\r\n");
     kprintf("  erasing %u page%s ... ", pages, pages == 1 ? "" : "s");
     uart_drain_tx();

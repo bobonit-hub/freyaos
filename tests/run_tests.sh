@@ -168,9 +168,14 @@ else
     check "the kernel and the header agree on the autostart size" \
           "$(macro autostart_size)" \
           "$(( $(sym "$kelf" __autostart_end) - $(sym "$kelf" __autostart_start) ))"
-    check "the autostart page sits immediately before the program flash region" \
+    check "the auto-start slot is 128 bytes" "$(macro autostart_size)" 128
+    check "the auto-start slot is 128-byte aligned" \
+          0 "$(( $(macro autostart_addr) % 128 ))"
+    check "the program flash region is 128-byte aligned" \
+          0 "$(( $(macro app_flash_addr) % 128 ))"
+    check "the autostart slot sits immediately before the program flash region" \
           "$(macro app_flash_addr)" "$(sym "$kelf" __autostart_end)"
-    check "the kernel image ends below the autostart page" \
+    check "the kernel image ends below the autostart slot" \
           1 "$(( $(sym "$kelf" __kernel_flash_end) <= $(sym "$kelf" __autostart_start) ))"
     check "the RAM resident flash routines sit in the program RAM region" \
           1 "$(( $(sym "$kelf" __ramfunc_start) == $(macro app_load_addr) ))"

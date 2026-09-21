@@ -41,7 +41,7 @@ freya:/>
 | Crystal | 25 MHz | 8 MHz |
 | Flash | 512 KiB | 64 KiB |
 | SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM | 8 KiB RAM, or 24 KiB flash |
+| Program region | 56 KiB RAM | 8 KiB RAM, or 25472 B flash |
 | Build | `make` | `make BOARD=bluepill` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -79,7 +79,7 @@ Freya 1.0 for STM32F103C8T6
   code, with a service table for console, memory, timing and file access.
 * On the Blue Pill, also keeps one program in a reserved area of its own
   internal flash and executes it in place from there, which raises the
-  ceiling on program size from 8 KiB to 24 KiB and leaves a program that
+  ceiling on program size from 8 KiB to 25472 bytes and leaves a program that
   starts at boot with no card in the socket. The program can be copied from
   the card, or packed into the module when Freya itself is flashed.
 * Stops a running program at any time — even one stuck in a tight loop — and
@@ -319,8 +319,9 @@ and halts.
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-34 KiB of the 64 KiB of flash sits idle. So the board reserves the top 24 KiB
-of its flash — pages 40 to 63 — for one program image. `install` writes an
+34 KiB of the 64 KiB of flash sits idle. So the board reserves 25472 bytes
+at the top of flash — the rest of page 39 after a 128-byte auto-start slot,
+then pages 40 to 63 — for one program image. `install` writes an
 image there from the card, and `make flash PROGRAM=<app>` writes the same
 kind of image into the module together with the kernel:
 
@@ -328,13 +329,13 @@ kind of image into the module together with the kernel:
 freya:/> install hello.xip.bin
 install: console input is dropped while flash is busy
   erasing 2 pages ... writing ... ok
-installed /hello.xip.bin at 0x0800a000: 1.2 KiB in 2 pages
+installed /hello.xip.bin at 0x08009c80: 1.2 KiB in 2 pages
 
 freya:/> run @flash
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program flash region
   api version 2, table size 108 bytes
-  code at 0x0800a040, data at 0x20001800
+  code at 0x08009cc0, data at 0x20001800
   initialised data survived the load: .data ok, .bss clear
 ```
 
@@ -345,9 +346,10 @@ region holds, whether it was packed in at program time or installed from the
 card.
 `uninstall` erases the region. Nothing is written if the region already holds
 the same image — flash endurance is 10k cycles, and there is no reason to
-spend one per `run`. `autostart on` writes a flag into the first unused flash
-page (immediately before the program region) so the next boot runs that
-program without waiting for `runflash`. `autostart off` erases the flag.
+spend one per `run`. `autostart on` writes a flag into the 128-byte slot
+immediately before the program region so the next boot runs that
+program without waiting for `runflash`. `autostart off` erases the flag
+(the rest of that 1 KiB page is restored, so the program image is kept).
 
 Such a program is linked differently. A RAM image is one contiguous blob whose
 `.data` is writable where it lands; a flash image is the ordinary split, with
@@ -356,7 +358,7 @@ flash into the RAM region before `app_main` is called. That is what the second
 linker script, `boards/bluepill/app_flash.ld`, describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program therefore spends the 8 KiB RAM
-window entirely on its variables, and gets 24 KiB for code instead of 8.
+window entirely on its variables, and gets 25472 bytes for code instead of 8.
 
 Executing from flash needs nothing special — the Cortex-M3 is Harvard only in
 its bus topology, over a single unified address map, so an address in
@@ -373,7 +375,7 @@ between pages, and the software clock loses roughly the time the install takes.
 
 Ctrl-C cannot interrupt an install half way through a page. Nothing outside
 `boards/bluepill/flash.c` can write to flash at all, one function there bounds
-every address against the writable pages (the auto-start flag and the program
+every address against the writable pages (the auto-start slot and the program
 region), and the service table has no flash call in it: a program cannot
 rewrite the kernel that is running it.
 
@@ -414,9 +416,10 @@ leaves behind:
 0x08000000  +--------------------------------+
             |  Freya kernel (~33 KiB used)   |  39 KiB, pages 0..38
 0x08009C00  +--------------------------------+
-            |  auto-start flag (1 KiB)       |  page 39
-0x0800A000  +--------------------------------+
-            |  program flash region (24 KiB) |  pages 40..63, installed
+            |  auto-start flag + reserved    |  128 B, page 39
+0x08009C80  +--------------------------------+
+            |  program flash region          |  25472 B, rest of page 39
+            |                                |  and pages 40..63, installed
 0x08010000  +--------------------------------+  from the card
 
 0x20000000  +--------------------------------+
@@ -430,9 +433,9 @@ leaves behind:
 ```
 
 A flash-resident program uses the RAM window for its `.data` and `.bss` alone,
-so it gets 24 KiB of code where a RAM image gets 8 KiB for everything. The
+so it gets 25472 bytes of code where a RAM image gets 8 KiB for everything. The
 kernel's 39 KiB is a hard limit: `boards/bluepill/freya.ld` fails the link
-rather than let the kernel grow into the auto-start page.
+rather than let the kernel grow into the auto-start slot.
 
 `meminfo` reports all of it at runtime, including the heap's largest free block
 and the stack high-water mark (the reset handler paints the stack, so the peak
@@ -511,7 +514,7 @@ ALL TESTS PASSED
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 64 KiB of
   flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
   KiB instead of sixty. Installing a program into flash is the answer to the
-  first half of that, not the second — such a program gets 24 KiB of code, but
+  first half of that, not the second — such a program gets 25472 bytes of code, but
   the heap is still small and the stack is still shared.
 * Only the Blue Pill keeps a program in flash. The Black Pill could, but its
   erase granularity past the kernel is a 64 KiB sector where the F103's is a

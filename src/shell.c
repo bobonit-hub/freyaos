@@ -276,9 +276,10 @@ static int cmd_meminfo(int argc, char **argv)
         } else {
             kprintf("     empty - 'install <file>', or flash one in with the kernel\r\n");
         }
-        kprintf("  auto-start     : %s  at 0x%08x\r\n",
+        kprintf("  auto-start     : %s  at 0x%08x  (%u B)\r\n",
                 app_autostart_enabled() ? "on" : "off",
-                (unsigned)FREYA_AUTOSTART_ADDR);
+                (unsigned)FREYA_AUTOSTART_ADDR,
+                (unsigned)FREYA_AUTOSTART_SIZE);
     }
 #endif
 
@@ -705,10 +706,11 @@ static int cmd_install(int argc, char **argv)
     if (argc < 2) {
         kprintf("usage: install <file>\r\n");
         kprintf("  Copies a flash image - one built with app_flash.ld - from\r\n"
-                "  the card into the %u KiB program flash region, where it\r\n"
+                "  the card into the ");
+        kput_size(FREYA_APP_FLASH_SIZE);
+        kprintf(" program flash region, where it\r\n"
                 "  survives a power cycle.  'runflash' then runs it with no\r\n"
-                "  card in the socket at all.\r\n",
-                (unsigned)(FREYA_APP_FLASH_SIZE / 1024));
+                "  card in the socket at all.\r\n");
         return -1;
     }
     if (!need_fs()) return -1;

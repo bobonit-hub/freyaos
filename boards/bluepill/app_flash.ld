@@ -9,22 +9,24 @@
  *
  * The addresses here have to agree with FREYA_APP_FLASH_ADDR and
  * FREYA_APP_LOAD_ADDR in include/freya_api.h, and with boards/bluepill/
- * freya.ld.  Nothing can check that at link time - a linker script cannot
- * include a C header - so the kernel compares the two at boot.
+ * freya.ld.  ORIGIN is 128-byte aligned so it sits immediately after the
+ * auto-start slot.  Nothing can check that at link time - a linker script
+ * cannot include a C header - so the kernel compares the two at boot.
  */
 
 ENTRY(app_main)
 
 MEMORY
 {
-    APPFLASH (rx)  : ORIGIN = 0x0800A000, LENGTH = 24K
+    APPFLASH (rx)  : ORIGIN = 0x08009C80, LENGTH = 25472
     APPRAM   (rwx) : ORIGIN = 0x20001800, LENGTH = 8K
 }
 
 SECTIONS
 {
-    .header 0x0800A000 :
+    .header :
     {
+        . = ALIGN(128);
         KEEP(*(.app_header))
     } > APPFLASH
 
@@ -72,7 +74,7 @@ SECTIONS
     /* The program stack is the kernel's main stack; keep .data and .bss
      * inside the RAM window and the image inside the flash region. */
     ASSERT(__data_load__ + SIZEOF(.data) <= ORIGIN(APPFLASH) + LENGTH(APPFLASH),
-           "program does not fit the 24 KiB Freya program flash region")
+           "program does not fit the Freya program flash region")
     ASSERT(__bss_end__ <= ORIGIN(APPRAM) + LENGTH(APPRAM),
            "program .data + .bss do not fit the 8 KiB Freya program RAM region")
 

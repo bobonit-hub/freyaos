@@ -208,7 +208,7 @@ void app_unload(void);
 /* The installed flash image is addressed as a pseudo-path, so 'load',
  * 'run' and 'stop' need no special case for it. */
 #define APP_FLASH_PATH  "@flash"
-/* First word of the auto-start page; erased flash reads 0xFFFFFFFF. */
+/* First word of the auto-start slot; erased flash reads 0xFFFFFFFF. */
 #define FREYA_AUTOSTART_MAGIC  0x31415946UL   /* 'F','Y','A','1' */
 int  app_install(const char *path);           /* card image -> flash    */
 int  app_flash_erase(void);

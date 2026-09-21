@@ -2,7 +2,8 @@
 """Pack a Freya kernel and one flash-resident program into a single image.
 
 The program is a .xip.bin linked for the board's program flash region.  On
-the Blue Pill that region starts at 0x0800A000, so the image written to the
+the Blue Pill that region starts at 0x08009C80 (immediately after the
+128-byte auto-start slot), so the image written to the
 module is:
 
     [kernel][0xFF up to the region][program][0xFF to the end of the region]
@@ -39,7 +40,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--kernel", required=True, help="freya.bin")
     p.add_argument("--app", required=True, help="program .xip.bin")
-    p.add_argument("--load-addr", required=True, help="program region base, e.g. 0x0800A000")
+    p.add_argument("--load-addr", required=True, help="program region base, e.g. 0x08009C80")
     p.add_argument("--region-end", required=True, help="first address after the region")
     p.add_argument("--flash-base", default=hex(FLASH_BASE_DEFAULT),
                    help="start of internal flash (default 0x08000000)")

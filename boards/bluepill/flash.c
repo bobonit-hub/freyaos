@@ -1,7 +1,7 @@
 /*
  * Freya - internal flash programming for the STM32F103C8T6.
  *
- * Only the program flash region and the auto-start flag page are writable
+ * Only the program flash region and the auto-start flag slot are writable
  * through here, and that is enforced in one function.  A mistake in a page
  * address is the difference between a failed install and a board that no
  * longer boots, so every erase and every program goes through in_region()
@@ -103,8 +103,9 @@ static int ram_program_half(uint32_t addr, uint16_t val)
  * The single place that decides whether an address may be written.  Both
  * ends are checked against a reserved region, and the arithmetic cannot
  * wrap because len is bounded first.  The two writable regions are the
- * auto-start flag page and the program flash; a length that would span
- * both is refused, so an install cannot touch the flag.
+ * 128-byte auto-start slot and the program flash; a length that would
+ * span both is refused, so an install cannot touch the flag.  They share
+ * a 1 KiB erase page, and flash_erase() writes the other slot back.
  */
 static int in_slot(uint32_t addr, uint32_t len, uint32_t base, uint32_t size)
 {
@@ -178,22 +179,66 @@ void flash_end(void)
 }
 
 /* --------------------------------------------------------- erase/write */
+/*
+ * Staging for a page that holds both the auto-start slot and the start of
+ * the program image.  The program RAM region is free while flash is open.
+ */
+static uint8_t *page_scratch(uint32_t page)
+{
+    uintptr_t a = ((uintptr_t)__ramfunc_end + 3U) & ~(uintptr_t)3U;
+
+    if (a + page > (uintptr_t)__app_ram_end) return 0;
+    return (uint8_t *)a;
+}
+
 int flash_erase(uint32_t addr, uint32_t len)
 {
     uint32_t page = BOARD_FLASH_PAGE_SIZE;
-    uint32_t end;
+    uint32_t end, a;
+    uint8_t *scratch;
 
     if (!s_ready) return FLASH_ERR_LOCKED;
     if (!in_region(addr, len)) return FLASH_ERR_RANGE;
-    if (addr % page) return FLASH_ERR_ALIGN;
+    if (addr & 1U) return FLASH_ERR_ALIGN;
 
-    /* Round up to whole pages, which in_region() has already bounded. */
-    end = addr + ((len + page - 1) / page) * page;
-    if (!in_region(addr, end - addr)) return FLASH_ERR_RANGE;
+    end = addr + len;
+    a = addr & ~(page - 1);
+    /* The auto-start slot begins on a page boundary, so rounding down
+     * never lands in the kernel. */
+    if (a < FREYA_AUTOSTART_ADDR) return FLASH_ERR_RANGE;
 
-    for (uint32_t a = addr; a < end; a += page) {
-        int rc = ram_erase_page(a);
+    scratch = page_scratch(page);
+
+    for (; a < end; a += page) {
+        uint32_t page_end = a + page;
+        uint32_t wipe_s = (addr > a) ? addr : a;
+        uint32_t wipe_e = (end < page_end) ? end : page_end;
+        uint32_t keep_lo = wipe_s - a;
+        uint32_t keep_hi = page_end - wipe_e;
+        int rc;
+
+        if (keep_lo == 0 && keep_hi == 0) {
+            rc = ram_erase_page(a);
+            if (rc != FLASH_OK) return rc;
+            continue;
+        }
+
+        if (!scratch) return FLASH_ERR_RANGE;
+        if ((keep_lo && !in_region(a, keep_lo)) ||
+            (keep_hi && !in_region(wipe_e, keep_hi)))
+            return FLASH_ERR_RANGE;
+
+        memcpy(scratch, (const void *)(uintptr_t)a, page);
+        rc = ram_erase_page(a);
         if (rc != FLASH_OK) return rc;
+        if (keep_lo) {
+            rc = flash_program(a, scratch, keep_lo);
+            if (rc != FLASH_OK) return rc;
+        }
+        if (keep_hi) {
+            rc = flash_program(wipe_e, scratch + (wipe_e - a), keep_hi);
+            if (rc != FLASH_OK) return rc;
+        }
     }
     return FLASH_OK;
 }

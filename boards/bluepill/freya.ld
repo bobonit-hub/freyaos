@@ -4,13 +4,13 @@
  * 64 KiB internal flash @ 0x08000000
  * 20 KiB SRAM           @ 0x20000000
  *
- * Flash map - the kernel keeps the bottom 39 KiB, the first unused page
- * holds the auto-start flag, and the top 24 KiB hold one program image,
- * installed from the card or packed in when the module is programmed, and
- * executed in place:
+ * Flash map - the kernel keeps the bottom 39 KiB, the first unused
+ * 128-byte aligned slot holds the auto-start flag and reserved padding,
+ * and the rest of flash holds one program image, installed from the card
+ * or packed in when the module is programmed, and executed in place:
  *   0x08000000 .. 0x08009BFF   Freya kernel                      (39 KiB)
- *   0x08009C00 .. 0x08009FFF   auto-start flag, page 39           ( 1 KiB)
- *   0x0800A000 .. 0x0800FFFF   program flash region, pages 40..63(24 KiB)
+ *   0x08009C00 .. 0x08009C7F   auto-start flag + reserved          (128 B)
+ *   0x08009C80 .. 0x0800FFFF   program flash region              (25472 B)
  *
  * RAM map - the whole system has to fit in a fifth of what the Black Pill
  * offers, so the heap is small and the program region is sized for the
@@ -35,8 +35,8 @@ __stack_size         = 6K;
 __app_ram_start      = 0x20001800;
 __app_ram_end        = 0x20003800;
 __autostart_start    = 0x08009C00;
-__autostart_end      = 0x0800A000;
-__app_flash_start    = 0x0800A000;
+__autostart_end      = 0x08009C80;
+__app_flash_start    = 0x08009C80;
 __app_flash_end      = 0x08010000;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
@@ -132,8 +132,14 @@ SECTIONS
     __ramfunc_load     = LOADADDR(.ramfunc);
     __kernel_flash_end = LOADADDR(.ramfunc) + SIZEOF(.ramfunc);
 
+    ASSERT((__autostart_start & 127) == 0,
+           "Freya: auto-start slot is not 128-byte aligned")
+    ASSERT((__app_flash_start & 127) == 0,
+           "Freya: program flash is not 128-byte aligned")
+    ASSERT((__autostart_end - __autostart_start) == 128,
+           "Freya: auto-start slot is not 128 bytes")
     ASSERT(__kernel_flash_end <= __autostart_start,
-           "Freya: kernel image overflows into the autostart page")
+           "Freya: kernel image overflows into the autostart slot")
     ASSERT(__ramfunc_end <= __app_ram_end,
            "Freya: the RAM resident flash routines do not fit the program region")
 
