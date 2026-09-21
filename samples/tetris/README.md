@@ -62,7 +62,7 @@ Or pack it with the kernel when the module is programmed:
 make BOARD=bluepill flash PROGRAM=tetris
 ```
 
-Then `runflash` (or wait for autorun) after boot.
+Then `runflash` after boot, or `autostart on` so the next reset runs it.
 
 ## Play
 

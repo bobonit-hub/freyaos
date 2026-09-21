@@ -197,6 +197,7 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 | `stop` | stop, or unload, the program |
 | `install <file>` | write a program into internal flash (Blue Pill) |
 | `uninstall` | erase the program flash region (Blue Pill) |
+| `autostart [on\|off]` | run the flash program automatically at boot (Blue Pill) |
 | `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
 
@@ -344,7 +345,9 @@ region holds, whether it was packed in at program time or installed from the
 card.
 `uninstall` erases the region. Nothing is written if the region already holds
 the same image — flash endurance is 10k cycles, and there is no reason to
-spend one per `run`.
+spend one per `run`. `autostart on` writes a flag into the first unused flash
+page (immediately before the program region) so the next boot runs that
+program without waiting for `runflash`. `autostart off` erases the flag.
 
 Such a program is linked differently. A RAM image is one contiguous blob whose
 `.data` is writable where it lands; a flash image is the ordinary split, with
@@ -370,15 +373,17 @@ between pages, and the software clock loses roughly the time the install takes.
 
 Ctrl-C cannot interrupt an install half way through a page. Nothing outside
 `boards/bluepill/flash.c` can write to flash at all, one function there bounds
-every address against the reserved region, and the service table has no flash
-call in it: a program cannot rewrite the kernel that is running it.
+every address against the writable pages (the auto-start flag and the program
+region), and the service table has no flash call in it: a program cannot
+rewrite the kernel that is running it.
 
 ### Autorun
 
 If `/autorun.bin` exists it is started automatically at boot, with two seconds
 to press a key and cancel. Failing that, on a board that keeps a program in
-flash, an installed image is started the same way — so a Blue Pill with nothing
-in the card socket still boots Freya and runs a program.
+flash, an installed image is started the same way when the auto-start flag is
+on — `autostart on` after `install`, so a Blue Pill with nothing in the card
+socket still boots Freya and runs a program.
 
 ## Memory map
 
@@ -407,7 +412,9 @@ leaves behind:
 
 ```
 0x08000000  +--------------------------------+
-            |  Freya kernel (~33 KiB used)   |  40 KiB, pages 0..39
+            |  Freya kernel (~33 KiB used)   |  39 KiB, pages 0..38
+0x08009C00  +--------------------------------+
+            |  auto-start flag (1 KiB)       |  page 39
 0x0800A000  +--------------------------------+
             |  program flash region (24 KiB) |  pages 40..63, installed
 0x08010000  +--------------------------------+  from the card
@@ -424,8 +431,8 @@ leaves behind:
 
 A flash-resident program uses the RAM window for its `.data` and `.bss` alone,
 so it gets 24 KiB of code where a RAM image gets 8 KiB for everything. The
-kernel's 40 KiB is a hard limit: `boards/bluepill/freya.ld` fails the link
-rather than let the kernel grow into the program's flash.
+kernel's 39 KiB is a hard limit: `boards/bluepill/freya.ld` fails the link
+rather than let the kernel grow into the auto-start page.
 
 `meminfo` reports all of it at runtime, including the heap's largest free block
 and the stack high-water mark (the reset handler paints the stack, so the peak
@@ -488,7 +495,7 @@ the kernel compares them at boot, and this compares them at build time.
 68 checks, 0 failures     FAT32
 11 checks, 0 failures     interoperability
 18 checks, 0 failures     XMODEM
-26 checks, 0 failures     program image layout
+29 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```
 

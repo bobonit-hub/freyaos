@@ -4,10 +4,12 @@
  * 64 KiB internal flash @ 0x08000000
  * 20 KiB SRAM           @ 0x20000000
  *
- * Flash map - the kernel keeps the bottom 40 KiB and the top 24 KiB hold
- * one program image, installed from the card or packed in when the module
- * is programmed, and executed in place:
- *   0x08000000 .. 0x08009FFF   Freya kernel                      (40 KiB)
+ * Flash map - the kernel keeps the bottom 39 KiB, the first unused page
+ * holds the auto-start flag, and the top 24 KiB hold one program image,
+ * installed from the card or packed in when the module is programmed, and
+ * executed in place:
+ *   0x08000000 .. 0x08009BFF   Freya kernel                      (39 KiB)
+ *   0x08009C00 .. 0x08009FFF   auto-start flag, page 39           ( 1 KiB)
  *   0x0800A000 .. 0x0800FFFF   program flash region, pages 40..63(24 KiB)
  *
  * RAM map - the whole system has to fit in a fifth of what the Black Pill
@@ -25,15 +27,17 @@ ENTRY(Reset_Handler)
 
 MEMORY
 {
-    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 40K
+    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 39K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
-__stack_size      = 6K;
-__app_ram_start   = 0x20001800;
-__app_ram_end     = 0x20003800;
-__app_flash_start = 0x0800A000;
-__app_flash_end   = 0x08010000;
+__stack_size         = 6K;
+__app_ram_start      = 0x20001800;
+__app_ram_end        = 0x20003800;
+__autostart_start    = 0x08009C00;
+__autostart_end      = 0x0800A000;
+__app_flash_start    = 0x0800A000;
+__app_flash_end      = 0x08010000;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;
@@ -128,8 +132,8 @@ SECTIONS
     __ramfunc_load     = LOADADDR(.ramfunc);
     __kernel_flash_end = LOADADDR(.ramfunc) + SIZEOF(.ramfunc);
 
-    ASSERT(__kernel_flash_end <= __app_flash_start,
-           "Freya: kernel image overflows into the program flash region")
+    ASSERT(__kernel_flash_end <= __autostart_start,
+           "Freya: kernel image overflows into the autostart page")
     ASSERT(__ramfunc_end <= __app_ram_end,
            "Freya: the RAM resident flash routines do not fit the program region")
 

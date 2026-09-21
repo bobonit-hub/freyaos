@@ -699,6 +699,48 @@ int app_flash_erase(void)
     return 0;
 }
 
+int app_autostart_enabled(void)
+{
+    const uint32_t *w = (const uint32_t *)(uintptr_t)FREYA_AUTOSTART_ADDR;
+
+    return *w == FREYA_AUTOSTART_MAGIC;
+}
+
+int app_autostart_set(int enable)
+{
+    const uint32_t magic = FREYA_AUTOSTART_MAGIC;
+    uint32_t cur = *(const uint32_t *)(uintptr_t)FREYA_AUTOSTART_ADDR;
+    int rc;
+
+    if (g_app.running) return FLASH_ERR_BUSY;
+    if (g_app.loaded) app_unload();
+
+    if (enable) {
+        if (cur == magic) return FLASH_OK;
+        rc = flash_begin();
+        if (rc != FLASH_OK) return rc;
+        /* Programming can only clear bits, so a page that is not erased
+         * has to be erased before the magic will stick. */
+        if (cur != 0xFFFFFFFFUL) {
+            rc = flash_erase(FREYA_AUTOSTART_ADDR, FREYA_AUTOSTART_SIZE);
+            if (rc != FLASH_OK) {
+                flash_end();
+                return rc;
+            }
+        }
+        rc = flash_program(FREYA_AUTOSTART_ADDR, &magic, sizeof(magic));
+        flash_end();
+        return rc;
+    }
+
+    if (cur == 0xFFFFFFFFUL) return FLASH_OK;
+    rc = flash_begin();
+    if (rc != FLASH_OK) return rc;
+    rc = flash_erase(FREYA_AUTOSTART_ADDR, FREYA_AUTOSTART_SIZE);
+    flash_end();
+    return rc;
+}
+
 #endif /* FREYA_APP_FLASH_ADDR */
 
 /* ---------------------------------------------------------------- run */

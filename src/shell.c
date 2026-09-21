@@ -276,6 +276,9 @@ static int cmd_meminfo(int argc, char **argv)
         } else {
             kprintf("     empty - 'install <file>', or flash one in with the kernel\r\n");
         }
+        kprintf("  auto-start     : %s  at 0x%08x\r\n",
+                app_autostart_enabled() ? "on" : "off",
+                (unsigned)FREYA_AUTOSTART_ADDR);
     }
 #endif
 
@@ -791,6 +794,48 @@ static int cmd_runflash(int argc, char **argv)
         run_argv[i + 1] = argv[i];
     return cmd_run(argc + 1, run_argv);
 }
+
+static int cmd_autostart(int argc, char **argv)
+{
+    int rc, enable;
+
+    if (argc < 2) {
+        kprintf("auto-start is %s (flag at 0x%08x)\r\n",
+                app_autostart_enabled() ? "on" : "off",
+                (unsigned)FREYA_AUTOSTART_ADDR);
+        kprintf("usage: autostart on|off\r\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "on") == 0) enable = 1;
+    else if (strcmp(argv[1], "off") == 0) enable = 0;
+    else {
+        kprintf("usage: autostart on|off\r\n");
+        return -1;
+    }
+
+    if (g_app.running) {
+        kprintf("autostart: a program is running - stop it first\r\n");
+        return -1;
+    }
+
+    if (enable == app_autostart_enabled()) {
+        kprintf("auto-start is already %s\r\n", enable ? "on" : "off");
+        return 0;
+    }
+
+    kprintf("autostart: console input is dropped while flash is busy\r\n");
+    uart_drain_tx();
+    rc = app_autostart_set(enable);
+    uart_rx_flush();
+    if (rc != FLASH_OK) {
+        kprintf("autostart: %s\r\n", flash_err_str(rc));
+        return -1;
+    }
+    kprintf("auto-start %s\r\n", enable ? "on" : "off");
+    if (enable && !app_flash_header())
+        kprintf("(no program is installed in flash yet - 'install <file>')\r\n");
+    return 0;
+}
 #endif
 
 static int cmd_stop(int argc, char **argv)
@@ -943,6 +988,7 @@ static const command_t s_cmds[] = {
 #ifdef FREYA_APP_FLASH_ADDR
     { "install",  cmd_install,  "install <file>",            "copy a program image into internal flash" },
     { "uninstall",cmd_uninstall,"uninstall",                 "erase the program flash region" },
+    { "autostart",cmd_autostart,"autostart [on|off]",        "run the flash program automatically at boot" },
 #endif
     { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]","show or set the clock" },
     { "uptime",   cmd_uptime,   "uptime",                    "time since reset" },

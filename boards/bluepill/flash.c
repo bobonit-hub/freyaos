@@ -1,12 +1,12 @@
 /*
  * Freya - internal flash programming for the STM32F103C8T6.
  *
- * Only the program flash region is writable through here, and that is
- * enforced in one function.  A mistake in a page address is the difference
- * between a failed install and a board that no longer boots, so every
- * erase and every program goes through in_region() first, and nothing in
- * freya_api_t reaches this file: a program cannot rewrite the kernel that
- * is running it.
+ * Only the program flash region and the auto-start flag page are writable
+ * through here, and that is enforced in one function.  A mistake in a page
+ * address is the difference between a failed install and a board that no
+ * longer boots, so every erase and every program goes through in_region()
+ * first, and nothing in freya_api_t reaches this file: a program cannot
+ * rewrite the kernel that is running it.
  *
  * The F103 has no read-while-write.  While FLASH_SR.BSY is set the flash
  * controller stalls bus reads, so the two routines that wait on it are
@@ -29,6 +29,7 @@
 
 extern char __ramfunc_start[], __ramfunc_end[], __ramfunc_load[];
 extern char __app_flash_start[], __app_flash_end[];
+extern char __autostart_start[], __autostart_end[];
 
 static int s_ready;
 
@@ -100,15 +101,23 @@ static int ram_program_half(uint32_t addr, uint16_t val)
 /* ------------------------------------------------------------- bounds */
 /*
  * The single place that decides whether an address may be written.  Both
- * ends are checked against the region the linker script reserved, and the
- * arithmetic cannot wrap because len is bounded first.
+ * ends are checked against a reserved region, and the arithmetic cannot
+ * wrap because len is bounded first.  The two writable regions are the
+ * auto-start flag page and the program flash; a length that would span
+ * both is refused, so an install cannot touch the flag.
  */
+static int in_slot(uint32_t addr, uint32_t len, uint32_t base, uint32_t size)
+{
+    if (len == 0 || len > size) return 0;
+    if (addr < base) return 0;
+    if (addr > base + size - len) return 0;
+    return 1;
+}
+
 static int in_region(uint32_t addr, uint32_t len)
 {
-    if (len == 0 || len > FREYA_APP_FLASH_SIZE) return 0;
-    if (addr < FREYA_APP_FLASH_ADDR) return 0;
-    if (addr > FREYA_APP_FLASH_ADDR + FREYA_APP_FLASH_SIZE - len) return 0;
-    return 1;
+    return in_slot(addr, len, FREYA_AUTOSTART_ADDR, FREYA_AUTOSTART_SIZE) ||
+           in_slot(addr, len, FREYA_APP_FLASH_ADDR, FREYA_APP_FLASH_SIZE);
 }
 
 /* --------------------------------------------------------------- setup */
@@ -128,6 +137,10 @@ int flash_begin(void)
     if ((uint32_t)(uintptr_t)__app_flash_start != FREYA_APP_FLASH_ADDR ||
         (uint32_t)(uintptr_t)__app_flash_end !=
             FREYA_APP_FLASH_ADDR + FREYA_APP_FLASH_SIZE)
+        return FLASH_ERR_RANGE;
+    if ((uint32_t)(uintptr_t)__autostart_start != FREYA_AUTOSTART_ADDR ||
+        (uint32_t)(uintptr_t)__autostart_end !=
+            FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
         return FLASH_ERR_RANGE;
 
     if (g_app.loaded || g_app.running) return FLASH_ERR_BUSY;
@@ -213,7 +226,7 @@ const char *flash_err_str(int rc)
 {
     switch (rc) {
     case FLASH_OK:            return "ok";
-    case FLASH_ERR_RANGE:     return "address outside the program flash region";
+    case FLASH_ERR_RANGE:     return "address outside a writable flash region";
     case FLASH_ERR_ALIGN:     return "misaligned address";
     case FLASH_ERR_LOCKED:    return "flash is locked";
     case FLASH_ERR_BUSY:      return "a program is loaded";

@@ -25,6 +25,8 @@ int main(void)
 #ifdef FREYA_APP_FLASH_ADDR
     printf("app_flash_addr %lu\n",  (unsigned long)FREYA_APP_FLASH_ADDR);
     printf("app_flash_size %lu\n",  (unsigned long)FREYA_APP_FLASH_SIZE);
+    printf("autostart_addr %lu\n",  (unsigned long)FREYA_AUTOSTART_ADDR);
+    printf("autostart_size %lu\n",  (unsigned long)FREYA_AUTOSTART_SIZE);
 #endif
     return 0;
 }

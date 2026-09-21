@@ -146,7 +146,7 @@ const char *sd_type_str(void);
 
 enum {
     FLASH_OK            =  0,
-    FLASH_ERR_RANGE     = -1,   /* outside the program flash region      */
+    FLASH_ERR_RANGE     = -1,   /* outside a writable flash region        */
     FLASH_ERR_ALIGN     = -2,
     FLASH_ERR_LOCKED    = -3,   /* flash_begin() was not called          */
     FLASH_ERR_BUSY      = -4,   /* a program occupies the scratch region */
@@ -208,9 +208,13 @@ void app_unload(void);
 /* The installed flash image is addressed as a pseudo-path, so 'load',
  * 'run' and 'stop' need no special case for it. */
 #define APP_FLASH_PATH  "@flash"
+/* First word of the auto-start page; erased flash reads 0xFFFFFFFF. */
+#define FREYA_AUTOSTART_MAGIC  0x31415946UL   /* 'F','Y','A','1' */
 int  app_install(const char *path);           /* card image -> flash    */
 int  app_flash_erase(void);
 const freya_app_header_t *app_flash_header(void);   /* NULL if empty    */
+int  app_autostart_enabled(void);
+int  app_autostart_set(int enable);           /* 0 = FLASH_OK           */
 #endif
 void app_request_stop(void);
 void app_guard_enter(void);

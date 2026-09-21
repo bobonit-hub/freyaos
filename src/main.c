@@ -39,8 +39,9 @@ static void boot_storage(void)
 
 /*
  * The card is asked first, so a program on it always overrides one in
- * flash; the installed image is the fallback, which is what lets a board
- * with nothing in the card socket still boot into a program.
+ * flash.  The installed image is started only when the auto-start flag is
+ * set, which is what lets a board with nothing in the card socket still
+ * boot into a program without doing so on every reset by default.
  */
 static void boot_autorun(void)
 {
@@ -55,9 +56,11 @@ static void boot_autorun(void)
         what = AUTORUN_PATH " found";
     }
 #ifdef FREYA_APP_FLASH_ADDR
-    else if (app_flash_header()) {
+    else if (app_autostart_enabled() && app_flash_header()) {
         path = APP_FLASH_PATH;
-        what = "program installed in flash";
+        what = "auto-start enabled, program in flash";
+    } else if (app_autostart_enabled() && !app_flash_header()) {
+        kprintf("[boot] auto-start is on, but no program is installed in flash\r\n");
     }
 #endif
     if (!path) return;

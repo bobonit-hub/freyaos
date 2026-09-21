@@ -163,8 +163,15 @@ else
     check "the kernel and the header agree on the flash region size" \
           "$(macro app_flash_size)" \
           "$(( $(sym "$kelf" __app_flash_end) - $(sym "$kelf" __app_flash_start) ))"
-    check "the kernel image ends below the program flash region" \
-          1 "$(( $(sym "$kelf" __kernel_flash_end) <= $(sym "$kelf" __app_flash_start) ))"
+    check "the kernel and the header agree on the autostart address" \
+          "$(macro autostart_addr)" "$(sym "$kelf" __autostart_start)"
+    check "the kernel and the header agree on the autostart size" \
+          "$(macro autostart_size)" \
+          "$(( $(sym "$kelf" __autostart_end) - $(sym "$kelf" __autostart_start) ))"
+    check "the autostart page sits immediately before the program flash region" \
+          "$(macro app_flash_addr)" "$(sym "$kelf" __autostart_end)"
+    check "the kernel image ends below the autostart page" \
+          1 "$(( $(sym "$kelf" __kernel_flash_end) <= $(sym "$kelf" __autostart_start) ))"
     check "the RAM resident flash routines sit in the program RAM region" \
           1 "$(( $(sym "$kelf" __ramfunc_start) == $(macro app_load_addr) ))"
 

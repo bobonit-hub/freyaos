@@ -41,11 +41,14 @@
  * also defines FREYA_APP_FLASH_ADDR and FREYA_APP_FLASH_SIZE.  Such a
  * program executes in place from flash and spends the RAM region on its
  * .data and .bss alone, which is what makes a 24 KiB program possible on a
- * board whose whole SRAM is 20 KiB.
+ * board whose whole SRAM is 20 KiB.  The first unused flash page, just
+ * before that region, holds the auto-start flag.
  */
 #if defined(FREYA_BOARD_BLUEPILL)
 #define FREYA_APP_LOAD_ADDR    0x20001800UL     /* 20 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE  (8U * 1024U)
+#define FREYA_AUTOSTART_ADDR   0x08009C00UL     /* page 39, start of unused flash */
+#define FREYA_AUTOSTART_SIZE   1024U
 #define FREYA_APP_FLASH_ADDR   0x0800A000UL     /* pages 40..63 of 64 KiB */
 #define FREYA_APP_FLASH_SIZE   (24U * 1024U)
 #elif defined(FREYA_BOARD_BLACKPILL)
