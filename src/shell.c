@@ -198,6 +198,8 @@ static int cmd_sysinfo(int argc, char **argv)
     kprintf("  uptime     : %u.%03u s\r\n", up / 1000, up % 1000);
     kprintf("  date/time  : %04u-%02u-%02u %02u:%02u:%02u\r\n",
             t.year, t.mon, t.day, t.hour, t.min, t.sec);
+    kprintf("  log level  : %s (%d)\r\n",
+            log_level_str(log_get_level()), log_get_level());
 
     kprintf("  sd card    : %s", sd_type_str());
     if (g_sd.initialised) {
@@ -280,6 +282,9 @@ static int cmd_meminfo(int argc, char **argv)
                 app_autostart_enabled() ? "on" : "off",
                 (unsigned)FREYA_AUTOSTART_ADDR,
                 (unsigned)FREYA_AUTOSTART_SIZE);
+        kprintf("  log level      : %s (%d)  stored at 0x%08x\r\n",
+                log_level_str(log_get_level()), log_get_level(),
+                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_LOGLEVEL_OFF));
     }
 #endif
 
@@ -859,6 +864,71 @@ static int cmd_autostart(int argc, char **argv)
 }
 #endif
 
+static int parse_log_level(const char *s, int *out)
+{
+    uint32_t v;
+
+    if (str_to_u32(s, &v) == 0) {
+        if (v > (uint32_t)FREYA_LOG_DEBUG) return -1;
+        *out = (int)v;
+        return 0;
+    }
+    if (strcasecmp(s, "off") == 0) *out = FREYA_LOG_OFF;
+    else if (strcasecmp(s, "error") == 0 || strcasecmp(s, "err") == 0)
+        *out = FREYA_LOG_ERROR;
+    else if (strcasecmp(s, "warn") == 0 || strcasecmp(s, "warning") == 0)
+        *out = FREYA_LOG_WARN;
+    else if (strcasecmp(s, "info") == 0) *out = FREYA_LOG_INFO;
+    else if (strcasecmp(s, "debug") == 0) *out = FREYA_LOG_DEBUG;
+    else return -1;
+    return 0;
+}
+
+static int cmd_loglevel(int argc, char **argv)
+{
+    int level, rc;
+
+    if (argc < 2) {
+        kprintf("log level is %s (%d)\r\n",
+                log_level_str(log_get_level()), log_get_level());
+#ifdef FREYA_APP_FLASH_ADDR
+        kprintf("stored at 0x%08x (second word of the auto-start slot)\r\n",
+                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_LOGLEVEL_OFF));
+#else
+        kprintf("(this board has no auto-start slot; the level is RAM only)\r\n");
+#endif
+        kprintf("usage: loglevel off|error|warn|info|debug | 0..4\r\n");
+        return 0;
+    }
+    if (parse_log_level(argv[1], &level) != 0) {
+        kprintf("usage: loglevel off|error|warn|info|debug | 0..4\r\n");
+        return -1;
+    }
+    if (g_app.running) {
+        kprintf("loglevel: a program is running - stop it first\r\n");
+        return -1;
+    }
+#ifdef FREYA_APP_FLASH_ADDR
+    kprintf("loglevel: console input is dropped while flash is busy\r\n");
+    uart_drain_tx();
+#endif
+    rc = log_set_level(level);
+#ifdef FREYA_APP_FLASH_ADDR
+    uart_rx_flush();
+    if (rc != FLASH_OK) {
+        kprintf("loglevel: %s\r\n", flash_err_str(rc));
+        return -1;
+    }
+#else
+    if (rc != 0) {
+        kprintf("loglevel: failed (%d)\r\n", rc);
+        return -1;
+    }
+#endif
+    kprintf("log level %s (%d)\r\n", log_level_str(level), level);
+    return 0;
+}
+
 static int cmd_stop(int argc, char **argv)
 {
     (void)argc; (void)argv;
@@ -1014,6 +1084,7 @@ static const command_t s_cmds[] = {
     { "autostart",cmd_autostart,"autostart [on|off]",        "run the flash program automatically at boot" },
 #endif
     { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]","show or set the clock" },
+    { "loglevel", cmd_loglevel, "loglevel [level]",          "show or set the file log level" },
     { "uptime",   cmd_uptime,   "uptime",                    "time since reset" },
     { "led",      cmd_led,      "led on|off|blink",          "drive the " BOARD_LED_NAME " LED" },
     { "echo",     cmd_echo,     "echo <text...>",            "echo the arguments" },

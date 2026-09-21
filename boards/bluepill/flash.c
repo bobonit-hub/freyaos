@@ -1,7 +1,7 @@
 /*
  * Freya - internal flash programming for the STM32F103C8T6.
  *
- * Only the program flash region and the auto-start flag slot are writable
+ * Only the program flash region and the auto-start slot are writable
  * through here, and that is enforced in one function.  A mistake in a page
  * address is the difference between a failed install and a board that no
  * longer boots, so every erase and every program goes through in_region()

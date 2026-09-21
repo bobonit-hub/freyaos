@@ -86,6 +86,7 @@ void freya_main(void)
 {
     sys_init();
     heap_init();
+    log_init();
     uart_init(921600);
 
     console_banner();

@@ -75,6 +75,8 @@ Freya 1.0 for STM32F103C8T6
 * SD / SDHC cards over SPI, and a FAT16 / FAT32 implementation that reads *and*
   writes: files, directories, long file names, MBR partitions.
 * Receives files over the console with XMODEM / XMODEM-1K.
+* Logs dated messages from programs and the kernel to `/freya.log` on the card,
+  keeping one previous file when the log reaches 1 MiB.
 * Loads a program from the card into a RAM region and executes it as machine
   code, with a service table for console, memory, timing and file access.
 * On the Blue Pill, also keeps one program in a reserved area of its own
@@ -204,6 +206,7 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 | `uninstall` | erase the program flash region (Blue Pill) |
 | `autostart [on\|off]` | run the flash program automatically at boot (Blue Pill) |
 | `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
+| `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
 
 Ctrl-C stops a running program, Ctrl-U clears the input line, and the up and
@@ -262,14 +265,14 @@ supplies the header, and the board's `app.ld`. A program is built for one board
 — the load address is part of the header and the loader refuses an image linked
 for somewhere else. `samples/` works the same way through
 the `SAMPLES` variable and builds into `build/samples/`; `samples/blink` is a
-minimal starting point, and `samples/tetris` is a console game (keys in
-`samples/tetris/README.md`).
+minimal starting point, `samples/log` writes one line at each log level, and
+`samples/tetris` is a console game (keys in `samples/tetris/README.md`).
 
 ```
 freya:/> run hello.bin
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program RAM region
-  api version 2, table size 108 bytes
+  api version 2, table size 132 bytes
   code at 0x20001840, data at 0x20001c7c
   initialised data survived the load: .data ok, .bss clear
 ...
@@ -281,9 +284,18 @@ and any extra words on the line arrive as `argv`. Only one program exists at a
 time — Freya does not multitask.
 
 The service table (`include/freya_api.h`) gives a program console I/O and
-`printf`, `malloc`/`free`, milliseconds and delays, the LED, and the filesystem:
+`printf`, `malloc`/`free`, milliseconds and delays, the LED, the filesystem:
 `open`, `read`, `write`, `seek`, `close`, `unlink`, `mkdir`, `rename`,
-`opendir`, `readdir`, `closedir`.
+`opendir`, `readdir`, `closedir`, and a file log: `log`, `get_log_level`,
+`set_log_level`. Log lines are `YYYY-MM-DD HH:MM:SS LEVEL message` in
+`/freya.log` at the root of the card. The file is capped at 1 MiB; when it
+fills, it is renamed to `/freya.log.old` (replacing any previous copy) and a
+new `/freya.log` is started. With no card mounted the same line goes to the
+console instead, and the SD driver is not touched. The default level is
+`info` (3). On the Blue Pill
+that number is stored in the second word of the auto-start flash slot, so it
+survives a reset; `loglevel` writes it, and toggling `autostart` leaves it
+alone. On the Black Pill the level is RAM only.
 
 ### Stopping a program
 
@@ -339,7 +351,7 @@ installed /hello.xip.bin at 0x08009c80: 1.2 KiB in 2 pages
 freya:/> run @flash
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program flash region
-  api version 2, table size 108 bytes
+  api version 2, table size 132 bytes
   code at 0x08009cc0, data at 0x20001800
   initialised data survived the load: .data ok, .bss clear
 ```
@@ -351,10 +363,11 @@ region holds, whether it was packed in at program time or installed from the
 card.
 `uninstall` erases the region. Nothing is written if the region already holds
 the same image — flash endurance is 10k cycles, and there is no reason to
-spend one per `run`. `autostart on` writes a flag into the 128-byte slot
-immediately before the program region so the next boot runs that
-program without waiting for `runflash`. `autostart off` erases the flag
-(the rest of that 1 KiB page is restored, so the program image is kept).
+spend one per `run`. `autostart on` writes a flag into the first word of the
+128-byte slot immediately before the program region so the next boot runs that
+program without waiting for `runflash`. The second word of the same slot is
+the default log level. `autostart off` erases the flag (the log level and the
+rest of that 1 KiB page are restored, so the program image is kept).
 
 Such a program is linked differently. A RAM image is one contiguous blob whose
 `.data` is writable where it lands; a flash image is the ordinary split, with
@@ -422,7 +435,7 @@ leaves behind:
 0x08000000  +--------------------------------+
             |  Freya kernel (~33 KiB used)   |  39 KiB, pages 0..38
 0x08009C00  +--------------------------------+
-            |  auto-start flag + reserved    |  128 B, page 39
+            |  auto-start flag + log level  |  128 B, page 39
 0x08009C80  +--------------------------------+
             |  program flash region          |  25472 B, rest of page 39
             |                                |  and pages 40..63, installed
@@ -463,9 +476,10 @@ is measured rather than guessed).
 | `boards/bluepill/flash.c` | internal flash erase and program, bounded to the program region |
 | `src/fault.c` | fault containment and the kernel panic dump |
 | `src/shell.c` | line editing and the commands |
+| `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `tetris` |
+| `samples/` | small standalone samples: `blink`, `log`, `tetris` |
 | `tests/` | host side tests |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
@@ -479,7 +493,8 @@ with the system's own FAT tools.
 The FAT tests run against freshly formatted FAT16 and FAT32 images: directory
 creation, small and multi-cluster files, read-back verification, seeking,
 appending, long names and their generated 8.3 aliases, forty files in one
-directory, deletion, and a check that every allocated cluster is returned.
+directory, deletion, a check that every allocated cluster is returned, and
+rotation of `/freya.log` at 1 MiB via an atomic rename to `/freya.log.old`.
 `fsck.vfat` then confirms the images are consistent. An interoperability pass
 copies a 40 KB file that `mcopy` wrote, using only Freya calls, and verifies the
 copy is byte identical when read back with mtools.
@@ -500,8 +515,8 @@ C header, so those two descriptions of the memory map are written down twice;
 the kernel compares them at boot, and this compares them at build time.
 
 ```
-68 checks, 0 failures     FAT16
-68 checks, 0 failures     FAT32
+132 checks, 0 failures     FAT16
+132 checks, 0 failures     FAT32
 11 checks, 0 failures     interoperability
 18 checks, 0 failures     XMODEM
 34 checks, 0 failures     program image layout

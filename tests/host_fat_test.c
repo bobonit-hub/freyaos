@@ -29,6 +29,15 @@ void uart_puts(const char *s) { fputs(s, stdout); }
 uint32_t sys_ticks(void) { return 0; }
 uint16_t rtc_fat_date(void) { return (uint16_t)(((2026 - 1980) << 9) | (9 << 5) | 21); }
 uint16_t rtc_fat_time(void) { return (uint16_t)((21 << 11) | (30 << 5) | 15); }
+void rtc_get(rtc_time_t *t)
+{
+    t->year = 2026;
+    t->mon = 9;
+    t->day = 21;
+    t->hour = 20;
+    t->min = 30;
+    t->sec = 0;
+}
 
 int sd_init(void) { return 0; }
 
@@ -407,6 +416,63 @@ int main(int argc, char **argv)
     check_rc(fat_free_clusters(&free_after), "count free clusters again");
     printf("    free before %u, after %u\n", free_before, free_after);
     check(free_before == free_after, "every allocated cluster came back");
+
+    printf("\nfile log\n");
+    {
+        fat_file_t f;
+        fat_dirent_t e;
+        uint8_t head[40];
+        uint32_t n, log_sz;
+        uint32_t before;
+
+        log_init();
+        check(log_get_level() == FREYA_LOG_INFO, "default log level is info");
+        check(log_set_level(FREYA_LOG_DEBUG) == 0, "set log level to debug");
+        check(log_get_level() == FREYA_LOG_DEBUG, "  it stuck");
+        check(log_set_level(FREYA_LOG_INFO) == 0, "set log level back to info");
+
+        log_sz = FREYA_LOG_MAX_SIZE;
+        test_write_read(FREYA_LOG_PATH, log_sz);
+        check(exists(FREYA_LOG_PATH) && !exists(FREYA_LOG_OLD_PATH),
+              "log file is at the volume root, no old copy yet");
+
+        klog(FREYA_LOG_INFO, "after rotate %u", 1);
+        check(exists(FREYA_LOG_OLD_PATH), "over-size log was renamed to the old name");
+        check(fat_stat(FREYA_LOG_OLD_PATH, &e) == FAT_OK && e.size == log_sz,
+              "  the old file kept its bytes");
+        check(fat_stat(FREYA_LOG_PATH, &e) == FAT_OK && e.size > 0 && e.size < log_sz,
+              "  a new log was created");
+
+        check_rc(fat_open(&f, FREYA_LOG_PATH, FAT_READ), "read the new log");
+        check_rc(fat_read(&f, head, sizeof(head), &n), "  first bytes");
+        fat_close(&f);
+        check(n >= 27 && !memcmp(head, "2026-09-21 20:30:00 INFO ", 25),
+              "  line starts with datetime and level");
+
+        before = e.size;
+        klog(FREYA_LOG_DEBUG, "too quiet");
+        check(fat_stat(FREYA_LOG_PATH, &e) == FAT_OK && e.size == before,
+              "debug is filtered at info");
+
+        check(log_set_level(FREYA_LOG_OFF) == 0, "set log level to off");
+        klog(FREYA_LOG_ERROR, "silent");
+        check(fat_stat(FREYA_LOG_PATH, &e) == FAT_OK && e.size == before,
+              "nothing is written when the level is off");
+
+        check_rc(fat_unlink(FREYA_LOG_PATH), "remove the new log");
+        check_rc(fat_unlink(FREYA_LOG_OLD_PATH), "remove the old log");
+        check_rc(fat_free_clusters(&free_after), "count free clusters after log rotate");
+        check(free_before == free_after, "log rotate returned every cluster");
+
+        fat_unmount();
+        check(log_set_level(FREYA_LOG_INFO) == 0, "level can still be set with no volume");
+        klog(FREYA_LOG_INFO, "no card");
+        check_rc(fat_mount(), "remount after the no-card stub");
+        check(!exists(FREYA_LOG_PATH) && !exists(FREYA_LOG_OLD_PATH),
+              "stub log did not create a file on the card");
+        check_rc(fat_free_clusters(&free_after), "count free clusters after stub log");
+        check(free_before == free_after, "stub log allocated no clusters");
+    }
 
     fat_unmount();
     fclose(s_img);

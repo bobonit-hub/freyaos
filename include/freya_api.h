@@ -42,7 +42,8 @@
  * program executes in place from flash and spends the RAM region on its
  * .data and .bss alone, which is what makes a ~25 KiB program possible on a
  * board whose whole SRAM is 20 KiB.  A 128-byte aligned slot immediately
- * before that region holds the auto-start flag and reserved padding.
+ * before that region holds the auto-start flag (first word) and the
+ * default log level (second word).
  */
 #if defined(FREYA_BOARD_BLUEPILL)
 #define FREYA_APP_LOAD_ADDR    0x20001800UL     /* 20 KiB of SRAM */
@@ -50,6 +51,7 @@
 #define FREYA_AUTOSTART_ALIGN  128U
 #define FREYA_AUTOSTART_ADDR   0x08009C00UL     /* page 39, 128-byte aligned */
 #define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
+#define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
 #define FREYA_APP_FLASH_SIZE   (0x08010000UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
@@ -111,6 +113,17 @@ typedef struct {
     uint8_t  pad[3];
 } freya_stat_t;
 
+/* log() levels: a message is written when 0 < level <= the current level. */
+#define FREYA_LOG_OFF    0
+#define FREYA_LOG_ERROR  1
+#define FREYA_LOG_WARN   2
+#define FREYA_LOG_INFO   3
+#define FREYA_LOG_DEBUG  4
+
+#define FREYA_LOG_PATH      "/freya.log"
+#define FREYA_LOG_OLD_PATH  "/freya.log.old"
+#define FREYA_LOG_MAX_SIZE  (1024U * 1024U)     /* rotate at 1 MiB */
+
 /*
  * Service table handed to the program.  Fields are only ever appended,
  * and 'size' lets a program check what the running kernel provides.
@@ -160,6 +173,11 @@ typedef struct freya_api {
 
     /* appended: directory-entry rename (no data copy) */
     int      (*rename)(const char *old_path, const char *new_path);
+
+    /* appended: file log on the card (datetime + message, 1 MiB rotate) */
+    void     (*log)(int level, const char *fmt, ...);
+    int      (*get_log_level)(void);
+    int      (*set_log_level)(int level);
 } freya_api_t;
 
 #endif /* FREYA_API_H */

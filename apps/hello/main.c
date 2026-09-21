@@ -42,6 +42,7 @@ int app_main(const freya_api_t *api, int argc, char **argv)
                 ((uintptr_t)&app_main < 0x20000000UL) ? "flash region"
                                                       : "RAM region");
     api->printf("  api version %u, table size %u bytes\r\n", api->version, api->size);
+    api->log(FREYA_LOG_INFO, "hello started, argc=%d", argc);
     api->printf("  cpu %u Hz, %u ms since boot\r\n", api->cpu_hz(), start);
     api->printf("  code at 0x%08x, data at 0x%08x\r\n",
                 (uint32_t)(uintptr_t)&app_main, (uint32_t)(uintptr_t)&s_magic);

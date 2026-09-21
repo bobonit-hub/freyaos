@@ -20,10 +20,10 @@ BOARD=${BOARD:-blackpill}
 BOARD_DEF="-DFREYA_BOARD_$(echo "$BOARD" | tr '[:lower:]' '[:upper:]')"
 
 CFLAGS="-std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
-        -Iinclude -Isrc -Iboards/$BOARD $BOARD_DEF"
+        -Iinclude -Isrc -Iboards/$BOARD $BOARD_DEF -DFREYA_HOST"
 
 # shellcheck disable=SC2086
-$CC $CFLAGS tests/host_fat_test.c src/fat.c src/string.c src/print.c \
+$CC $CFLAGS tests/host_fat_test.c src/fat.c src/log.c src/string.c src/print.c \
     -o "$OUT/hosttest"
 
 # shellcheck disable=SC2086

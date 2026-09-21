@@ -191,6 +191,16 @@ static int api_rename(const char *old_path, const char *new_path)
     return fs_rename(old_path, new_path);
 }
 
+static int api_get_log_level(void)
+{
+    return log_get_level();
+}
+
+static int api_set_log_level(int level)
+{
+    return log_set_level(level);
+}
+
 static const freya_api_t s_api = {
     .size          = sizeof(freya_api_t),
     .version       = FREYA_ABI_VERSION,
@@ -222,6 +232,9 @@ static const freya_api_t s_api = {
     .led           = api_led,
     .cpu_hz        = api_cpu_hz,
     .rename        = api_rename,
+    .log           = klog,
+    .get_log_level = api_get_log_level,
+    .set_log_level = api_set_log_level,
 };
 
 const freya_api_t *app_api(void)
@@ -709,46 +722,85 @@ int app_flash_erase(void)
     return 0;
 }
 
+#define SLOT_ERASED  0xFFFFFFFFUL
+
+static uint32_t slot_word(uint32_t off)
+{
+    return *(const uint32_t *)(uintptr_t)(FREYA_AUTOSTART_ADDR + off);
+}
+
+/* True when 'want' can be programmed over 'cur' without an erase (1->0 only). */
+static int slot_can_program(uint32_t cur, uint32_t want)
+{
+    return (cur & want) == want;
+}
+
+/*
+ * Rewrite the auto-start slot, keeping whichever of the two words the
+ * caller did not intend to change.  An erase of the 128-byte slot restores
+ * the rest of the 1 KiB page (the start of a flash program image).
+ */
+static int slot_write(uint32_t magic, uint32_t level)
+{
+    uint32_t cur_m = slot_word(0);
+    uint32_t cur_l = slot_word(FREYA_LOGLEVEL_OFF);
+    int rc;
+
+    if (cur_m == magic && cur_l == level) return FLASH_OK;
+    if (g_app.running) return FLASH_ERR_BUSY;
+    if (g_app.loaded) app_unload();
+
+    rc = flash_begin();
+    if (rc != FLASH_OK) return rc;
+
+    if (!slot_can_program(cur_m, magic) || !slot_can_program(cur_l, level)) {
+        rc = flash_erase(FREYA_AUTOSTART_ADDR, FREYA_AUTOSTART_SIZE);
+        if (rc != FLASH_OK) {
+            flash_end();
+            return rc;
+        }
+        cur_m = SLOT_ERASED;
+        cur_l = SLOT_ERASED;
+    }
+    if (cur_m != magic) {
+        rc = flash_program(FREYA_AUTOSTART_ADDR, &magic, sizeof(magic));
+        if (rc != FLASH_OK) {
+            flash_end();
+            return rc;
+        }
+    }
+    if (cur_l != level) {
+        rc = flash_program(FREYA_AUTOSTART_ADDR + FREYA_LOGLEVEL_OFF,
+                           &level, sizeof(level));
+        if (rc != FLASH_OK) {
+            flash_end();
+            return rc;
+        }
+    }
+    flash_end();
+    return FLASH_OK;
+}
+
 int app_autostart_enabled(void)
 {
-    const uint32_t *w = (const uint32_t *)(uintptr_t)FREYA_AUTOSTART_ADDR;
-
-    return *w == FREYA_AUTOSTART_MAGIC;
+    return slot_word(0) == FREYA_AUTOSTART_MAGIC;
 }
 
 int app_autostart_set(int enable)
 {
-    const uint32_t magic = FREYA_AUTOSTART_MAGIC;
-    uint32_t cur = *(const uint32_t *)(uintptr_t)FREYA_AUTOSTART_ADDR;
-    int rc;
+    uint32_t magic = enable ? FREYA_AUTOSTART_MAGIC : SLOT_ERASED;
 
-    if (g_app.running) return FLASH_ERR_BUSY;
-    if (g_app.loaded) app_unload();
+    return slot_write(magic, slot_word(FREYA_LOGLEVEL_OFF));
+}
 
-    if (enable) {
-        if (cur == magic) return FLASH_OK;
-        rc = flash_begin();
-        if (rc != FLASH_OK) return rc;
-        /* Programming can only clear bits, so a page that is not erased
-         * has to be erased before the magic will stick. */
-        if (cur != 0xFFFFFFFFUL) {
-            rc = flash_erase(FREYA_AUTOSTART_ADDR, FREYA_AUTOSTART_SIZE);
-            if (rc != FLASH_OK) {
-                flash_end();
-                return rc;
-            }
-        }
-        rc = flash_program(FREYA_AUTOSTART_ADDR, &magic, sizeof(magic));
-        flash_end();
-        return rc;
-    }
+uint32_t app_log_level_stored(void)
+{
+    return slot_word(FREYA_LOGLEVEL_OFF);
+}
 
-    if (cur == 0xFFFFFFFFUL) return FLASH_OK;
-    rc = flash_begin();
-    if (rc != FLASH_OK) return rc;
-    rc = flash_erase(FREYA_AUTOSTART_ADDR, FREYA_AUTOSTART_SIZE);
-    flash_end();
-    return rc;
+int app_log_level_store(uint32_t level)
+{
+    return slot_write(slot_word(0), level);
 }
 
 #endif /* FREYA_APP_FLASH_ADDR */

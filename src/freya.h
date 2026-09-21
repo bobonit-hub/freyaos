@@ -215,6 +215,8 @@ int  app_flash_erase(void);
 const freya_app_header_t *app_flash_header(void);   /* NULL if empty    */
 int  app_autostart_enabled(void);
 int  app_autostart_set(int enable);           /* 0 = FLASH_OK           */
+uint32_t app_log_level_stored(void);          /* 0xFFFFFFFF if erased   */
+int  app_log_level_store(uint32_t level);     /* 0 = FLASH_OK           */
 #endif
 void app_request_stop(void);
 void app_guard_enter(void);
@@ -239,6 +241,13 @@ int  fs_dd_read(int dd, freya_stat_t *st);
 int  fs_dd_close(int dd);
 int  fs_rename(const char *old_path, const char *new_path);
 void fs_close_all(void);
+
+/* -------------------------------------------------------------- logging */
+void        log_init(void);
+void        klog(int level, const char *fmt, ...);
+int         log_get_level(void);
+int         log_set_level(int level);          /* persists when flash allows */
+const char *log_level_str(int level);
 
 /* -------------------------------------------------------------- shell */
 void shell_run(void) __attribute__((noreturn));
