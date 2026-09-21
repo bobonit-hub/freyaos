@@ -4,29 +4,39 @@
  * 64 KiB internal flash @ 0x08000000
  * 20 KiB SRAM           @ 0x20000000
  *
+ * Flash map - the kernel keeps the bottom 40 KiB and the top 24 KiB hold
+ * one program image, installed from the card and executed in place:
+ *   0x08000000 .. 0x08009FFF   Freya kernel                      (40 KiB)
+ *   0x0800A000 .. 0x0800FFFF   program flash region, pages 40..63(24 KiB)
+ *
  * RAM map - the whole system has to fit in a fifth of what the Black Pill
  * offers, so the heap is small and the program region is sized for the
  * kind of program this board can run at all:
  *   0x20000000 .. 0x200017FF   kernel .data/.bss + system heap    ( 6 KiB)
  *   0x20001800 .. 0x200037FF   user program image region          ( 8 KiB)
  *   0x20003800 .. 0x20004FFF   main stack (kernel + user)         ( 6 KiB)
+ *
+ * A flash resident program spends that 8 KiB window on its .data and .bss
+ * alone; the image itself never occupies RAM.
  */
 
 ENTRY(Reset_Handler)
 
 MEMORY
 {
-    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
+    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 40K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
-__stack_size    = 6K;
-__app_ram_start = 0x20001800;
-__app_ram_end   = 0x20003800;
-__ram_start     = 0x20000000;
-__ram_end       = 0x20005000;
-__stack_top     = __ram_end;
-__stack_limit   = __ram_end - __stack_size;
+__stack_size      = 6K;
+__app_ram_start   = 0x20001800;
+__app_ram_end     = 0x20003800;
+__app_flash_start = 0x0800A000;
+__app_flash_end   = 0x08010000;
+__ram_start       = 0x20000000;
+__ram_end         = 0x20005000;
+__stack_top       = __ram_end;
+__stack_limit     = __ram_end - __stack_size;
 
 SECTIONS
 {
@@ -96,6 +106,31 @@ SECTIONS
 
     ASSERT(__heap_start < __app_ram_start,
            "Freya: kernel .data/.bss overflow into the user program region")
+
+    /*
+     * The flash erase and program routines have to execute from SRAM: the
+     * F103 has no read-while-write, so the flash controller stalls bus
+     * reads for as long as an operation is in flight.  They are linked for
+     * the base of the program RAM region and copied there when an install
+     * begins - a program cannot be loaded at that moment, so the region is
+     * free scratch exactly when it is needed and the routines cost nothing
+     * out of a 2 KiB heap.
+     */
+    .ramfunc __app_ram_start : AT (__etext + SIZEOF(.data))
+    {
+        . = ALIGN(4);
+        __ramfunc_start = .;
+        *(.ramfunc .ramfunc.*)
+        . = ALIGN(4);
+        __ramfunc_end = .;
+    }
+    __ramfunc_load     = LOADADDR(.ramfunc);
+    __kernel_flash_end = LOADADDR(.ramfunc) + SIZEOF(.ramfunc);
+
+    ASSERT(__kernel_flash_end <= __app_flash_start,
+           "Freya: kernel image overflows into the program flash region")
+    ASSERT(__ramfunc_end <= __app_ram_end,
+           "Freya: the RAM resident flash routines do not fit the program region")
 
     /DISCARD/ : { *(.note.GNU-stack) *(.gnu_debuglink) *(.gnu.lto_*) }
 }

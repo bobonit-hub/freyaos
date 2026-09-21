@@ -20,7 +20,7 @@
 
 /* Symbols provided by the linker script (addresses, not objects). */
 extern char __data_start[], __data_end[], __bss_start[], __bss_end[];
-extern char __heap_start[], __heap_end[], __etext[];
+extern char __heap_start[], __heap_end[], __etext[], __kernel_flash_end[];
 extern char __app_ram_start[], __app_ram_end[];
 extern char __stack_top[], __stack_limit[], __ram_start[], __ram_end[];
 
@@ -136,6 +136,35 @@ int         sd_read_blocks(uint32_t lba, uint8_t *buf, uint32_t count);
 int         sd_write_block(uint32_t lba, const uint8_t *buf);
 const char *sd_type_str(void);
 
+/* ----------------------------------------------------- internal flash */
+/*
+ * Present only on a board that reserves part of its internal flash for a
+ * program image.  The driver lives in boards/<board>/flash.c because the
+ * erase granularity and the programming width are the chip's, not Freya's.
+ */
+#ifdef FREYA_APP_FLASH_ADDR
+
+enum {
+    FLASH_OK            =  0,
+    FLASH_ERR_RANGE     = -1,   /* outside the program flash region      */
+    FLASH_ERR_ALIGN     = -2,
+    FLASH_ERR_LOCKED    = -3,   /* flash_begin() was not called          */
+    FLASH_ERR_BUSY      = -4,   /* a program occupies the scratch region */
+    FLASH_ERR_PROG      = -5,
+    FLASH_ERR_PROTECTED = -6,   /* option bytes protect the page         */
+    FLASH_ERR_VERIFY    = -7,
+    FLASH_ERR_TIMEOUT   = -8
+};
+
+int         flash_begin(void);   /* copy the RAM routines, unlock        */
+void        flash_end(void);     /* lock again, barrier for fetch        */
+int         flash_erase(uint32_t addr, uint32_t len);
+int         flash_program(uint32_t addr, const void *src, uint32_t len);
+uint32_t    flash_page_size(void);
+const char *flash_err_str(int rc);
+
+#endif /* FREYA_APP_FLASH_ADDR */
+
 /* ---------------------------------------------------------- user apps */
 typedef uint32_t freya_jmpbuf[10];
 int  freya_setjmp(freya_jmpbuf buf) __attribute__((returns_twice));
@@ -157,9 +186,14 @@ typedef struct {
     char     path[64];
     char     name[20];
     uint32_t image_size;
+    uint32_t bss_start;
     uint32_t bss_size;
     uint32_t entry;
     uint32_t load_addr;
+    uint32_t flags;          /* FREYA_APP_F_XIP: runs from flash        */
+    uint32_t data_src;       /* .data initialiser, XIP only             */
+    uint32_t data_start;
+    uint32_t data_end;
     int      last_exit_code;
     int      last_stop_reason;
     uint32_t last_run_ms;
@@ -170,6 +204,14 @@ extern app_state_t g_app;
 int  app_load(const char *path);
 int  app_run(int argc, char **argv);
 void app_unload(void);
+#ifdef FREYA_APP_FLASH_ADDR
+/* The installed flash image is addressed as a pseudo-path, so 'load',
+ * 'run' and 'stop' need no special case for it. */
+#define APP_FLASH_PATH  "@flash"
+int  app_install(const char *path);           /* card image -> flash    */
+int  app_flash_erase(void);
+const freya_app_header_t *app_flash_header(void);   /* NULL if empty    */
+#endif
 void app_request_stop(void);
 void app_guard_enter(void);
 void app_guard_leave(void);

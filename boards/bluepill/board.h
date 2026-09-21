@@ -22,6 +22,12 @@
 #define BOARD_LED_NAME      "PC13"
 #define BOARD_FLASH_WS      2
 
+/* ------------------------------------------------------ internal flash */
+/* The F1 erases in 1 KiB pages and programs halfwords - a considerably
+ * kinder granularity than the F4's 16 to 128 KiB sectors, which is why
+ * this is the board that keeps a program in flash. */
+#define BOARD_FLASH_PAGE_SIZE   1024U
+
 /* ---------------------------------------------------------- SD on SPI1 */
 #define BOARD_SD_CS_PORT    GPIOA
 #define BOARD_SD_CS_PIN     4

@@ -104,6 +104,106 @@ mkfs.vfat -F 32 -n FREYA "$img" >/dev/null
 "$OUT/hostxmodem" "$img" || status=1
 fsck.vfat -n "$img" >/dev/null 2>&1 || { echo "  FAIL  image inconsistent after downloads"; status=1; }
 
+# ---------------------------------------------------------------------
+# Program image layout.
+#
+# The one part of the flash program support that can be checked off the
+# board: that the header app_start.c emits agrees with where the linker
+# actually put things, and that the regions in freya_api.h are the regions
+# the linker scripts describe.  Every field below is derived from a linker
+# symbol by one side and read out of the built image by the other, so a
+# copy-paste error in a memory map fails here instead of on the bench.
+echo
+echo "================= program image layout ================="
+
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_regions.c -o "$OUT/hostregions"
+"$OUT/hostregions" > "$OUT/regions.txt"
+
+macro() { awk -v k="$1" '$1 == k { print $2 }' "$OUT/regions.txt"; }
+
+checks=0
+fails=0
+check() {   # description expected actual
+    checks=$((checks + 1))
+    if [ "$2" = "$3" ]; then
+        echo "  ok    $1"
+    else
+        echo "  FAIL  $1: expected $2, got $3"
+        fails=$((fails + 1))
+        status=1
+    fi
+}
+
+check "the ABI 2 fields are appended after the 48 byte ABI 1 header" \
+      "$(macro hdr_v1_size)" 48
+check "the header is 64 bytes" "$(macro hdr_size)" 64
+
+CROSS=${CROSS:-arm-none-eabi-}
+if ! command -v "${CROSS}nm" >/dev/null 2>&1; then
+    echo "  --    ${CROSS}nm not found, skipping the image checks"
+elif [ ! -f "boards/$BOARD/app_flash.ld" ]; then
+    echo "  --    $BOARD keeps no program in flash, nothing more to check"
+else
+    kelf="build/$BOARD/freya.elf"
+    elf="build/$BOARD/apps/hello.xip.elf"
+    bin="build/$BOARD/apps/hello.xip.bin"
+    [ -f "$bin" ] && [ -f "$kelf" ] || make BOARD="$BOARD" >/dev/null
+
+    # A linker symbol's value, as a decimal number.
+    sym() {
+        v=$("${CROSS}nm" "$1" | awk -v n="$2" '$3 == n { print $1 }')
+        if [ -z "$v" ]; then echo "no-symbol-$2"; else echo $(( 0x$v )); fi
+    }
+    # A little endian uint32 out of the built image, as a decimal number.
+    fld() { od -A n -t u4 -j "$2" -N 4 "$1" | tr -d ' \n'; }
+
+    check "the kernel and the header agree on the flash region address" \
+          "$(macro app_flash_addr)" "$(sym "$kelf" __app_flash_start)"
+    check "the kernel and the header agree on the flash region size" \
+          "$(macro app_flash_size)" \
+          "$(( $(sym "$kelf" __app_flash_end) - $(sym "$kelf" __app_flash_start) ))"
+    check "the kernel image ends below the program flash region" \
+          1 "$(( $(sym "$kelf" __kernel_flash_end) <= $(sym "$kelf" __app_flash_start) ))"
+    check "the RAM resident flash routines sit in the program RAM region" \
+          1 "$(( $(sym "$kelf" __ramfunc_start) == $(macro app_load_addr) ))"
+
+    check "the flash image is linked for the flash region" \
+          "$(macro app_flash_addr)" "$(fld "$bin" 8)"
+    check "the flash image declares ABI $(macro abi_version)" \
+          "$(macro abi_version)" "$(fld "$bin" 4)"
+    check "the flash image sets the XIP flag" 1 "$(fld "$bin" 48)"
+    check "image_size is the size of the file" \
+          "$(wc -c < "$bin" | tr -d ' ')" "$(fld "$bin" 16)"
+    check "entry is app_main with the Thumb bit set" \
+          "$(( $(sym "$elf" app_main) | 1 ))" "$(fld "$bin" 12)"
+    check "data_src is the .data initialiser in flash" \
+          "$(sym "$elf" __data_load__)" "$(fld "$bin" 52)"
+    check "data_start is in the program RAM region" \
+          "$(sym "$elf" __data_start__)" "$(fld "$bin" 56)"
+    check "data_end is in the program RAM region" \
+          "$(sym "$elf" __data_end__)" "$(fld "$bin" 60)"
+    check "bss_start is in the program RAM region" \
+          "$(sym "$elf" __bss_start__)" "$(fld "$bin" 20)"
+    check "bss_end is in the program RAM region" \
+          "$(sym "$elf" __bss_end__)" "$(fld "$bin" 24)"
+
+    # If hello had neither, the loader's copy and clear would go untested.
+    check "hello has initialised data for the loader to copy" \
+          1 "$(( $(fld "$bin" 60) > $(fld "$bin" 56) ))"
+    check "hello has a .bss for the loader to clear" \
+          1 "$(( $(fld "$bin" 24) > $(fld "$bin" 20) ))"
+
+    # The RAM variant of the same program must still be a RAM image.
+    ram="build/$BOARD/apps/hello.bin"
+    check "the RAM image is still linked for the RAM region" \
+          "$(macro app_load_addr)" "$(fld "$ram" 8)"
+    check "the RAM image does not set the XIP flag" 0 "$(fld "$ram" 48)"
+fi
+
+echo
+echo "$checks checks, $fails failures"
+
 echo
 if [ $status -eq 0 ]; then
     echo "ALL TESTS PASSED"

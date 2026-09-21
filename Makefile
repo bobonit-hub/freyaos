@@ -70,6 +70,16 @@ APP_CFLAGS:= $(CPUFLAGS) $(BOARD_DEF) -std=gnu11 -Os -g3 -ffreestanding \
 SAMPLES   := blink
 SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(SAMPLES))
 
+# A board that reserves part of its flash for a program image supplies a
+# second program linker script.  Every app and sample is then built both
+# ways from the same objects: a RAM image for 'load', and a '.xip.bin'
+# that executes from flash for 'install'.
+APP_XIP_LD := $(wildcard $(BOARD_DIR)/app_flash.ld)
+ifneq ($(APP_XIP_LD),)
+APP_BINS   += $(patsubst %,$(BUILD)/apps/%.xip.bin,$(APPS))
+SMPL_BINS  += $(patsubst %,$(BUILD)/samples/%.xip.bin,$(SAMPLES))
+endif
+
 .PHONY: all apps samples size clean flash bootloader openocd test
 .SECONDARY:
 
@@ -118,6 +128,12 @@ $(BUILD)/apps/%.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_LD)
 	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
 	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
 
+$(BUILD)/apps/%.xip.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_XIP_LD) | $(BUILD)
+	@echo "  APP   $@"
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
+	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
+	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
+
 $(BUILD)/apps/%.bin: $(BUILD)/apps/%.elf
 	@$(OBJCOPY) -O binary $< $@
 	@echo "  BIN   $@"
@@ -129,6 +145,13 @@ $(BUILD)/samples/%.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP
 	@mkdir -p $(@D)
 	@echo "  SMPL  $@"
 	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_LD) \
+	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
+	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
+
+$(BUILD)/samples/%.xip.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_XIP_LD) | $(BUILD)
+	@mkdir -p $(@D)
+	@echo "  SMPL  $@"
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
 	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
 	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
 

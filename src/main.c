@@ -37,27 +37,43 @@ static void boot_storage(void)
     kprintf(", mounted on /\r\n");
 }
 
+/*
+ * The card is asked first, so a program on it always overrides one in
+ * flash; the installed image is the fallback, which is what lets a board
+ * with nothing in the card socket still boot into a program.
+ */
 static void boot_autorun(void)
 {
     fat_dirent_t e;
     char *argv[1];
+    const char *path = NULL;
+    const char *what = NULL;
 
-    if (!fat_mounted()) return;
-    if (fat_stat(AUTORUN_PATH, &e) != FAT_OK) return;
-    if (e.attr & FAT_ATTR_DIR) return;
+    if (fat_mounted() && fat_stat(AUTORUN_PATH, &e) == FAT_OK &&
+        !(e.attr & FAT_ATTR_DIR)) {
+        path = AUTORUN_PATH;
+        what = AUTORUN_PATH " found";
+    }
+#ifdef FREYA_APP_FLASH_ADDR
+    else if (app_flash_header()) {
+        path = APP_FLASH_PATH;
+        what = "program installed in flash";
+    }
+#endif
+    if (!path) return;
 
-    kprintf("[boot] %s found - starting in %u s, press a key to cancel\r\n",
-            AUTORUN_PATH, AUTORUN_GRACE / 1000);
+    kprintf("[boot] %s - starting in %u s, press a key to cancel\r\n",
+            what, AUTORUN_GRACE / 1000);
     if (uart_getc_timeout(AUTORUN_GRACE) >= 0) {
         uart_rx_flush();
         kprintf("[boot] autorun cancelled\r\n");
         return;
     }
 
-    if (app_load(AUTORUN_PATH) != 0) return;
-    argv[0] = (char *)AUTORUN_PATH;
+    if (app_load(path) != 0) return;
+    argv[0] = (char *)path;
     kprintf("--- %s starting (Ctrl-C stops it) ---\r\n",
-            g_app.name[0] ? g_app.name : AUTORUN_PATH);
+            g_app.name[0] ? g_app.name : path);
     app_run(1, argv);
     kprintf("\r\n--- autorun %s, exit code %d ---\r\n",
             app_stop_reason_str(g_app.last_stop_reason), g_app.last_exit_code);

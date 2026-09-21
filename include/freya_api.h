@@ -20,7 +20,15 @@
 #include <stdint.h>
 
 #define FREYA_APP_MAGIC        0x41595246UL   /* 'F','R','Y','A' */
-#define FREYA_ABI_VERSION      1
+#define FREYA_ABI_VERSION      2
+
+/*
+ * ABI 1 described only RAM images.  ABI 2 appends four fields for a
+ * program that executes from internal flash, and because the v1 header is
+ * a byte for byte prefix of the v2 header the loader still accepts a v1
+ * RAM image - every hello.bin already sitting on a card keeps working.
+ */
+#define FREYA_ABI_MIN_VERSION  1
 
 /*
  * Where a program lives.  This is the one part of the ABI that depends on
@@ -28,16 +36,27 @@
  * defines FREYA_BOARD_* for the kernel and for every program it builds, so
  * the two always agree.  The loader checks the header against these values
  * and refuses an image linked for a different region.
+ *
+ * A board that reserves part of its internal flash for a program image
+ * also defines FREYA_APP_FLASH_ADDR and FREYA_APP_FLASH_SIZE.  Such a
+ * program executes in place from flash and spends the RAM region on its
+ * .data and .bss alone, which is what makes a 24 KiB program possible on a
+ * board whose whole SRAM is 20 KiB.
  */
 #if defined(FREYA_BOARD_BLUEPILL)
 #define FREYA_APP_LOAD_ADDR    0x20001800UL     /* 20 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE  (8U * 1024U)
+#define FREYA_APP_FLASH_ADDR   0x0800A000UL     /* pages 40..63 of 64 KiB */
+#define FREYA_APP_FLASH_SIZE   (24U * 1024U)
 #elif defined(FREYA_BOARD_BLACKPILL)
 #define FREYA_APP_LOAD_ADDR    0x20010000UL     /* 128 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE  (56U * 1024U)
 #else
 #error "no board selected - define FREYA_BOARD_BLACKPILL or FREYA_BOARD_BLUEPILL"
 #endif
+
+/* header flags */
+#define FREYA_APP_F_XIP        0x00000001UL   /* executes from flash     */
 
 /* Header located at offset 0 of the program image. */
 typedef struct {
@@ -50,7 +69,17 @@ typedef struct {
     uint32_t bss_end;
     uint32_t stack_need;   /* bytes of stack the program requires     */
     char     name[16];     /* informational, NUL padded               */
+    /* ------------------------------------- appended in ABI 2 ------- */
+    uint32_t flags;        /* FREYA_APP_F_XIP                         */
+    uint32_t data_src;     /* flash address of the .data initialiser  */
+    uint32_t data_start;   /* RAM destination of .data, absolute      */
+    uint32_t data_end;
 } freya_app_header_t;
+
+/* Size of the ABI 1 header, which is a prefix of the one above.  The
+ * loader reads this much first so that it never mistakes the first bytes
+ * of an old image's .text for the appended fields. */
+#define FREYA_APP_HDR_V1_SIZE  48
 
 /* open() flags */
 #define FREYA_O_RDONLY  0x01

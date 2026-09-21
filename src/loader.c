@@ -231,9 +231,169 @@ void app_unload(void)
     g_app.path[0] = '\0';
     g_app.name[0] = '\0';
     g_app.image_size = 0;
+    g_app.bss_start = 0;
     g_app.bss_size = 0;
     g_app.entry = 0;
+    g_app.flags = 0;
+    g_app.data_src = 0;
+    g_app.data_start = 0;
+    g_app.data_end = 0;
 }
+
+_Static_assert(__builtin_offsetof(freya_app_header_t, flags) ==
+               FREYA_APP_HDR_V1_SIZE,
+               "the ABI 2 fields must be appended after the ABI 1 header");
+
+/*
+ * Read a header, old or new.  The ABI 1 fields come first and are a prefix
+ * of the ABI 2 header, so the version is known before the appended fields
+ * are read - without that, the first bytes of an ABI 1 image's .text would
+ * be mistaken for its flags.
+ */
+static int read_header(int fd, freya_app_header_t *hdr)
+{
+    const int tail = (int)sizeof(*hdr) - FREYA_APP_HDR_V1_SIZE;
+
+    memset(hdr, 0, sizeof(*hdr));
+    if (fs_fd_read(fd, hdr, FREYA_APP_HDR_V1_SIZE) != FREYA_APP_HDR_V1_SIZE)
+        return -1;
+    if (hdr->abi_version < 2)
+        return 0;
+    if (fs_fd_read(fd, (uint8_t *)hdr + FREYA_APP_HDR_V1_SIZE, tail) != tail)
+        return -1;
+    return 0;
+}
+
+/* Common to both kinds of image: is this a Freya program this kernel can
+ * speak to at all? */
+static int check_magic(const freya_app_header_t *hdr, const char *who)
+{
+    if (hdr->magic != FREYA_APP_MAGIC) {
+        kprintf("%s: not a Freya program (magic 0x%08x)\r\n", who, hdr->magic);
+        return -1;
+    }
+    if (hdr->abi_version < FREYA_ABI_MIN_VERSION ||
+        hdr->abi_version > FREYA_ABI_VERSION) {
+        kprintf("%s: ABI version %u, this kernel speaks %u to %u\r\n",
+                who, hdr->abi_version, (unsigned)FREYA_ABI_MIN_VERSION,
+                (unsigned)FREYA_ABI_VERSION);
+        return -1;
+    }
+    return 0;
+}
+
+/* Copy the header's name field into g_app, stopping at the first control
+ * character so a malformed image cannot print rubbish. */
+static void set_app_name(const freya_app_header_t *hdr)
+{
+    memcpy(g_app.name, hdr->name, sizeof(hdr->name));
+    g_app.name[sizeof(hdr->name)] = '\0';
+    for (unsigned i = 0; i < sizeof(g_app.name); i++)
+        if ((uint8_t)g_app.name[i] < 0x20) { g_app.name[i] = '\0'; break; }
+}
+
+#ifdef FREYA_APP_FLASH_ADDR
+
+#define APP_RAM_END  (FREYA_APP_LOAD_ADDR + FREYA_APP_REGION_SIZE)
+
+/* True if [start, end) lies inside the program RAM region. */
+static int in_app_ram(uint32_t start, uint32_t end)
+{
+    return end >= start && start >= FREYA_APP_LOAD_ADDR && end <= APP_RAM_END;
+}
+
+/*
+ * A flash image is checked more closely than a RAM one, because its
+ * addresses are written into flash once and then trusted on every boot.
+ * 'want' is the image size the caller settled on.
+ */
+static int check_xip_header(const freya_app_header_t *hdr, uint32_t want,
+                            const char *who)
+{
+    uint32_t base = FREYA_APP_FLASH_ADDR;
+
+    if (check_magic(hdr, who) != 0) return -1;
+    if (hdr->abi_version < 2 || !(hdr->flags & FREYA_APP_F_XIP)) {
+        kprintf("%s: not a flash image - link it with app_flash.ld\r\n", who);
+        return -1;
+    }
+    if (hdr->load_addr != base) {
+        kprintf("%s: image is linked for 0x%08x, flash region is 0x%08x\r\n",
+                who, hdr->load_addr, (unsigned)base);
+        return -1;
+    }
+    if (want == 0 || want > FREYA_APP_FLASH_SIZE) {
+        kprintf("%s: image does not fit the %u KiB program flash region\r\n",
+                who, (unsigned)(FREYA_APP_FLASH_SIZE / 1024));
+        return -1;
+    }
+    if (hdr->entry < base || hdr->entry >= base + want) {
+        kprintf("%s: entry 0x%08x is outside the image\r\n", who, hdr->entry);
+        return -1;
+    }
+    if (hdr->data_end > hdr->data_start) {
+        uint32_t len = hdr->data_end - hdr->data_start;
+        if (!in_app_ram(hdr->data_start, hdr->data_end) ||
+            hdr->data_src < base || len > want ||
+            hdr->data_src > base + want - len) {
+            kprintf("%s: .data (0x%08x -> 0x%08x, %u B) is out of bounds\r\n",
+                    who, hdr->data_src, hdr->data_start, len);
+            return -1;
+        }
+    }
+    if (hdr->bss_end > hdr->bss_start &&
+        !in_app_ram(hdr->bss_start, hdr->bss_end)) {
+        kprintf("%s: .bss (0x%08x .. 0x%08x) does not fit the %u KiB "
+                "program RAM region\r\n", who, hdr->bss_start, hdr->bss_end,
+                (unsigned)(FREYA_APP_REGION_SIZE / 1024));
+        return -1;
+    }
+    return 0;
+}
+
+const freya_app_header_t *app_flash_header(void)
+{
+    const freya_app_header_t *h =
+        (const freya_app_header_t *)(uintptr_t)FREYA_APP_FLASH_ADDR;
+
+    /* An erased region reads 0xFF, so the magic alone rules out an empty
+     * one; the rest guards against an image left behind by another build. */
+    if (h->magic != FREYA_APP_MAGIC) return NULL;
+    if (h->abi_version < 2 || h->abi_version > FREYA_ABI_VERSION) return NULL;
+    if (!(h->flags & FREYA_APP_F_XIP)) return NULL;
+    if (h->load_addr != FREYA_APP_FLASH_ADDR) return NULL;
+    if (h->image_size == 0 || h->image_size > FREYA_APP_FLASH_SIZE) return NULL;
+    return h;
+}
+
+/* Nothing is copied: the image is already where it will execute. */
+static int app_load_flash(void)
+{
+    const freya_app_header_t *hdr = app_flash_header();
+
+    if (!hdr) {
+        kprintf("load: no program installed in flash - use 'install <file>'\r\n");
+        return -1;
+    }
+    if (check_xip_header(hdr, hdr->image_size, "load") != 0) return -1;
+
+    g_app.loaded     = 1;
+    g_app.entry      = hdr->entry;
+    g_app.load_addr  = hdr->load_addr;
+    g_app.image_size = hdr->image_size;
+    g_app.bss_start  = hdr->bss_start;
+    g_app.bss_size   = (hdr->bss_end > hdr->bss_start)
+                         ? hdr->bss_end - hdr->bss_start : 0;
+    g_app.flags      = hdr->flags;
+    g_app.data_src   = hdr->data_src;
+    g_app.data_start = hdr->data_start;
+    g_app.data_end   = hdr->data_end;
+    strncpy(g_app.path, APP_FLASH_PATH, sizeof(g_app.path) - 1);
+    set_app_name(hdr);
+    return 0;
+}
+
+#endif /* FREYA_APP_FLASH_ADDR */
 
 int app_load(const char *path)
 {
@@ -245,6 +405,11 @@ int app_load(const char *path)
     uint32_t done = 0;
 
     if (g_app.running) return -1;
+
+#ifdef FREYA_APP_FLASH_ADDR
+    if (strcmp(path, APP_FLASH_PATH) == 0) return app_load_flash();
+#endif
+
     if (fs_abspath(path, abs, sizeof(abs)) != 0) {
         kprintf("load: path too long\r\n");
         return -1;
@@ -257,20 +422,23 @@ int app_load(const char *path)
     }
     size = (uint32_t)fs_fd_size(fd);
 
-    n = fs_fd_read(fd, &hdr, (int)sizeof(hdr));
-    if (n != (int)sizeof(hdr)) {
+    if (read_header(fd, &hdr) != 0) {
         kprintf("load: cannot read program header\r\n");
         fs_fd_close(fd);
         return -1;
     }
-    if (hdr.magic != FREYA_APP_MAGIC) {
-        kprintf("load: not a Freya program (magic 0x%08x)\r\n", hdr.magic);
+    if (check_magic(&hdr, "load") != 0) {
         fs_fd_close(fd);
         return -1;
     }
-    if (hdr.abi_version != FREYA_ABI_VERSION) {
-        kprintf("load: ABI version %u, this kernel speaks %u\r\n",
-                hdr.abi_version, (unsigned)FREYA_ABI_VERSION);
+    if (hdr.flags & FREYA_APP_F_XIP) {
+#ifdef FREYA_APP_FLASH_ADDR
+        kprintf("load: that is a flash image - 'install %s', then "
+                "'run %s'\r\n", path, APP_FLASH_PATH);
+#else
+        kprintf("load: that is a flash image, and this board keeps no "
+                "program in flash\r\n");
+#endif
         fs_fd_close(fd);
         return -1;
     }
@@ -321,15 +489,217 @@ int app_load(const char *path)
     g_app.entry      = hdr.entry;
     g_app.load_addr  = hdr.load_addr;
     g_app.image_size = done;
+    g_app.bss_start  = hdr.bss_start;
     g_app.bss_size   = (hdr.bss_end > hdr.bss_start) ? hdr.bss_end - hdr.bss_start : 0;
+    g_app.flags      = 0;
+    g_app.data_src   = 0;
+    g_app.data_start = 0;
+    g_app.data_end   = 0;
     strncpy(g_app.path, abs, sizeof(g_app.path) - 1);
-    memcpy(g_app.name, hdr.name, sizeof(hdr.name));
-    g_app.name[sizeof(hdr.name)] = '\0';
-    for (unsigned i = 0; i < sizeof(g_app.name); i++)
-        if ((uint8_t)g_app.name[i] < 0x20) { g_app.name[i] = '\0'; break; }
+    set_app_name(&hdr);
 
     return 0;
 }
+
+/* ------------------------------------------------------------ install */
+#ifdef FREYA_APP_FLASH_ADDR
+
+extern char __ramfunc_end[];
+
+#define INSTALL_BUF_SIZE  512
+
+/*
+ * An install needs somewhere to stage a card block, and the program RAM
+ * region is free: an install refuses to proceed while a program is
+ * loaded.  flash_begin() puts its RAM resident routines at the base of
+ * that region, so the buffer goes immediately after them - which is how
+ * the whole feature costs nothing out of a 2 KiB heap.
+ */
+static uint8_t *install_buf(void)
+{
+    uintptr_t a = ((uintptr_t)__ramfunc_end + 3U) & ~(uintptr_t)3U;
+    return (uint8_t *)a;
+}
+
+/*
+ * fs_fd_read() is allowed to return a short count, and the flash writer
+ * needs whole halfwords at an even address - so every chunk but the last
+ * is filled before it is used, and only a genuinely odd image_size ever
+ * reaches flash_program() with an odd length.
+ */
+static int read_full(int fd, uint8_t *buf, int want)
+{
+    int got = 0;
+
+    while (got < want) {
+        int n = fs_fd_read(fd, buf + got, want - got);
+        if (n <= 0) break;
+        got += n;
+    }
+    return got;
+}
+
+/* 1 if the file matches the flash region over 'want' bytes, 0 if it does
+ * not, -1 on a read error. */
+static int image_matches(int fd, uint32_t want, uint8_t *buf)
+{
+    const uint8_t *flash = (const uint8_t *)(uintptr_t)FREYA_APP_FLASH_ADDR;
+    uint32_t done = 0;
+
+    fs_fd_seek(fd, 0, FREYA_SEEK_SET);
+    while (done < want) {
+        int chunk = (int)MIN((uint32_t)INSTALL_BUF_SIZE, want - done);
+
+        if (read_full(fd, buf, chunk) != chunk) return -1;
+        if (memcmp(buf, flash + done, (size_t)chunk) != 0) return 0;
+        done += (uint32_t)chunk;
+    }
+    return 1;
+}
+
+int app_install(const char *path)
+{
+    freya_app_header_t hdr;
+    char abs[FAT_MAX_PATH];
+    uint8_t *buf = install_buf();
+    uint32_t page = flash_page_size();
+    uint32_t size, want, pages, done = 0;
+    int fd, rc, same;
+
+    if (g_app.running) {
+        kprintf("install: a program is running - stop it first\r\n");
+        return -1;
+    }
+    if (g_app.loaded) app_unload();
+
+    if ((uintptr_t)buf + INSTALL_BUF_SIZE > APP_RAM_END) {
+        kprintf("install: no room for a card buffer in the program region\r\n");
+        return -1;
+    }
+    if (fs_abspath(path, abs, sizeof(abs)) != 0) {
+        kprintf("install: path too long\r\n");
+        return -1;
+    }
+    fd = fs_fd_open(abs, FREYA_O_RDONLY);
+    if (fd < 0) {
+        kprintf("install: %s: %s\r\n", abs, fat_err_str(fd));
+        return -1;
+    }
+    size = (uint32_t)fs_fd_size(fd);
+
+    if (read_header(fd, &hdr) != 0) {
+        kprintf("install: cannot read program header\r\n");
+        fs_fd_close(fd);
+        return -1;
+    }
+    want = hdr.image_size;
+    if (want == 0 || want > size) want = size;
+    if (check_xip_header(&hdr, want, "install") != 0) {
+        fs_fd_close(fd);
+        return -1;
+    }
+
+    /* Flash endurance is 10k cycles, so an unchanged image is left alone
+     * rather than reprogrammed. */
+    same = image_matches(fd, want, buf);
+    if (same < 0) {
+        kprintf("install: read error\r\n");
+        fs_fd_close(fd);
+        return -1;
+    }
+    if (same) {
+        fs_fd_close(fd);
+        kprintf("install: flash already holds this image, nothing written\r\n");
+        return app_load_flash();
+    }
+
+    rc = flash_begin();
+    if (rc != FLASH_OK) {
+        kprintf("install: %s\r\n", flash_err_str(rc));
+        fs_fd_close(fd);
+        return -1;
+    }
+
+    pages = (want + page - 1) / page;
+    kprintf("install: console input is dropped while flash is busy\r\n");
+    kprintf("  erasing %u page%s ... ", pages, pages == 1 ? "" : "s");
+    uart_drain_tx();
+
+    rc = flash_erase(FREYA_APP_FLASH_ADDR, want);
+    if (rc != FLASH_OK) goto fail;
+
+    kprintf("writing ... ");
+    uart_drain_tx();
+
+    fs_fd_seek(fd, 0, FREYA_SEEK_SET);
+    while (done < want) {
+        int chunk = (int)MIN((uint32_t)INSTALL_BUF_SIZE, want - done);
+
+        if (read_full(fd, buf, chunk) != chunk) {
+            kprintf("\r\ninstall: read error at offset %u\r\n", done);
+            goto fail_quiet;
+        }
+        rc = flash_program(FREYA_APP_FLASH_ADDR + done, buf, (uint32_t)chunk);
+        if (rc != FLASH_OK) goto fail;
+        done += (uint32_t)chunk;
+    }
+    flash_end();
+    uart_rx_flush();
+
+    /*
+     * Every halfword was verified as it was written.  This reads the whole
+     * image back against the file once more, which is what catches a
+     * mistake in an address rather than in a cell.
+     */
+    if (image_matches(fd, want, buf) != 1) {
+        kprintf("\r\ninstall: verify failed\r\n");
+        fs_fd_close(fd);
+        return -1;
+    }
+    fs_fd_close(fd);
+
+    kprintf("ok\r\n");
+    kprintf("installed %s at 0x%08x: ", abs, (unsigned)FREYA_APP_FLASH_ADDR);
+    kput_size(want);
+    kprintf(" in %u page%s\r\n", pages, pages == 1 ? "" : "s");
+    return app_load_flash();
+
+fail:
+    kprintf("\r\ninstall: %s at offset %u\r\n", flash_err_str(rc), done);
+fail_quiet:
+    flash_end();
+    uart_rx_flush();
+    fs_fd_close(fd);
+    return -1;
+}
+
+int app_flash_erase(void)
+{
+    int rc;
+
+    if (g_app.running) {
+        kprintf("uninstall: a program is running - stop it first\r\n");
+        return -1;
+    }
+    if (g_app.loaded) app_unload();
+
+    rc = flash_begin();
+    if (rc == FLASH_OK) {
+        kprintf("uninstall: erasing the program flash region ... ");
+        uart_drain_tx();
+        rc = flash_erase(FREYA_APP_FLASH_ADDR, FREYA_APP_FLASH_SIZE);
+        flash_end();
+        uart_rx_flush();
+    }
+    if (rc != FLASH_OK) {
+        kprintf("\r\nuninstall: %s\r\n", flash_err_str(rc));
+        return -1;
+    }
+    kprintf("ok\r\n");
+    return 0;
+}
+
+#endif /* FREYA_APP_FLASH_ADDR */
 
 /* ---------------------------------------------------------------- run */
 int app_run(int argc, char **argv)
@@ -348,6 +718,23 @@ int app_run(int argc, char **argv)
     s_stop_requested  = 0;
     g_app_stop_reason = APP_STOP_NONE;
     s_exit_code       = 0;
+
+#ifdef FREYA_APP_FLASH_ADDR
+    /*
+     * A flash image is immutable, so every run can start from its own
+     * initialisers.  A RAM image cannot: its .data *is* the loaded copy,
+     * and reinitialising means loading it again.
+     */
+    if (g_app.flags & FREYA_APP_F_XIP) {
+        if (g_app.data_end > g_app.data_start)
+            memcpy((void *)(uintptr_t)g_app.data_start,
+                   (const void *)(uintptr_t)g_app.data_src,
+                   g_app.data_end - g_app.data_start);
+        if (g_app.bss_size)
+            memset((void *)(uintptr_t)g_app.bss_start, 0, g_app.bss_size);
+    }
+#endif
+
     entry = (entry_fn)(uintptr_t)(g_app.entry | 1UL);   /* Thumb */
     t0 = sys_ticks();
 

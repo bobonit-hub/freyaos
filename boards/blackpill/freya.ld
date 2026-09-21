@@ -87,6 +87,11 @@ SECTIONS
         __bss_end = .;
     } > RAM
 
+    /* This board keeps no program in flash, so the kernel image ends with
+     * the .data initialiser (see boards/bluepill/freya.ld for the other
+     * arrangement). */
+    __kernel_flash_end = __etext + SIZEOF(.data);
+
     /* Everything between here and the user program region is the system heap. */
     . = ALIGN(8);
     __heap_start = .;

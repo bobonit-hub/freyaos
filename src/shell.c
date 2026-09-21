@@ -149,6 +149,24 @@ static int need_fs(void)
     return 0;
 }
 
+/* The installed flash image is named by a pseudo-path rather than a file,
+ * so 'load' and 'run' take it without needing a mounted card. */
+#ifdef FREYA_APP_FLASH_ADDR
+#define PROG_ARG  "<file>|" APP_FLASH_PATH
+#else
+#define PROG_ARG  "<file>"
+#endif
+
+static int is_flash_path(const char *p)
+{
+#ifdef FREYA_APP_FLASH_ADDR
+    return strcmp(p, APP_FLASH_PATH) == 0;
+#else
+    (void)p;
+    return 0;
+#endif
+}
+
 /* ----------------------------------------------------------- commands */
 static int cmd_help(int argc, char **argv);
 
@@ -221,7 +239,7 @@ static int cmd_meminfo(int argc, char **argv)
 {
     uint32_t data_sz = (uint32_t)((uint8_t *)__data_end - (uint8_t *)__data_start);
     uint32_t bss_sz  = (uint32_t)((uint8_t *)__bss_end  - (uint8_t *)__bss_start);
-    uint32_t flash_used = (uint32_t)((uint8_t *)__etext - (uint8_t *)0x08000000UL) + data_sz;
+    uint32_t flash_used = (uint32_t)((uint8_t *)__kernel_flash_end - (uint8_t *)0x08000000UL);
     uint32_t flash_total = (uint32_t)(*(volatile uint16_t *)FLASHSIZE_BASE) * 1024UL;
     uint32_t heap_total, heap_used, heap_free, heap_big, heap_blocks;
     uint32_t stack_total = (uint32_t)((uint8_t *)__stack_top - (uint8_t *)__stack_limit);
@@ -239,6 +257,28 @@ static int cmd_meminfo(int argc, char **argv)
     print_bar(flash_used, flash_total);
     kprintf("\r\n");
 
+#ifdef FREYA_APP_FLASH_ADDR
+    {
+        const freya_app_header_t *h = app_flash_header();
+        char nm[sizeof(h->name) + 1];
+
+        kprintf("  program flash  : %6u B  at 0x%08x\r\n",
+                (unsigned)FREYA_APP_FLASH_SIZE, (unsigned)FREYA_APP_FLASH_ADDR);
+        if (h) {
+            memcpy(nm, h->name, sizeof(h->name));   /* may not be NUL padded */
+            nm[sizeof(h->name)] = '\0';
+            kprintf("     \"%s\": image %u B, .data %u B, .bss %u B\r\n",
+                    nm, h->image_size,
+                    h->data_end - h->data_start, h->bss_end - h->bss_start);
+            kprintf("     ");
+            print_bar(h->image_size, FREYA_APP_FLASH_SIZE);
+            kprintf("\r\n");
+        } else {
+            kprintf("     empty - 'install <file>' puts a program here\r\n");
+        }
+    }
+#endif
+
     kprintf("SRAM  0x%08x .. 0x%08x  (%u KiB)\r\n",
             (uint32_t)(uintptr_t)__ram_start, (uint32_t)(uintptr_t)__ram_end,
             (uint32_t)(__ram_end - __ram_start) / 1024U);
@@ -252,7 +292,16 @@ static int cmd_meminfo(int argc, char **argv)
     kprintf("\r\n");
 
     kprintf("  program region : %6u B  at 0x%08x\r\n", app_total, (uint32_t)FREYA_APP_LOAD_ADDR);
-    if (g_app.loaded) {
+    if (g_app.loaded && (g_app.flags & FREYA_APP_F_XIP)) {
+        /* The image is in flash; only its variables are here. */
+        uint32_t data_sz2 = g_app.data_end - g_app.data_start;
+
+        kprintf("     %s (from flash): data %u B + bss %u B\r\n",
+                g_app.name[0] ? g_app.name : g_app.path, data_sz2, g_app.bss_size);
+        kprintf("     ");
+        print_bar(data_sz2 + g_app.bss_size, app_total);
+        kprintf("\r\n");
+    } else if (g_app.loaded) {
         kprintf("     %s: image %u B + bss %u B\r\n",
                 g_app.name[0] ? g_app.name : g_app.path, g_app.image_size, g_app.bss_size);
         kprintf("     ");
@@ -632,8 +681,8 @@ static int cmd_df(int argc, char **argv)
 
 static int cmd_load(int argc, char **argv)
 {
-    if (!need_fs()) return -1;
-    if (argc < 2) { kprintf("usage: load <file>\r\n"); return -1; }
+    if (argc < 2) { kprintf("usage: load " PROG_ARG "\r\n"); return -1; }
+    if (!is_flash_path(argv[1]) && !need_fs()) return -1;
     if (g_app.loaded) app_unload();
 
     if (app_load(argv[1]) != 0) return -1;
@@ -647,6 +696,34 @@ static int cmd_load(int argc, char **argv)
     return 0;
 }
 
+#ifdef FREYA_APP_FLASH_ADDR
+static int cmd_install(int argc, char **argv)
+{
+    if (argc < 2) {
+        kprintf("usage: install <file>\r\n");
+        kprintf("  Copies a flash image - one built with app_flash.ld - from\r\n"
+                "  the card into the %u KiB program flash region, where it\r\n"
+                "  survives a power cycle.  'run %s' then runs it with no\r\n"
+                "  card in the socket at all.\r\n",
+                (unsigned)(FREYA_APP_FLASH_SIZE / 1024), APP_FLASH_PATH);
+        return -1;
+    }
+    if (!need_fs()) return -1;
+    return app_install(argv[1]);
+}
+
+static int cmd_uninstall(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+
+    if (!app_flash_header()) {
+        kprintf("no program is installed in flash\r\n");
+        return 0;
+    }
+    return app_flash_erase();
+}
+#endif
+
 static int cmd_run(int argc, char **argv)
 {
     char *app_argv[MAX_ARGS];
@@ -658,8 +735,10 @@ static int cmd_run(int argc, char **argv)
         char path[FAT_MAX_PATH];
         int is_file = 0;
 
-        if (fs_abspath(argv[1], path, sizeof(path)) == 0 &&
-            fat_stat(path, &e) == FAT_OK && !(e.attr & FAT_ATTR_DIR))
+        if (is_flash_path(argv[1]))
+            is_file = 1;                        /* app_load() dispatches */
+        else if (fs_abspath(argv[1], path, sizeof(path)) == 0 &&
+                 fat_stat(path, &e) == FAT_OK && !(e.attr & FAT_ATTR_DIR))
             is_file = 1;
 
         if (is_file) {
@@ -832,9 +911,13 @@ static const command_t s_cmds[] = {
     { "write",    cmd_write,    "write <file> <text...>",    "append a line of text to a file" },
     { "hexdump",  cmd_hexdump,  "hexdump <file> [off] [len]","dump a file in hex" },
     { "df",       cmd_df,       "df",                        "show free space on the card" },
-    { "load",     cmd_load,     "load <file>",               "load a program image into RAM" },
-    { "run",      cmd_run,      "run [file] [args...]",      "run the loaded program" },
+    { "load",     cmd_load,     "load " PROG_ARG,            "load a program image into RAM" },
+    { "run",      cmd_run,      "run [" PROG_ARG "] [args]", "run the loaded program" },
     { "stop",     cmd_stop,     "stop",                      "stop / unload the program (Ctrl-C stops a running one)" },
+#ifdef FREYA_APP_FLASH_ADDR
+    { "install",  cmd_install,  "install <file>",            "copy a program image into internal flash" },
+    { "uninstall",cmd_uninstall,"uninstall",                 "erase the program flash region" },
+#endif
     { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]","show or set the clock" },
     { "uptime",   cmd_uptime,   "uptime",                    "time since reset" },
     { "led",      cmd_led,      "led on|off|blink",          "drive the " BOARD_LED_NAME " LED" },

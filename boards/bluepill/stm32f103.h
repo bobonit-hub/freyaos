@@ -83,6 +83,22 @@ typedef struct {
 #define FLASH_ACR_LATENCY(n) ((uint32_t)(n) & 0x7)
 #define FLASH_ACR_PRFTBE    (1UL << 4)
 
+/* The embedded flash programming interface.  The F1 erases in 1 KiB pages
+ * and programs a halfword at a time; there is no byte or word write. */
+#define FLASH_KEY1          0x45670123UL
+#define FLASH_KEY2          0xCDEF89ABUL
+
+#define FLASH_SR_BSY        (1UL << 0)
+#define FLASH_SR_PGERR      (1UL << 2)
+#define FLASH_SR_WRPRTERR   (1UL << 4)
+#define FLASH_SR_EOP        (1UL << 5)
+
+#define FLASH_CR_PG         (1UL << 0)
+#define FLASH_CR_PER        (1UL << 1)
+#define FLASH_CR_MER        (1UL << 2)
+#define FLASH_CR_STRT       (1UL << 6)
+#define FLASH_CR_LOCK       (1UL << 7)
+
 /* --------------------------------------------------------------- GPIO */
 typedef struct {
     __IO uint32_t CRL;         /* pins 0..7,  four bits each */
