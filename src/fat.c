@@ -8,6 +8,8 @@
  *    between the fixed FAT16 root area and a cluster chain.
  *  - Long file names are read, and written whenever a name does not fit
  *    the 8.3 form.  Everything is treated as ASCII.
+ *  - Rename rewrites directory entries only: the new name is created
+ *    before the old one is removed, and the cluster chain is left intact.
  *  - All paths handed to this layer are absolute; the shell resolves the
  *    working directory before calling in.
  */
@@ -1366,5 +1368,81 @@ int fat_unlink(const char *path)
     }
     rc = delete_entry(parent, &pos);
     if (rc != FAT_OK) return rc;
+    return fat_sync();
+}
+
+/*
+ * True when 'path' lives strictly inside directory 'dir' (so moving 'dir'
+ * onto 'path' would make a directory its own ancestor).
+ */
+static int path_inside(const char *dir, const char *path)
+{
+    int n = (int)strlen(dir);
+
+    if (n == 1 && dir[0] == '/') return path[1] != '\0';
+    if (strncmp(path, dir, (size_t)n) != 0) return 0;
+    return path[n] == '/';
+}
+
+static int dir_update_dotdot(uint32_t dir_clus, uint32_t parent)
+{
+    uint8_t *d;
+    uint32_t up = (parent == root_clus()) ? 0 : parent;
+    int rc;
+
+    rc = cache_load(clus2lba(dir_clus));
+    if (rc != FAT_OK) return rc;
+
+    d = &s_buf[ENT_SIZE];
+    if (d[0] != '.' || d[1] != '.') return FAT_ERR_IO;
+    wr16(&d[20], (uint16_t)(up >> 16));
+    wr16(&d[26], (uint16_t)(up & 0xFFFF));
+    s_buf_dirty = 1;
+    return fat_sync();
+}
+
+/*
+ * Renames or moves a file or directory by rewriting directory entries.
+ * The cluster chain is never copied or freed: the new name is created
+ * first, then the old name is removed, so a crash cannot orphan the data.
+ */
+int fat_rename(const char *src, const char *dst)
+{
+    fat_dirent_t se, de;
+    entpos_t spos, dpos;
+    uint32_t sparent, dparent;
+    char sleaf[FAT_MAX_NAME], dleaf[FAT_MAX_NAME];
+    int rc;
+
+    if (!g_fs.mounted) return FAT_ERR_NOFS;
+    if (!src || !dst || src[0] != '/' || dst[0] != '/') return FAT_ERR_INVAL;
+    if (strcmp(src, dst) == 0) return FAT_OK;
+
+    rc = resolve(src, &sparent, sleaf, &se, &spos);
+    if (rc != FAT_OK) return rc;
+    if (!sleaf[0]) return FAT_ERR_INVAL;            /* refuse the root */
+
+    rc = resolve(dst, &dparent, dleaf, &de, &dpos);
+    if (rc == FAT_OK) {
+        /* Same object under a different spelling (FAT is case-blind). */
+        if (spos.lba == dpos.lba && spos.off == dpos.off) return FAT_OK;
+        return FAT_ERR_EXIST;
+    }
+    if (rc != FAT_ERR_NOENT) return rc;
+    if (!dleaf[0]) return FAT_ERR_NOENT;
+    if (strcmp(dleaf, ".") == 0 || strcmp(dleaf, "..") == 0) return FAT_ERR_INVAL;
+
+    if ((se.attr & FAT_ATTR_DIR) && path_inside(src, dst)) return FAT_ERR_INVAL;
+
+    rc = create_entry(dparent, dleaf, se.attr, se.clus, se.size, NULL);
+    if (rc != FAT_OK) return rc;
+
+    rc = delete_entry(sparent, &spos);
+    if (rc != FAT_OK) return rc;
+
+    if ((se.attr & FAT_ATTR_DIR) && se.clus && sparent != dparent) {
+        rc = dir_update_dotdot(se.clus, dparent);
+        if (rc != FAT_OK) return rc;
+    }
     return fat_sync();
 }

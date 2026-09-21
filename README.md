@@ -190,6 +190,7 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 | `cd [path]`, `pwd` | move around |
 | `mkdir <dir>...` | create directories |
 | `rm [-r] <path>...` | remove files, empty directories, or whole trees |
+| `rename <old> <new>`, `mv` | rename or move a file or directory (no data copy) |
 | `download <file> [--raw]` | receive a file over XMODEM |
 | `cat <file>` | print a file |
 | `write <file> <text...>` | append a line to a file |
@@ -281,8 +282,8 @@ time — Freya does not multitask.
 
 The service table (`include/freya_api.h`) gives a program console I/O and
 `printf`, `malloc`/`free`, milliseconds and delays, the LED, and the filesystem:
-`open`, `read`, `write`, `seek`, `close`, `unlink`, `mkdir`, `opendir`,
-`readdir`, `closedir`.
+`open`, `read`, `write`, `seek`, `close`, `unlink`, `mkdir`, `rename`,
+`opendir`, `readdir`, `closedir`.
 
 ### Stopping a program
 

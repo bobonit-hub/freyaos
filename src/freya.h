@@ -237,6 +237,7 @@ int32_t fs_fd_size(int fd);
 int  fs_dd_open(const char *path);
 int  fs_dd_read(int dd, freya_stat_t *st);
 int  fs_dd_close(int dd);
+int  fs_rename(const char *old_path, const char *new_path);
 void fs_close_all(void);
 
 /* -------------------------------------------------------------- shell */

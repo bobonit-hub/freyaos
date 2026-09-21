@@ -313,6 +313,75 @@ int main(int argc, char **argv)
     list("/");
     list("/docs");
 
+    printf("\nrename\n");
+    {
+        fat_file_t f;
+        uint8_t buf[32];
+        uint32_t n, free_a = 0, free_b = 0;
+
+        check_rc(fat_open(&f, "/docs/to_move.txt", FAT_WRITE | FAT_CREATE | FAT_TRUNC),
+                 "create a file to rename");
+        check_rc(fat_write(&f, "rename-payload", 14, &n), "  write");
+        check_rc(fat_close(&f), "  close");
+
+        check_rc(fat_free_clusters(&free_a), "free clusters before rename");
+        check_rc(fat_rename("/docs/to_move.txt", "/docs/moved.txt"),
+                 "rename in the same directory");
+        check(!exists("/docs/to_move.txt") && exists("/docs/moved.txt"),
+              "  old name gone, new name present");
+        check_rc(fat_open(&f, "/docs/moved.txt", FAT_READ), "  reopen under the new name");
+        fat_read(&f, buf, sizeof(buf), &n);
+        check(n == 14 && !memcmp(buf, "rename-payload", 14), "  content survived");
+        fat_close(&f);
+
+        check_rc(fat_rename("/docs/moved.txt", "/docs/sub/moved.txt"),
+                 "move into a subdirectory");
+        check(!exists("/docs/moved.txt") && exists("/docs/sub/moved.txt"),
+              "  it lives in the subdirectory");
+
+        check(fat_rename("/docs/sub/moved.txt", "/docs/small.txt") == FAT_ERR_EXIST,
+              "refuses to overwrite an existing name");
+        check(fat_rename("/docs/nope.txt", "/docs/x.txt") == FAT_ERR_NOENT,
+              "renaming a missing file fails");
+        check(fat_rename("/docs", "/docs/sub/trap") == FAT_ERR_INVAL,
+              "refuses to move a directory into itself");
+        check(fat_rename("/", "/elsewhere") == FAT_ERR_INVAL, "refuses to rename the root");
+
+        check_rc(fat_rename("/docs/sub", "/docs/folder"), "rename a directory with children");
+        check(exists("/docs/folder/deep.dat") && exists("/docs/folder/moved.txt"),
+              "  children follow the directory");
+        check(!exists("/docs/sub"), "  the old directory name is gone");
+        check_rc(fat_rename("/docs/folder", "/docs/sub"), "  rename it back");
+        check(exists("/docs/sub/deep.dat"), "  children still resolve");
+
+        check_rc(fat_mkdir("/bin/place"), "mkdir a destination for a directory move");
+        check_rc(fat_rename("/docs/sub", "/bin/place/sub"),
+                 "move a directory to another parent");
+        check(exists("/bin/place/sub/deep.dat") && !exists("/docs/sub"),
+              "  the tree is reachable from the new parent");
+        check_rc(fat_rename("/bin/place/sub", "/docs/sub"), "  move the tree back");
+        check_rc(fat_unlink("/bin/place"), "  remove the empty destination directory");
+
+        {
+            const char *lfn_src = "/docs/A Rather Long File Name.text";
+            const char *lfn_dst = "/docs/Renamed Long File.text";
+            check_rc(fat_rename(lfn_src, lfn_dst), "rename a long name");
+            check(exists(lfn_dst) && !exists(lfn_src), "  long name moved");
+            check_rc(fat_rename(lfn_dst, lfn_src), "  restore the long name");
+        }
+
+        check_rc(fat_rename("/docs/sub/moved.txt", "/bin/moved.txt"),
+                 "move a file across directories");
+        check(exists("/bin/moved.txt") && !exists("/docs/sub/moved.txt"),
+              "  it left the old directory");
+
+        check_rc(fat_free_clusters(&free_b), "free clusters after rename");
+        check(free_a == free_b, "rename did not allocate or free data clusters");
+        check_rc(fat_rename("/docs/small.txt", "/docs/small.txt"),
+                 "renaming to the same path is a no-op");
+        check_rc(fat_unlink("/bin/moved.txt"), "remove the extra renamed file");
+    }
+
     printf("\ndeletion\n");
     check(fat_unlink("/docs") == FAT_ERR_NOTEMPTY, "refuses to delete a non-empty directory");
     check_rc(fat_unlink("/docs/sub/deep.dat"), "delete a file");

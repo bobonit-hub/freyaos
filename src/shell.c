@@ -528,6 +528,25 @@ static int cmd_rm(int argc, char **argv)
     return 0;
 }
 
+static int cmd_rename(int argc, char **argv)
+{
+    int rc;
+
+    if (!need_fs()) return -1;
+    if (argc != 3) {
+        kprintf("usage: %s <old> <new>\r\n", argv[0]);
+        return -1;
+    }
+
+    rc = fs_rename(argv[1], argv[2]);
+    if (rc != FAT_OK) {
+        kprintf("%s: %s\r\n", argv[0], fat_err_str(rc));
+        return -1;
+    }
+    kprintf("renamed %s -> %s\r\n", argv[1], argv[2]);
+    return 0;
+}
+
 static int cmd_download(int argc, char **argv)
 {
     uint32_t got = 0;
@@ -976,6 +995,8 @@ static const command_t s_cmds[] = {
     { "pwd",      cmd_pwd,      "pwd",                       "print the working directory" },
     { "mkdir",    cmd_mkdir,    "mkdir <dir>...",            "create directories" },
     { "rm",       cmd_rm,       "rm [-r] <path>...",         "remove files or directories" },
+    { "rename",   cmd_rename,   "rename <old> <new>",        "rename or move a file or directory" },
+    { "mv",       cmd_rename,   "mv <old> <new>",            "rename or move a file or directory" },
     { "download", cmd_download, "download <file> [--raw]",   "receive a file over XMODEM" },
     { "cat",      cmd_cat,      "cat <file>",                "print a file" },
     { "write",    cmd_write,    "write <file> <text...>",    "append a line of text to a file" },

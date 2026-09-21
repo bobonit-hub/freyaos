@@ -215,3 +215,27 @@ int fs_dd_close(int dd)
     s_dirs[dd].open = 0;
     return FAT_OK;
 }
+
+int fs_rename(const char *old_path, const char *new_path)
+{
+    char src[FAT_MAX_PATH], dst[FAT_MAX_PATH];
+    int rc, n;
+
+    if (fs_abspath(old_path, src, sizeof(src)) != 0) return FAT_ERR_INVAL;
+    if (fs_abspath(new_path, dst, sizeof(dst)) != 0) return FAT_ERR_INVAL;
+
+    rc = fat_rename(src, dst);
+    if (rc != FAT_OK) return rc;
+
+    n = (int)strlen(src);
+    if (strncmp(s_cwd, src, (size_t)n) == 0 &&
+        (s_cwd[n] == '\0' || s_cwd[n] == '/')) {
+        char rebuilt[FAT_MAX_PATH];
+        if (ksnprintf(rebuilt, sizeof(rebuilt), "%s%s", dst, s_cwd + n)
+            < (int)sizeof(rebuilt)) {
+            strncpy(s_cwd, rebuilt, sizeof(s_cwd) - 1);
+            s_cwd[sizeof(s_cwd) - 1] = '\0';
+        }
+    }
+    return FAT_OK;
+}

@@ -129,5 +129,6 @@ int  fat_closedir(fat_dir_t *d);
 int  fat_stat(const char *path, fat_dirent_t *e);
 int  fat_mkdir(const char *path);
 int  fat_unlink(const char *path);                 /* file or empty dir */
+int  fat_rename(const char *src, const char *dst); /* directory entry only */
 
 #endif /* FREYA_FAT_H */

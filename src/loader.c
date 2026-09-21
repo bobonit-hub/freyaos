@@ -186,6 +186,11 @@ static int api_mkdir(const char *path)
     return fat_mkdir(abs);
 }
 
+static int api_rename(const char *old_path, const char *new_path)
+{
+    return fs_rename(old_path, new_path);
+}
+
 static const freya_api_t s_api = {
     .size          = sizeof(freya_api_t),
     .version       = FREYA_ABI_VERSION,
@@ -216,6 +221,7 @@ static const freya_api_t s_api = {
     .closedir      = fs_dd_close,
     .led           = api_led,
     .cpu_hz        = api_cpu_hz,
+    .rename        = api_rename,
 };
 
 const freya_api_t *app_api(void)

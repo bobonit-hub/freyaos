@@ -157,6 +157,9 @@ typedef struct freya_api {
     /* raw board access */
     void     (*led)(int on);
     uint32_t (*cpu_hz)(void);
+
+    /* appended: directory-entry rename (no data copy) */
+    int      (*rename)(const char *old_path, const char *new_path);
 } freya_api_t;
 
 #endif /* FREYA_API_H */
