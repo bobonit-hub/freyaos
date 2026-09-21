@@ -160,12 +160,16 @@ region. It is an app name, a sample name, or the path of a `.xip.bin`:
 make BOARD=bluepill flash PROGRAM=hello
 make BOARD=bluepill flash PROGRAM=blink
 make BOARD=bluepill flash PROGRAM=path/to/mine.xip.bin
+make BOARD=bluepill flash PROGRAM=hello AUTOSTART=1
 ```
 
 The file written is `build/bluepill/freya+hello.bin` (the tag follows the
-program). `make image PROGRAM=hello` builds that file without programming the
-chip. A kernel-only `make flash` still leaves whatever is already in the
-region alone. `runflash` starts the program afterwards.
+program; `AUTOSTART=1` adds `+autostart`). `make image PROGRAM=hello` builds
+that file without programming the chip. A kernel-only `make flash` still
+leaves whatever is already in the region alone. `runflash` starts the
+program afterwards. `AUTOSTART=1` writes the auto-start flag into the packed
+image so the next reset runs it; the default is off, so packing a program
+does not autorun on every reset unless you asked.
 
 Then open the console:
 
@@ -384,8 +388,9 @@ rewrite the kernel that is running it.
 If `/autorun.bin` exists it is started automatically at boot, with two seconds
 to press a key and cancel. Failing that, on a board that keeps a program in
 flash, an installed image is started the same way when the auto-start flag is
-on — `autostart on` after `install`, so a Blue Pill with nothing in the card
-socket still boots Freya and runs a program.
+on — `autostart on` after `install`, or `AUTOSTART=1` when the program is
+packed into the module, so a Blue Pill with nothing in the card socket still
+boots Freya and runs a program.
 
 ## Memory map
 
@@ -498,7 +503,7 @@ the kernel compares them at boot, and this compares them at build time.
 68 checks, 0 failures     FAT32
 11 checks, 0 failures     interoperability
 18 checks, 0 failures     XMODEM
-29 checks, 0 failures     program image layout
+34 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```
 

@@ -288,7 +288,9 @@ that the loader's copy and clear are on a path something exercises; two of the
 checks assert it still has them. Six more pack `hello.xip.bin` behind the
 kernel the way `make flash PROGRAM=hello` does, and check that the program
 lands at the region address, that the kernel is undisturbed, that the gap and
-the remainder of the region are erased, and that a RAM image is refused.
+the remainder of the region are erased, and that a RAM image is refused. A
+second pack with `--autostart` checks that the magic sits at the slot and
+that the rest of the gap is still erased.
 
 What is left to verify on the board, in order: `install` a program and confirm
 the read-back verifies; power-cycle and `run @flash`; check that a program with

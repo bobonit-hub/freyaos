@@ -241,6 +241,26 @@ else
         check "packing the kernel and hello.xip.bin" 1 0
     fi
 
+    # AUTOSTART=1 writes the magic at the slot; the rest of the gap stays erased.
+    packed_as="$OUT/freya+hello+autostart.bin"
+    slot=$(( $(macro autostart_addr) - 0x08000000 ))
+    slot_end=$(( $(macro autostart_addr) + $(macro autostart_size) ))
+    if python3 tools/pack_image.py \
+            --kernel "$kbin" --app "$bin" \
+            --load-addr "$(macro app_flash_addr)" --region-end "$end" \
+            --slot-addr "$(macro autostart_addr)" --slot-end "$slot_end" \
+            --autostart --out "$packed_as" >/dev/null; then
+        check "the packed auto-start magic is at the slot" \
+              "$(( 0x31415946 ))" "$(fld "$packed_as" "$slot")"
+        gap=$( {
+            dd if="$packed_as" bs=1 skip="$ksize" count=$((slot - ksize)) status=none
+            dd if="$packed_as" bs=1 skip=$((slot + 4)) count=$((off - slot - 4)) status=none
+          } | tr -d '\377' | wc -c | tr -d ' ')
+        check "the rest of the gap stays erased when auto-start is packed" 0 "$gap"
+    else
+        check "packing hello.xip.bin with --autostart" 1 0
+    fi
+
     if python3 tools/pack_image.py \
             --kernel "$kbin" --app "$ram" \
             --load-addr "$(macro app_flash_addr)" --region-end "$end" \

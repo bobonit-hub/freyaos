@@ -5,6 +5,8 @@
 #   make flash              flash the image with st-flash
 #   make BOARD=bluepill flash PROGRAM=hello
 #                           flash the kernel and one program into the module
+#   make BOARD=bluepill flash PROGRAM=hello AUTOSTART=1
+#                           same, with the auto-start flag already on
 #   make size               show the section sizes
 #   make clean
 #
@@ -88,6 +90,15 @@ endif
 # path of a .xip.bin linked for that region.  Unset, the image is the kernel
 # alone and whatever already occupies the region is left untouched.
 PROGRAM ?=
+# Set the auto-start flag in the packed image.  Off unless asked, so a
+# module programmed with PROGRAM= still boots to the shell on every reset.
+AUTOSTART ?=
+
+ifeq ($(AUTOSTART),1)
+ifeq ($(PROGRAM),)
+$(error AUTOSTART=1 needs PROGRAM= so there is a flash image to set the flag in)
+endif
+endif
 
 ifneq ($(PROGRAM),)
 ifeq ($(APP_XIP_LD),)
@@ -101,7 +112,13 @@ else
 PROGRAM_BIN := $(PROGRAM)
 endif
 PROGRAM_TAG := $(patsubst %.xip.bin,%,$(notdir $(PROGRAM_BIN)))
+ifeq ($(AUTOSTART),1)
+FLASH_IMAGE := $(BUILD)/$(TARGET)+$(PROGRAM_TAG)+autostart.bin
+PACK_AUTOSTART := --autostart
+else
 FLASH_IMAGE := $(BUILD)/$(TARGET)+$(PROGRAM_TAG).bin
+PACK_AUTOSTART :=
+endif
 else
 FLASH_IMAGE := $(BUILD)/$(TARGET).bin
 endif
@@ -198,20 +215,25 @@ test:
 	@BOARD=$(BOARD) sh tests/run_tests.sh
 
 # Kernel plus, when PROGRAM is set, the one program image at the address the
-# linker reserved.  The region bounds are read from the kernel ELF so they
-# cannot drift away from boards/<board>/freya.ld.
+# linker reserved.  The region bounds and the auto-start slot are read from
+# the kernel ELF so they cannot drift away from boards/<board>/freya.ld.
 ifneq ($(PROGRAM),)
 $(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PROGRAM_BIN) tools/pack_image.py
 	@echo "  PACK  $@"
 	@set -eu; \
 	 start=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__app_flash_start" { print "0x" $$1 }'); \
 	 end=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__app_flash_end" { print "0x" $$1 }'); \
-	 test -n "$$start" && test -n "$$end"; \
+	 slot=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__autostart_start" { print "0x" $$1 }'); \
+	 slot_end=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__autostart_end" { print "0x" $$1 }'); \
+	 test -n "$$start" && test -n "$$end" && test -n "$$slot" && test -n "$$slot_end"; \
 	 python3 tools/pack_image.py \
 	     --kernel $(BUILD)/$(TARGET).bin \
 	     --app $(PROGRAM_BIN) \
 	     --load-addr $$start \
 	     --region-end $$end \
+	     --slot-addr $$slot \
+	     --slot-end $$slot_end \
+	     $(PACK_AUTOSTART) \
 	     --out $@
 
 all: $(FLASH_IMAGE)

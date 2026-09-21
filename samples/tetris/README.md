@@ -60,9 +60,12 @@ Or pack it with the kernel when the module is programmed:
 
 ```sh
 make BOARD=bluepill flash PROGRAM=tetris
+make BOARD=bluepill flash PROGRAM=tetris AUTOSTART=1
 ```
 
 Then `runflash` after boot, or `autostart on` so the next reset runs it.
+`AUTOSTART=1` sets that flag in the image written to the module, so no
+console is needed after programming.
 
 ## Play
 
