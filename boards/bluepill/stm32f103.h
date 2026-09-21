@@ -1,10 +1,16 @@
 /*
- * Freya - minimal STM32F411xE register definitions.
+ * Freya - minimal STM32F103xB register definitions.
  * Only the peripherals Freya actually touches are described here; this
  * replaces CMSIS so the system stays dependency free.
+ *
+ * The F1 is an older design than the F4: the RCC has a single PLL
+ * multiplier instead of the M/N/P divider chain, the flash controller has
+ * no caches, and GPIO pins are configured through two four-bit-per-pin
+ * registers (CRL, CRH) rather than MODER/OTYPER/OSPEEDR/PUPDR/AFR.  The
+ * core registers are the same, minus the FPU.
  */
-#ifndef FREYA_STM32F411_H
-#define FREYA_STM32F411_H
+#ifndef FREYA_STM32F103_H
+#define FREYA_STM32F103_H
 
 #include <stdint.h>
 
@@ -13,40 +19,18 @@
 /* ---------------------------------------------------------------- RCC */
 typedef struct {
     __IO uint32_t CR;          /* 0x00 */
-    __IO uint32_t PLLCFGR;     /* 0x04 */
-    __IO uint32_t CFGR;        /* 0x08 */
-    __IO uint32_t CIR;         /* 0x0C */
-    __IO uint32_t AHB1RSTR;    /* 0x10 */
-    __IO uint32_t AHB2RSTR;    /* 0x14 */
-    __IO uint32_t AHB3RSTR;    /* 0x18 */
-    uint32_t      RES0;        /* 0x1C */
-    __IO uint32_t APB1RSTR;    /* 0x20 */
-    __IO uint32_t APB2RSTR;    /* 0x24 */
-    uint32_t      RES1[2];     /* 0x28 */
-    __IO uint32_t AHB1ENR;     /* 0x30 */
-    __IO uint32_t AHB2ENR;     /* 0x34 */
-    __IO uint32_t AHB3ENR;     /* 0x38 */
-    uint32_t      RES2;        /* 0x3C */
-    __IO uint32_t APB1ENR;     /* 0x40 */
-    __IO uint32_t APB2ENR;     /* 0x44 */
-    uint32_t      RES3[2];     /* 0x48 */
-    __IO uint32_t AHB1LPENR;   /* 0x50 */
-    __IO uint32_t AHB2LPENR;   /* 0x54 */
-    __IO uint32_t AHB3LPENR;   /* 0x58 */
-    uint32_t      RES4;        /* 0x5C */
-    __IO uint32_t APB1LPENR;   /* 0x60 */
-    __IO uint32_t APB2LPENR;   /* 0x64 */
-    uint32_t      RES5[2];     /* 0x68 */
-    __IO uint32_t BDCR;        /* 0x70 */
-    __IO uint32_t CSR;         /* 0x74 */
-    uint32_t      RES6[2];     /* 0x78 */
-    __IO uint32_t SSCGR;       /* 0x80 */
-    __IO uint32_t PLLI2SCFGR;  /* 0x84 */
-    uint32_t      RES7;        /* 0x88 */
-    __IO uint32_t DCKCFGR;     /* 0x8C */
+    __IO uint32_t CFGR;        /* 0x04 */
+    __IO uint32_t CIR;         /* 0x08 */
+    __IO uint32_t APB2RSTR;    /* 0x0C */
+    __IO uint32_t APB1RSTR;    /* 0x10 */
+    __IO uint32_t AHBENR;      /* 0x14 */
+    __IO uint32_t APB2ENR;     /* 0x18 */
+    __IO uint32_t APB1ENR;     /* 0x1C */
+    __IO uint32_t BDCR;        /* 0x20 */
+    __IO uint32_t CSR;         /* 0x24 */
 } RCC_TypeDef;
 
-#define RCC_BASE            0x40023800UL
+#define RCC_BASE            0x40021000UL
 #define RCC                 ((RCC_TypeDef *)RCC_BASE)
 
 #define RCC_CR_HSION        (1UL << 0)
@@ -63,32 +47,23 @@ typedef struct {
 #define RCC_CFGR_SWS_MASK   (3UL << 2)
 #define RCC_CFGR_SWS_PLL    (2UL << 2)
 #define RCC_CFGR_HPRE_DIV1  (0UL << 4)
-#define RCC_CFGR_PPRE1_DIV2 (4UL << 10)
-#define RCC_CFGR_PPRE2_DIV1 (0UL << 13)
+#define RCC_CFGR_PPRE1_DIV2 (4UL << 8)
+#define RCC_CFGR_PPRE2_DIV1 (0UL << 11)
+#define RCC_CFGR_ADCPRE_DIV6 (2UL << 14)
+#define RCC_CFGR_PLLSRC_HSE (1UL << 16)
+#define RCC_CFGR_PLLXTPRE_DIV1 (0UL << 17)
+#define RCC_CFGR_PLLMUL(n)  (((uint32_t)(n) - 2UL) << 18)   /* n = 2..16 */
+#define RCC_CFGR_CLKMASK    0x003FFFF0UL   /* HPRE..PLLMUL, all we set  */
 
-#define RCC_PLLCFGR_SRC_HSE (1UL << 22)
-
-#define RCC_AHB1ENR_GPIOAEN (1UL << 0)
-#define RCC_AHB1ENR_GPIOBEN (1UL << 1)
-#define RCC_AHB1ENR_GPIOCEN (1UL << 2)
+#define RCC_APB2ENR_IOPAEN  (1UL << 2)
+#define RCC_APB2ENR_IOPBEN  (1UL << 3)
+#define RCC_APB2ENR_IOPCEN  (1UL << 4)
+#define RCC_APB2ENR_SPI1EN  (1UL << 12)
+#define RCC_APB2ENR_USART1EN (1UL << 14)
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB1ENR_PWREN   (1UL << 28)
-#define RCC_APB2ENR_SPI1EN  (1UL << 12)
-#define RCC_APB2ENR_SYSCFGEN (1UL << 14)
 
 #define RCC_CSR_RMVF        (1UL << 24)
-
-/* ---------------------------------------------------------------- PWR */
-typedef struct {
-    __IO uint32_t CR;
-    __IO uint32_t CSR;
-} PWR_TypeDef;
-
-#define PWR_BASE            0x40007000UL
-#define PWR                 ((PWR_TypeDef *)PWR_BASE)
-#define PWR_CR_VOS_SCALE1   (3UL << 14)
-#define PWR_CR_VOS_MASK     (3UL << 14)
-#define PWR_CSR_VOSRDY      (1UL << 14)
 
 /* -------------------------------------------------------------- FLASH */
 typedef struct {
@@ -97,32 +72,54 @@ typedef struct {
     __IO uint32_t OPTKEYR;
     __IO uint32_t SR;
     __IO uint32_t CR;
-    __IO uint32_t OPTCR;
+    __IO uint32_t AR;
+    uint32_t      RES0;
+    __IO uint32_t OBR;
+    __IO uint32_t WRPR;
 } FLASH_TypeDef;
 
-#define FLASH_R_BASE        0x40023C00UL
+#define FLASH_R_BASE        0x40022000UL
 #define FLASH_R             ((FLASH_TypeDef *)FLASH_R_BASE)
-#define FLASH_ACR_LATENCY(n) ((uint32_t)(n) & 0xF)
-#define FLASH_ACR_PRFTEN    (1UL << 8)
-#define FLASH_ACR_ICEN      (1UL << 9)
-#define FLASH_ACR_DCEN      (1UL << 10)
+#define FLASH_ACR_LATENCY(n) ((uint32_t)(n) & 0x7)
+#define FLASH_ACR_PRFTBE    (1UL << 4)
 
 /* --------------------------------------------------------------- GPIO */
 typedef struct {
-    __IO uint32_t MODER;
-    __IO uint32_t OTYPER;
-    __IO uint32_t OSPEEDR;
-    __IO uint32_t PUPDR;
+    __IO uint32_t CRL;         /* pins 0..7,  four bits each */
+    __IO uint32_t CRH;         /* pins 8..15, four bits each */
     __IO uint32_t IDR;
     __IO uint32_t ODR;
-    __IO uint32_t BSRR;
+    __IO uint32_t BSRR;        /* set in 0..15, reset in 16..31 */
+    __IO uint32_t BRR;
     __IO uint32_t LCKR;
-    __IO uint32_t AFR[2];
 } GPIO_TypeDef;
 
-#define GPIOA               ((GPIO_TypeDef *)0x40020000UL)
-#define GPIOB               ((GPIO_TypeDef *)0x40020400UL)
-#define GPIOC               ((GPIO_TypeDef *)0x40020800UL)
+#define GPIOA               ((GPIO_TypeDef *)0x40010800UL)
+#define GPIOB               ((GPIO_TypeDef *)0x40010C00UL)
+#define GPIOC               ((GPIO_TypeDef *)0x40011000UL)
+#define GPIOD               ((GPIO_TypeDef *)0x40011400UL)
+
+/*
+ * The CRL/CRH nibble for one pin: CNF in the top two bits, MODE in the
+ * bottom two.  MODE 00 is input, 01/10/11 are outputs capped at 10, 2 and
+ * 50 MHz.  For a pulled input the direction comes from ODR: 1 = pull-up.
+ */
+#define GPIO_IN_ANALOG      0x0
+#define GPIO_IN_FLOATING    0x4
+#define GPIO_IN_PULL        0x8
+#define GPIO_OUT_PP_2M      0x2
+#define GPIO_OUT_PP_50M     0x3
+#define GPIO_OUT_OD_50M     0x7
+#define GPIO_AF_PP_50M      0xB
+#define GPIO_AF_OD_50M      0xF
+
+static inline void gpio_config(GPIO_TypeDef *port, int pin, uint32_t cfg)
+{
+    __IO uint32_t *cr = (pin < 8) ? &port->CRL : &port->CRH;
+    int shift = (pin & 7) * 4;
+
+    *cr = (*cr & ~(0xFUL << shift)) | ((cfg & 0xFUL) << shift);
+}
 
 /* -------------------------------------------------------------- USART */
 typedef struct {
@@ -135,9 +132,9 @@ typedef struct {
     __IO uint32_t GTPR;
 } USART_TypeDef;
 
-#define USART1              ((USART_TypeDef *)0x40011000UL)
+#define USART1              ((USART_TypeDef *)0x40013800UL)
 #define USART2              ((USART_TypeDef *)0x40004400UL)
-#define USART6              ((USART_TypeDef *)0x40011400UL)
+#define USART3              ((USART_TypeDef *)0x40004800UL)
 
 #define USART_SR_PE         (1UL << 0)
 #define USART_SR_FE         (1UL << 1)
@@ -160,11 +157,10 @@ typedef struct {
     __IO uint32_t CRCPR;
     __IO uint32_t RXCRCR;
     __IO uint32_t TXCRCR;
-    __IO uint32_t I2SCFGR;
-    __IO uint32_t I2SPR;
 } SPI_TypeDef;
 
 #define SPI1                ((SPI_TypeDef *)0x40013000UL)
+#define SPI2                ((SPI_TypeDef *)0x40003800UL)
 
 #define SPI_CR1_CPHA        (1UL << 0)
 #define SPI_CR1_CPOL        (1UL << 1)
@@ -201,6 +197,7 @@ typedef struct {
 #define SCB_SHCSR_BUSFAULTENA (1UL << 17)
 #define SCB_SHCSR_MEMFAULTENA (1UL << 16)
 #define SCB_CCR_DIV_0_TRP   (1UL << 4)
+#define SCB_CCR_STKALIGN    (1UL << 9)   /* zero out of reset on Cortex-M3 */
 #define SCB_AIRCR_SYSRESETREQ 0x05FA0004UL
 
 typedef struct {
@@ -233,8 +230,8 @@ typedef struct {
 #define USART2_IRQn         38
 
 #define DBGMCU_IDCODE       (*(__IO uint32_t *)0xE0042000UL)
-#define UID_BASE            0x1FFF7A10UL
-#define FLASHSIZE_BASE      0x1FFF7A22UL
+#define UID_BASE            0x1FFFF7E8UL
+#define FLASHSIZE_BASE      0x1FFFF7E0UL
 
 static inline void nvic_enable(int irq)
 {
@@ -243,7 +240,7 @@ static inline void nvic_enable(int irq)
 
 static inline void nvic_set_priority(int irq, uint8_t prio)
 {
-    NVIC->IP[irq] = (uint8_t)(prio << 4);
+    NVIC->IP[irq] = (uint8_t)(prio << 4);   /* four priority bits */
 }
 
 static inline void __dsb(void)  { __asm volatile ("dsb 0xF" ::: "memory"); }
@@ -266,4 +263,4 @@ static inline void irq_restore(uint32_t pm)
     __asm volatile ("msr primask, %0" :: "r"(pm) : "memory");
 }
 
-#endif /* FREYA_STM32F411_H */
+#endif /* FREYA_STM32F103_H */

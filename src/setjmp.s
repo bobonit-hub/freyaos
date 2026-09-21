@@ -4,10 +4,10 @@
  * Buffer layout (10 words): sp, r4-r11, lr.
  * Callee saved FP registers (s16-s31) are not preserved: a program that
  * is aborted never resumes, and the kernel itself is built soft-float
- * clean for these paths.
+ * clean for these paths.  Plain Thumb-2 throughout, so this file assembles
+ * unchanged for every core Freya is ported to.
  */
     .syntax unified
-    .cpu cortex-m4
     .thumb
 
     .section .text.freya_setjmp

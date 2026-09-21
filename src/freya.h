@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdarg.h>
-#include "stm32f411.h"
+#include "board.h"
 #include "freya_api.h"
 
 #define FREYA_VERSION   "1.0"

@@ -1,15 +1,32 @@
-# Freya - bare metal system for the STM32F411CEU6 "Black Pill"
+# Freya - a bare metal system for small STM32 boards
 #
-#   make            build the kernel image and the example programs
-#   make flash      flash build/freya.bin with st-flash (or make dfu / openocd)
-#   make size       show the section sizes
+#   make                    build the kernel image and the example programs
+#   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
+#   make flash              flash the image with st-flash
+#   make size               show the section sizes
 #   make clean
+#
+# Everything a board needs lives in boards/<board>: its register header,
+# its startup code, its bring-up (boards/<board>/board.c), its linker
+# scripts and the compiler flags in boards/<board>/board.mk.
 
 TARGET    := freya
-BUILD     := build
+BOARD     ?= blackpill
+
 SRC_DIR   := src
 APP_DIR   := apps
 SMPL_DIR  := samples
+BOARD_DIR := boards/$(BOARD)
+BUILD     := build/$(BOARD)
+
+ifeq ($(wildcard $(BOARD_DIR)/board.mk),)
+$(error unknown BOARD '$(BOARD)' - available: $(patsubst boards/%/,%,$(dir $(wildcard boards/*/board.mk))))
+endif
+include $(BOARD_DIR)/board.mk
+
+# Programs are linked against the same board as the kernel, so the two
+# agree on where the program region is (see include/freya_api.h).
+BOARD_DEF := -DFREYA_BOARD_$(shell echo $(BOARD) | tr a-z A-Z)
 
 CROSS     ?= arm-none-eabi-
 CC        := $(CROSS)gcc
@@ -17,52 +34,63 @@ OBJCOPY   := $(CROSS)objcopy
 OBJDUMP   := $(CROSS)objdump
 SIZE      := $(CROSS)size
 
-CPUFLAGS  := -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard
-
-CFLAGS    := $(CPUFLAGS) \
+CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) \
              -std=gnu11 -Os -g3 \
              -ffreestanding -fno-common -fno-builtin \
              -ffunction-sections -fdata-sections \
              -Wall -Wextra -Wshadow -Wundef \
              -Wno-unused-parameter \
-             -Iinclude -I$(SRC_DIR)
+             -Iinclude -I$(SRC_DIR) -I$(BOARD_DIR)
 
 ASFLAGS   := $(CPUFLAGS) -g3
 
-LDSCRIPT  := ld/freya.ld
+LDSCRIPT  := $(BOARD_DIR)/freya.ld
 LDFLAGS   := $(CPUFLAGS) -nostdlib -T $(LDSCRIPT) \
              -Wl,--gc-sections -Wl,--build-id=none \
              -Wl,-Map=$(BUILD)/$(TARGET).map
 
 CSRC      := $(wildcard $(SRC_DIR)/*.c)
 ASRC      := $(wildcard $(SRC_DIR)/*.s)
+BCSRC     := $(wildcard $(BOARD_DIR)/*.c)
+BASRC     := $(wildcard $(BOARD_DIR)/*.s)
 OBJS      := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(CSRC)) \
-             $(patsubst $(SRC_DIR)/%.s,$(BUILD)/%.o,$(ASRC))
+             $(patsubst $(SRC_DIR)/%.s,$(BUILD)/%.o,$(ASRC)) \
+             $(patsubst $(BOARD_DIR)/%.c,$(BUILD)/board/%.o,$(BCSRC)) \
+             $(patsubst $(BOARD_DIR)/%.s,$(BUILD)/board/%.o,$(BASRC))
 DEPS      := $(OBJS:.o=.d)
 
 # User programs, one directory per program under apps/
 APPS      := hello spin
 APP_BINS  := $(patsubst %,$(BUILD)/apps/%.bin,$(APPS))
-APP_CFLAGS:= $(CPUFLAGS) -std=gnu11 -Os -g3 -ffreestanding -fno-common \
-             -fno-builtin -Wall -Wextra -Wno-unused-parameter -Iinclude
+APP_LD    := $(BOARD_DIR)/app.ld
+APP_CFLAGS:= $(CPUFLAGS) $(BOARD_DEF) -std=gnu11 -Os -g3 -ffreestanding \
+             -fno-common -fno-builtin -Wall -Wextra -Wno-unused-parameter -Iinclude
 
 # Sample programs, same ABI and linker script, one directory each under samples/
 SAMPLES   := blink
 SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(SAMPLES))
 
-.PHONY: all apps samples size clean flash dfu openocd test
+.PHONY: all apps samples size clean flash bootloader openocd test
 .SECONDARY:
 
 all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size
 
 $(BUILD):
-	@mkdir -p $(BUILD)/apps $(BUILD)/samples
+	@mkdir -p $(BUILD)/board $(BUILD)/apps $(BUILD)/samples
 
 $(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
 	@echo "  CC    $<"
 	@$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(BUILD)/%.o: $(SRC_DIR)/%.s | $(BUILD)
+	@echo "  AS    $<"
+	@$(CC) $(ASFLAGS) -c $< -o $@
+
+$(BUILD)/board/%.o: $(BOARD_DIR)/%.c | $(BUILD)
+	@echo "  CC    $<"
+	@$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD)/board/%.o: $(BOARD_DIR)/%.s | $(BUILD)
 	@echo "  AS    $<"
 	@$(CC) $(ASFLAGS) -c $< -o $@
 
@@ -84,9 +112,9 @@ $(BUILD)/$(TARGET).lst: $(BUILD)/$(TARGET).elf
 # ------------------------------------------------------------------ apps
 apps: $(APP_BINS)
 
-$(BUILD)/apps/%.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_DIR)/app.ld | $(BUILD)
+$(BUILD)/apps/%.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_LD) | $(BUILD)
 	@echo "  APP   $@"
-	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_DIR)/app.ld \
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_LD) \
 	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
 	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
 
@@ -97,10 +125,10 @@ $(BUILD)/apps/%.bin: $(BUILD)/apps/%.elf
 # --------------------------------------------------------------- samples
 samples: $(SMPL_BINS)
 
-$(BUILD)/samples/%.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_DIR)/app.ld | $(BUILD)
+$(BUILD)/samples/%.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_LD) | $(BUILD)
 	@mkdir -p $(@D)
 	@echo "  SMPL  $@"
-	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_DIR)/app.ld \
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_LD) \
 	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
 	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
 
@@ -118,19 +146,20 @@ disasm: $(BUILD)/$(TARGET).lst
 
 # Runs the FAT and XMODEM code on the host against real FAT images.
 test:
-	@sh tests/run_tests.sh
+	@BOARD=$(BOARD) sh tests/run_tests.sh
 
 flash: $(BUILD)/$(TARGET).bin
 	st-flash --reset write $< 0x08000000
 
 openocd: $(BUILD)/$(TARGET).elf
-	openocd -f interface/stlink.cfg -f target/stm32f4x.cfg \
+	openocd -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
 	        -c "program $< verify reset exit"
 
-dfu: $(BUILD)/$(TARGET).bin
-	dfu-util -a 0 -s 0x08000000:leave -D $<
+# The chip's own ROM loader: $(BOOTLOADER_HINT)
+bootloader: $(BUILD)/$(TARGET).bin
+	$(BOOTLOADER_CMD)
 
 clean:
-	@rm -rf $(BUILD)
+	@rm -rf build
 
 -include $(DEPS)

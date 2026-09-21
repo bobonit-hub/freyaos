@@ -1,13 +1,9 @@
 /*
- * Freya - clock tree, SysTick time base, board LED and software RTC.
+ * Freya - SysTick time base, reset cause, delays and the software RTC.
  *
- * Black Pill target: 25 MHz HSE crystal.
- *   HSE 25 MHz / M=25 -> 1 MHz -> * N=192 -> 192 MHz VCO -> / P=2 -> 96 MHz
- *   PLLQ = 4 gives the exact 48 MHz the USB/SDIO clock domain wants.
- * If the crystal does not start we fall back to HSI 16 MHz with M=16,
- * which produces the same 96 MHz SYSCLK.
- *
- *   HCLK  = 96 MHz, APB1 = 48 MHz, APB2 = 96 MHz
+ * The clock tree itself is the board's business: board_clock_init() brings
+ * the PLL up and fills in g_clocks, and everything here works from those
+ * frequencies.
  */
 #include "freya.h"
 
@@ -16,13 +12,6 @@ sys_clocks_t g_clocks;
 static volatile uint32_t s_ticks;      /* milliseconds since boot */
 static volatile uint32_t s_rtc_secs;   /* software wall clock     */
 static uint32_t s_rtc_frac;
-
-#define HSE_HZ      25000000UL
-#define HSI_HZ      16000000UL
-#define TARGET_HZ   96000000UL
-
-#define LED_PORT    GPIOC
-#define LED_PIN     13             /* active low on the Black Pill */
 
 static uint8_t detect_reset_cause(void)
 {
@@ -39,63 +28,6 @@ static uint8_t detect_reset_cause(void)
 
     RCC->CSR |= RCC_CSR_RMVF;
     return cause;
-}
-
-static void clock_init(void)
-{
-    uint32_t timeout;
-    uint32_t pllm;
-    int use_hse = 1;
-
-    /* Voltage scale 1 is required above 84 MHz. */
-    RCC->APB1ENR |= RCC_APB1ENR_PWREN;
-    (void)RCC->APB1ENR;
-    PWR->CR = (PWR->CR & ~PWR_CR_VOS_MASK) | PWR_CR_VOS_SCALE1;
-
-    /* Flash: 3 wait states at 96 MHz / 3.3 V, plus prefetch and caches. */
-    FLASH_R->ACR = FLASH_ACR_LATENCY(3) | FLASH_ACR_PRFTEN |
-                   FLASH_ACR_ICEN | FLASH_ACR_DCEN;
-    while ((FLASH_R->ACR & 0xF) != 3) { }
-
-    RCC->CR |= RCC_CR_HSION;
-    while (!(RCC->CR & RCC_CR_HSIRDY)) { }
-
-    RCC->CR |= RCC_CR_HSEON;
-    for (timeout = 0; timeout < 2000000; timeout++)
-        if (RCC->CR & RCC_CR_HSERDY) break;
-    if (!(RCC->CR & RCC_CR_HSERDY)) {
-        RCC->CR &= ~RCC_CR_HSEON;
-        use_hse = 0;
-    }
-
-    RCC->CR &= ~RCC_CR_PLLON;
-    while (RCC->CR & RCC_CR_PLLRDY) { }
-
-    pllm = use_hse ? 25U : 16U;         /* both give a 1 MHz PLL input */
-    RCC->PLLCFGR = pllm |
-                   (192UL << 6) |                 /* PLLN = 192        */
-                   (0UL << 16) |                  /* PLLP = 2          */
-                   (use_hse ? RCC_PLLCFGR_SRC_HSE : 0) |
-                   (4UL << 24);                   /* PLLQ = 4 -> 48MHz */
-
-    /* Bus prescalers must be valid before SYSCLK ramps to 96 MHz. */
-    RCC->CFGR = (RCC->CFGR & ~(0x0000FFF0UL)) |
-                RCC_CFGR_HPRE_DIV1 | RCC_CFGR_PPRE1_DIV2 | RCC_CFGR_PPRE2_DIV1;
-
-    RCC->CR |= RCC_CR_PLLON;
-    while (!(RCC->CR & RCC_CR_PLLRDY)) { }
-
-    RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_SW_MASK) | RCC_CFGR_SW_PLL;
-    while ((RCC->CFGR & RCC_CFGR_SWS_MASK) != RCC_CFGR_SWS_PLL) { }
-
-    if (use_hse)
-        RCC->CR |= RCC_CR_CSSON;        /* trap a dying crystal        */
-
-    g_clocks.clock_source = (uint8_t)use_hse;
-    g_clocks.sysclk_hz = TARGET_HZ;
-    g_clocks.hclk_hz   = TARGET_HZ;
-    g_clocks.pclk1_hz  = TARGET_HZ / 2;
-    g_clocks.pclk2_hz  = TARGET_HZ;
 }
 
 static void systick_init(void)
@@ -130,7 +62,7 @@ void sys_delay_ms(uint32_t ms)
         __asm volatile ("nop");
 }
 
-/* Busy loop calibrated for 96 MHz; accurate enough for card timing. */
+/* Busy loop scaled to the measured HCLK; accurate enough for card timing. */
 void sys_delay_us(uint32_t us)
 {
     uint32_t cycles = us * (g_clocks.hclk_hz / 1000000UL) / 4UL;
@@ -159,28 +91,6 @@ const char *sys_reset_cause_str(void)
     case RESET_BROWNOUT: return "brown-out";
     default:             return "unknown";
     }
-}
-
-/* -------------------------------------------------------------- LED */
-void led_init(void)
-{
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;
-    (void)RCC->AHB1ENR;
-    LED_PORT->MODER = (LED_PORT->MODER & ~(3UL << (LED_PIN * 2))) |
-                      (1UL << (LED_PIN * 2));          /* output      */
-    LED_PORT->OSPEEDR &= ~(3UL << (LED_PIN * 2));
-    led_set(0);
-}
-
-void led_set(int on)
-{
-    /* PC13 sinks the LED: driving the pin low lights it. */
-    LED_PORT->BSRR = on ? (1UL << (LED_PIN + 16)) : (1UL << LED_PIN);
-}
-
-void led_toggle(void)
-{
-    LED_PORT->ODR ^= (1UL << LED_PIN);
 }
 
 /* ------------------------------------------------------ software RTC */
@@ -261,14 +171,17 @@ uint16_t rtc_fat_time(void)
 void sys_init(void)
 {
     g_clocks.reset_cause = detect_reset_cause();
-    clock_init();
+    board_clock_init();
     systick_init();
 
     /* Enable the configurable faults so we get precise reports instead of
-     * every error escalating to a bare HardFault. */
+     * every error escalating to a bare HardFault.  STKALIGN is already
+     * fixed at one on Cortex-M4 but has to be asked for on Cortex-M3, and
+     * the fault and abort paths rewrite exception frames that must follow
+     * the same alignment rule the hardware used to build them. */
     SCB->SHCSR |= SCB_SHCSR_USGFAULTENA | SCB_SHCSR_BUSFAULTENA |
                   SCB_SHCSR_MEMFAULTENA;
-    SCB->CCR   |= SCB_CCR_DIV_0_TRP;
+    SCB->CCR   |= SCB_CCR_DIV_0_TRP | SCB_CCR_STKALIGN;
 
     led_init();
 }

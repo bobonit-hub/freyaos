@@ -1,9 +1,9 @@
 /*
  * Freya - system entry point.
  *
- * Reset_Handler hands control here with .data copied, .bss cleared and
- * the FPU enabled.  Everything from this point on is Freya's own
- * bring-up: clocks, console, storage, then the shell.
+ * The board's Reset_Handler hands control here with .data copied, .bss
+ * cleared and the core ready to run C.  Everything from this point on is
+ * Freya's own bring-up: clocks, console, storage, then the shell.
  */
 #include "freya.h"
 #include "fat.h"
@@ -70,10 +70,10 @@ void freya_main(void)
     uart_init(115200);
 
     console_banner();
-    kprintf("[boot] clocks     : %s, sysclk %u MHz, flash 3 WS\r\n",
-            g_clocks.clock_source ? "HSE 25 MHz + PLL" : "HSI 16 MHz + PLL",
-            g_clocks.hclk_hz / 1000000UL);
-    kprintf("[boot] console    : USART2 115200 8N1\r\n");
+    kprintf("[boot] clocks     : %s + PLL, sysclk %u MHz, flash %u WS\r\n",
+            g_clocks.clock_source ? BOARD_HSE_NAME : BOARD_HSI_NAME,
+            g_clocks.hclk_hz / 1000000UL, (unsigned)BOARD_FLASH_WS);
+    kprintf("[boot] console    : %s\r\n", BOARD_CONSOLE_NAME);
 
     boot_storage();
     boot_autorun();

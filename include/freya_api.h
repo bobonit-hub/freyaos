@@ -22,8 +22,22 @@
 #define FREYA_APP_MAGIC        0x41595246UL   /* 'F','R','Y','A' */
 #define FREYA_ABI_VERSION      1
 
-#define FREYA_APP_LOAD_ADDR    0x20010000UL
+/*
+ * Where a program lives.  This is the one part of the ABI that depends on
+ * the board, because it depends on how much RAM there is; the Makefile
+ * defines FREYA_BOARD_* for the kernel and for every program it builds, so
+ * the two always agree.  The loader checks the header against these values
+ * and refuses an image linked for a different region.
+ */
+#if defined(FREYA_BOARD_BLUEPILL)
+#define FREYA_APP_LOAD_ADDR    0x20001800UL     /* 20 KiB of SRAM */
+#define FREYA_APP_REGION_SIZE  (8U * 1024U)
+#elif defined(FREYA_BOARD_BLACKPILL)
+#define FREYA_APP_LOAD_ADDR    0x20010000UL     /* 128 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE  (56U * 1024U)
+#else
+#error "no board selected - define FREYA_BOARD_BLACKPILL or FREYA_BOARD_BLUEPILL"
+#endif
 
 /* Header located at offset 0 of the program image. */
 typedef struct {

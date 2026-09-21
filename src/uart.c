@@ -1,5 +1,6 @@
 /*
- * Freya - USART2 console driver (PA2 = TX, PA3 = RX, 115200 8N1).
+ * Freya - USART2 console driver, 115200 8N1.  The board wires the pins up
+ * in board_uart_pins(); everything below is the same on every STM32.
  *
  * Receive is interrupt driven into a ring buffer so that characters are
  * never lost while the shell or a user program is busy.  The ISR also
@@ -24,23 +25,10 @@ void uart_init(uint32_t baud)
 {
     uint32_t brr;
 
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-    RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
-    (void)RCC->APB1ENR;
-
-    /* PA2, PA3 -> alternate function 7, push-pull, high speed. */
-    GPIOA->MODER   = (GPIOA->MODER   & ~((3UL << 4) | (3UL << 6))) |
-                     ((2UL << 4) | (2UL << 6));
-    GPIOA->OTYPER &= ~((1UL << 2) | (1UL << 3));
-    GPIOA->OSPEEDR = (GPIOA->OSPEEDR & ~((3UL << 4) | (3UL << 6))) |
-                     ((3UL << 4) | (3UL << 6));
-    GPIOA->PUPDR   = (GPIOA->PUPDR   & ~((3UL << 4) | (3UL << 6))) |
-                     ((1UL << 4) | (1UL << 6));      /* pull-ups */
-    GPIOA->AFR[0]  = (GPIOA->AFR[0] & ~((0xFUL << 8) | (0xFUL << 12))) |
-                     ((7UL << 8) | (7UL << 12));
+    board_uart_pins();
 
     USART2->CR1 = 0;
-    /* OVER8 = 0: BRR holds USARTDIV in 12.4 fixed point, i.e. fck / baud. */
+    /* 16x oversampling: BRR holds USARTDIV in 12.4 fixed point, fck / baud. */
     brr = (g_clocks.pclk1_hz + baud / 2) / baud;
     USART2->BRR = brr;
     USART2->CR2 = 0;                    /* 1 stop bit  */

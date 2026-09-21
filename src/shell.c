@@ -164,17 +164,18 @@ static int cmd_sysinfo(int argc, char **argv)
     rtc_get(&t);
 
     kprintf("Freya %s  (built %s)\r\n", FREYA_VERSION, FREYA_BUILD_ID);
-    kprintf("  board      : WeAct STM32F411CEU6 \"Black Pill\"\r\n");
-    kprintf("  core       : ARM Cortex-M4F, CPUID 0x%08x\r\n", SCB->CPUID);
+    kprintf("  board      : %s\r\n", BOARD_NAME);
+    kprintf("  core       : %s, CPUID 0x%08x\r\n", BOARD_CORE, SCB->CPUID);
     kprintf("  device id  : 0x%03x  rev 0x%04x\r\n",
             idcode & 0xFFF, (idcode >> 16) & 0xFFFF);
     kprintf("  unique id  : %08x-%08x-%08x\r\n", uid[0], uid[1], uid[2]);
     kprintf("  flash      : %u KiB internal\r\n", fl_kb);
     kprintf("  clock src  : %s -> PLL\r\n",
-            g_clocks.clock_source ? "HSE 25 MHz crystal" : "HSI 16 MHz (crystal not found)");
+            g_clocks.clock_source ? BOARD_HSE_NAME
+                                  : BOARD_HSI_NAME " (crystal not found)");
     kprintf("  sysclk     : %u Hz   AHB %u Hz\r\n", g_clocks.sysclk_hz, g_clocks.hclk_hz);
     kprintf("  apb1/apb2  : %u Hz / %u Hz\r\n", g_clocks.pclk1_hz, g_clocks.pclk2_hz);
-    kprintf("  console    : USART2 115200 8N1 on PA2/PA3\r\n");
+    kprintf("  console    : %s\r\n", BOARD_CONSOLE_NAME);
     kprintf("  reset by   : %s\r\n", sys_reset_cause_str());
     kprintf("  uptime     : %u.%03u s\r\n", up / 1000, up % 1000);
     kprintf("  date/time  : %04u-%02u-%02u %02u:%02u:%02u\r\n",
@@ -238,7 +239,9 @@ static int cmd_meminfo(int argc, char **argv)
     print_bar(flash_used, flash_total);
     kprintf("\r\n");
 
-    kprintf("SRAM  0x20000000 .. 0x20020000  (128 KiB)\r\n");
+    kprintf("SRAM  0x%08x .. 0x%08x  (%u KiB)\r\n",
+            (uint32_t)(uintptr_t)__ram_start, (uint32_t)(uintptr_t)__ram_end,
+            (uint32_t)(__ram_end - __ram_start) / 1024U);
     kprintf("  .data          : %6u B  at 0x%08x\r\n", data_sz, (uint32_t)(uintptr_t)__data_start);
     kprintf("  .bss           : %6u B  at 0x%08x\r\n", bss_sz, (uint32_t)(uintptr_t)__bss_start);
     kprintf("  system heap    : %6u B  at 0x%08x\r\n", heap_total, (uint32_t)(uintptr_t)__heap_start);
@@ -834,7 +837,7 @@ static const command_t s_cmds[] = {
     { "stop",     cmd_stop,     "stop",                      "stop / unload the program (Ctrl-C stops a running one)" },
     { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]","show or set the clock" },
     { "uptime",   cmd_uptime,   "uptime",                    "time since reset" },
-    { "led",      cmd_led,      "led on|off|blink",          "drive the PC13 LED" },
+    { "led",      cmd_led,      "led on|off|blink",          "drive the " BOARD_LED_NAME " LED" },
     { "echo",     cmd_echo,     "echo <text...>",            "echo the arguments" },
     { "clear",    cmd_clear,    "clear",                     "clear the screen" },
     { "reboot",   cmd_reboot,   "reboot",                    "restart the MCU" },
@@ -888,7 +891,7 @@ void console_banner(void)
     kprintf(" |_|  |_|  \\___|\\__, |\\__,_|\r\n");
     kprintf("                 __/ |      \r\n");
     kprintf("                |___/       \r\n");
-    kprintf("Freya %s for STM32F411CEU6 - built %s\r\n", FREYA_VERSION, FREYA_BUILD_ID);
+    kprintf("Freya %s for %s - built %s\r\n", FREYA_VERSION, BOARD_MCU, FREYA_BUILD_ID);
     kprintf("%u MHz, %s reset. Type 'help'.\r\n\r\n",
             g_clocks.hclk_hz / 1000000UL, sys_reset_cause_str());
 }

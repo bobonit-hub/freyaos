@@ -13,7 +13,14 @@ OUT=build/tests
 mkdir -p "$OUT"
 
 CC=${CC:-cc}
-CFLAGS="-std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin -Iinclude -Isrc"
+
+# The sources under test pull in freya.h, which pulls in the board header;
+# any board will do on the host, so use the one being built.
+BOARD=${BOARD:-blackpill}
+BOARD_DEF="-DFREYA_BOARD_$(echo "$BOARD" | tr '[:lower:]' '[:upper:]')"
+
+CFLAGS="-std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
+        -Iinclude -Isrc -Iboards/$BOARD $BOARD_DEF"
 
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_fat_test.c src/fat.c src/string.c src/print.c \
