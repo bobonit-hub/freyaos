@@ -256,6 +256,9 @@ problem with a worse outcome.
 * `run @flash [args...]` — run what is installed. Treating the installed image
   as a pseudo-path rather than adding a command means `load`, `run`, `stop` and
   the `g_app` bookkeeping all work as they do now.
+* `runflash [args...]` — the same run, with `@flash` filled in. A program
+  packed into the module by `make flash PROGRAM=<app>` is started this way,
+  and so is one installed from the card.
 * `meminfo` — one more line for the program flash region and what occupies it.
 * `boot_autorun()` — try the installed image when `/autorun.bin` is absent, or
   when there is no card at all. This is the part that makes the feature feel
@@ -282,7 +285,10 @@ regions in `include/freya_api.h` against the ones the linker scripts describe.
 Twenty checks, and between them they catch every copy-paste error in a memory
 map. `hello` was given a `.data` variable and a `.bss` variable specifically so
 that the loader's copy and clear are on a path something exercises; two of the
-checks assert it still has them.
+checks assert it still has them. Six more pack `hello.xip.bin` behind the
+kernel the way `make flash PROGRAM=hello` does, and check that the program
+lands at the region address, that the kernel is undisturbed, that the gap and
+the remainder of the region are erased, and that a RAM image is refused.
 
 What is left to verify on the board, in order: `install` a program and confirm
 the read-back verifies; power-cycle and `run @flash`; check that a program with

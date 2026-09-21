@@ -5,7 +5,8 @@
  * 20 KiB SRAM           @ 0x20000000
  *
  * Flash map - the kernel keeps the bottom 40 KiB and the top 24 KiB hold
- * one program image, installed from the card and executed in place:
+ * one program image, installed from the card or packed in when the module
+ * is programmed, and executed in place:
  *   0x08000000 .. 0x08009FFF   Freya kernel                      (40 KiB)
  *   0x0800A000 .. 0x0800FFFF   program flash region, pages 40..63(24 KiB)
  *

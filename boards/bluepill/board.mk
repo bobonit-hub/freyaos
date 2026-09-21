@@ -6,6 +6,6 @@ OPENOCD_TARGET := target/stm32f1x.cfg
 
 # The F103 has no USB bootloader; its ROM loader speaks the ST protocol on
 # USART1 (PA9/PA10).  Set BOOT0 high, tap NRST, then run this.
-BOOTLOADER_CMD  = stm32flash -w $(BUILD)/$(TARGET).bin -v -g 0x08000000 \
+BOOTLOADER_CMD  = stm32flash -w $(FLASH_IMAGE) -v -g 0x08000000 \
                              $(if $(PORT),$(PORT),/dev/ttyUSB0)
 BOOTLOADER_HINT := USART1 ROM loader (set BOOT0 high, tap NRST)

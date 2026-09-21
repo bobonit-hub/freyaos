@@ -199,6 +199,44 @@ else
     check "the RAM image is still linked for the RAM region" \
           "$(macro app_load_addr)" "$(fld "$ram" 8)"
     check "the RAM image does not set the XIP flag" 0 "$(fld "$ram" 48)"
+
+    # The image `make flash PROGRAM=hello` writes: kernel, erased gap, then
+    # the program at the region the linker reserved, erased through the end.
+    kbin="build/$BOARD/freya.bin"
+    packed="$OUT/freya+hello.bin"
+    off=$(( $(macro app_flash_addr) - 0x08000000 ))
+    end=$(( $(macro app_flash_addr) + $(macro app_flash_size) ))
+    ksize=$(wc -c < "$kbin" | tr -d ' ')
+    asize=$(wc -c < "$bin" | tr -d ' ')
+    if python3 tools/pack_image.py \
+            --kernel "$kbin" --app "$bin" \
+            --load-addr "$(macro app_flash_addr)" --region-end "$end" \
+            --out "$packed" >/dev/null; then
+        got=$(cmp -s -n "$ksize" "$kbin" "$packed" && echo 1 || echo 0)
+        check "the packed image starts with the kernel" 1 "$got"
+        gap=$(dd if="$packed" bs=1 skip="$ksize" count=$((off - ksize)) status=none \
+              | tr -d '\377' | wc -c | tr -d ' ')
+        check "the gap up to the program region is erased" 0 "$gap"
+        dd if="$packed" bs=1 skip="$off" count="$asize" status=none > "$OUT/slot.bin"
+        got=$(cmp -s "$OUT/slot.bin" "$bin" && echo 1 || echo 0)
+        check "the program sits at the start of its flash region" 1 "$got"
+        tail=$(dd if="$packed" bs=1 skip=$((off + asize)) status=none \
+               | tr -d '\377' | wc -c | tr -d ' ')
+        check "the rest of the program region is erased" 0 "$tail"
+        check "the packed image covers the kernel and the whole program region" \
+              "$(( end - 0x08000000 ))" "$(wc -c < "$packed" | tr -d ' ')"
+    else
+        check "packing the kernel and hello.xip.bin" 1 0
+    fi
+
+    if python3 tools/pack_image.py \
+            --kernel "$kbin" --app "$ram" \
+            --load-addr "$(macro app_flash_addr)" --region-end "$end" \
+            --out "$OUT/rejected.bin" >/dev/null 2>&1; then
+        check "a RAM image is refused" 1 0
+    else
+        check "a RAM image is refused" 1 1
+    fi
 fi
 
 echo

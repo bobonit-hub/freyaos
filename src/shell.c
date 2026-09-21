@@ -274,7 +274,7 @@ static int cmd_meminfo(int argc, char **argv)
             print_bar(h->image_size, FREYA_APP_FLASH_SIZE);
             kprintf("\r\n");
         } else {
-            kprintf("     empty - 'install <file>' puts a program here\r\n");
+            kprintf("     empty - 'install <file>', or flash one in with the kernel\r\n");
         }
     }
 #endif
@@ -703,9 +703,9 @@ static int cmd_install(int argc, char **argv)
         kprintf("usage: install <file>\r\n");
         kprintf("  Copies a flash image - one built with app_flash.ld - from\r\n"
                 "  the card into the %u KiB program flash region, where it\r\n"
-                "  survives a power cycle.  'run %s' then runs it with no\r\n"
+                "  survives a power cycle.  'runflash' then runs it with no\r\n"
                 "  card in the socket at all.\r\n",
-                (unsigned)(FREYA_APP_FLASH_SIZE / 1024), APP_FLASH_PATH);
+                (unsigned)(FREYA_APP_FLASH_SIZE / 1024));
         return -1;
     }
     if (!need_fs()) return -1;
@@ -752,7 +752,11 @@ static int cmd_run(int argc, char **argv)
             app_argv[app_argc++] = argv[i];
     } else {
         if (!g_app.loaded) {
+#ifdef FREYA_APP_FLASH_ADDR
+            kprintf("run: no program loaded - 'load <file>', 'run <file>' or 'runflash'\r\n");
+#else
             kprintf("run: no program loaded - use 'load <file>' or 'run <file>'\r\n");
+#endif
             return -1;
         }
         app_argv[app_argc++] = g_app.path;
@@ -769,6 +773,25 @@ static int cmd_run(int argc, char **argv)
             app_stop_reason_str(g_app.last_stop_reason), ret, g_app.last_run_ms);
     return ret;
 }
+
+#ifdef FREYA_APP_FLASH_ADDR
+/* 'run @flash' with the path filled in, so a program that was packed into
+ * the module - or installed from the card - can be started by name. */
+static int cmd_runflash(int argc, char **argv)
+{
+    char *run_argv[MAX_ARGS];
+
+    if (argc > MAX_ARGS - 1) {
+        kprintf("runflash: too many arguments\r\n");
+        return -1;
+    }
+    run_argv[0] = "run";
+    run_argv[1] = APP_FLASH_PATH;
+    for (int i = 1; i < argc; i++)
+        run_argv[i + 1] = argv[i];
+    return cmd_run(argc + 1, run_argv);
+}
+#endif
 
 static int cmd_stop(int argc, char **argv)
 {
@@ -913,6 +936,9 @@ static const command_t s_cmds[] = {
     { "df",       cmd_df,       "df",                        "show free space on the card" },
     { "load",     cmd_load,     "load " PROG_ARG,            "load a program image into RAM" },
     { "run",      cmd_run,      "run [" PROG_ARG "] [args]", "run the loaded program" },
+#ifdef FREYA_APP_FLASH_ADDR
+    { "runflash", cmd_runflash, "runflash [args...]",        "run the program stored in internal flash" },
+#endif
     { "stop",     cmd_stop,     "stop",                      "stop / unload the program (Ctrl-C stops a running one)" },
 #ifdef FREYA_APP_FLASH_ADDR
     { "install",  cmd_install,  "install <file>",            "copy a program image into internal flash" },

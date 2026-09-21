@@ -3,6 +3,8 @@
 #   make                    build the kernel image and the example programs
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
 #   make flash              flash the image with st-flash
+#   make BOARD=bluepill flash PROGRAM=hello
+#                           flash the kernel and one program into the module
 #   make size               show the section sizes
 #   make clean
 #
@@ -32,6 +34,7 @@ CROSS     ?= arm-none-eabi-
 CC        := $(CROSS)gcc
 OBJCOPY   := $(CROSS)objcopy
 OBJDUMP   := $(CROSS)objdump
+NM        := $(CROSS)nm
 SIZE      := $(CROSS)size
 
 CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) \
@@ -80,7 +83,30 @@ APP_BINS   += $(patsubst %,$(BUILD)/apps/%.xip.bin,$(APPS))
 SMPL_BINS  += $(patsubst %,$(BUILD)/samples/%.xip.bin,$(SAMPLES))
 endif
 
-.PHONY: all apps samples size clean flash bootloader openocd test
+# One user program to store in the board's program flash region when the
+# module is programmed.  An app name (hello), a sample name (blink), or the
+# path of a .xip.bin linked for that region.  Unset, the image is the kernel
+# alone and whatever already occupies the region is left untouched.
+PROGRAM ?=
+
+ifneq ($(PROGRAM),)
+ifeq ($(APP_XIP_LD),)
+$(error PROGRAM=$(PROGRAM): '$(BOARD)' keeps no program in flash)
+endif
+ifneq ($(filter $(PROGRAM),$(APPS)),)
+PROGRAM_BIN := $(BUILD)/apps/$(PROGRAM).xip.bin
+else ifneq ($(filter $(PROGRAM),$(SAMPLES)),)
+PROGRAM_BIN := $(BUILD)/samples/$(PROGRAM).xip.bin
+else
+PROGRAM_BIN := $(PROGRAM)
+endif
+PROGRAM_TAG := $(patsubst %.xip.bin,%,$(notdir $(PROGRAM_BIN)))
+FLASH_IMAGE := $(BUILD)/$(TARGET)+$(PROGRAM_TAG).bin
+else
+FLASH_IMAGE := $(BUILD)/$(TARGET).bin
+endif
+
+.PHONY: all apps samples size clean flash bootloader openocd image test
 .SECONDARY:
 
 all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size
@@ -171,15 +197,43 @@ disasm: $(BUILD)/$(TARGET).lst
 test:
 	@BOARD=$(BOARD) sh tests/run_tests.sh
 
-flash: $(BUILD)/$(TARGET).bin
+# Kernel plus, when PROGRAM is set, the one program image at the address the
+# linker reserved.  The region bounds are read from the kernel ELF so they
+# cannot drift away from boards/<board>/freya.ld.
+ifneq ($(PROGRAM),)
+$(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PROGRAM_BIN) tools/pack_image.py
+	@echo "  PACK  $@"
+	@set -eu; \
+	 start=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__app_flash_start" { print "0x" $$1 }'); \
+	 end=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__app_flash_end" { print "0x" $$1 }'); \
+	 test -n "$$start" && test -n "$$end"; \
+	 python3 tools/pack_image.py \
+	     --kernel $(BUILD)/$(TARGET).bin \
+	     --app $(PROGRAM_BIN) \
+	     --load-addr $$start \
+	     --region-end $$end \
+	     --out $@
+
+all: $(FLASH_IMAGE)
+endif
+
+image: $(FLASH_IMAGE)
+
+flash: $(FLASH_IMAGE)
 	st-flash --reset write $< 0x08000000
 
+ifeq ($(PROGRAM),)
 openocd: $(BUILD)/$(TARGET).elf
 	openocd -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
 	        -c "program $< verify reset exit"
+else
+openocd: $(FLASH_IMAGE)
+	openocd -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
+	        -c "program $(FLASH_IMAGE) verify reset exit 0x08000000"
+endif
 
 # The chip's own ROM loader: $(BOOTLOADER_HINT)
-bootloader: $(BUILD)/$(TARGET).bin
+bootloader: $(FLASH_IMAGE)
 	$(BOOTLOADER_CMD)
 
 clean:

@@ -77,10 +77,11 @@ Freya 1.0 for STM32F103C8T6
 * Receives files over the console with XMODEM / XMODEM-1K.
 * Loads a program from the card into a RAM region and executes it as machine
   code, with a service table for console, memory, timing and file access.
-* On the Blue Pill, also writes a program from the card into a reserved area
-  of its own internal flash and executes it in place from there, which raises
-  the ceiling on program size from 8 KiB to 24 KiB and leaves a program that
-  starts at boot with no card in the socket.
+* On the Blue Pill, also keeps one program in a reserved area of its own
+  internal flash and executes it in place from there, which raises the
+  ceiling on program size from 8 KiB to 24 KiB and leaves a program that
+  starts at boot with no card in the socket. The program can be copied from
+  the card, or packed into the module when Freya itself is flashed.
 * Stops a running program at any time — even one stuck in a tight loop — and
   contains a program that crashes instead of taking the system down with it.
 
@@ -151,6 +152,21 @@ has no USB loader, so on the Blue Pill it drives the serial loader in ROM with
 `stm32flash`: pull BOOT0 high, tap NRST, and add `PORT=/dev/ttyUSB1` if the
 adapter is not on `ttyUSB0`.
 
+On the Blue Pill, `PROGRAM` packs one program into the image that those
+targets write, so the module comes up with it already in the program flash
+region. It is an app name, a sample name, or the path of a `.xip.bin`:
+
+```sh
+make BOARD=bluepill flash PROGRAM=hello
+make BOARD=bluepill flash PROGRAM=blink
+make BOARD=bluepill flash PROGRAM=path/to/mine.xip.bin
+```
+
+The file written is `build/bluepill/freya+hello.bin` (the tag follows the
+program). `make image PROGRAM=hello` builds that file without programming the
+chip. A kernel-only `make flash` still leaves whatever is already in the
+region alone. `runflash` starts the program afterwards.
+
 Then open the console:
 
 ```sh
@@ -177,6 +193,7 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 | `df` | capacity, free and used space |
 | `load <file>` | load a program image into RAM |
 | `run [file] [args...]` | run the loaded program |
+| `runflash [args...]` | run the program stored in internal flash (Blue Pill) |
 | `stop` | stop, or unload, the program |
 | `install <file>` | write a program into internal flash (Blue Pill) |
 | `uninstall` | erase the program flash region (Blue Pill) |
@@ -301,8 +318,9 @@ and halts.
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
 34 KiB of the 64 KiB of flash sits idle. So the board reserves the top 24 KiB
-of its flash — pages 40 to 63 — for one program image, and `install` writes an
-image there from the card:
+of its flash — pages 40 to 63 — for one program image. `install` writes an
+image there from the card, and `make flash PROGRAM=<app>` writes the same
+kind of image into the module together with the kernel:
 
 ```
 freya:/> install hello.xip.bin
@@ -320,6 +338,9 @@ hello from a program running in Freya's program flash region
 
 The installed image is named `@flash` rather than by a path, so `load`, `run`
 and `stop` need no special case for it and none of them need a mounted card.
+`runflash` is that same run with the path filled in: it starts whatever the
+region holds, whether it was packed in at program time or installed from the
+card.
 `uninstall` erases the region. Nothing is written if the region already holds
 the same image — flash endurance is 10k cycles, and there is no reason to
 spend one per `run`.
@@ -430,6 +451,7 @@ is measured rather than guessed).
 | `samples/` | small standalone samples, `blink` to start from |
 | `tests/` | host side tests |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
+| `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
 
 ## Tests
 
@@ -465,7 +487,7 @@ the kernel compares them at boot, and this compares them at build time.
 68 checks, 0 failures     FAT32
 11 checks, 0 failures     interoperability
 18 checks, 0 failures     XMODEM
-20 checks, 0 failures     program image layout
+26 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```
 
@@ -490,7 +512,9 @@ ALL TESTS PASSED
   the region; `uninstall` erases it. `make flash` writes only the kernel and
   leaves an installed program alone, which is convenient but does mean a stale
   image can outlive the kernel that installed it — the loader checks the
-  header rather than trusting it.
+  header rather than trusting it. `make flash PROGRAM=<app>` is the other
+  choice: the image it writes covers the whole program region, so the program
+  packed in replaces whatever was there.
 * Console input is lost while flash is being erased or programmed, and the
   software clock loses about the duration of the install. Both follow from the
   F103 having no read-while-write, and neither is worth putting the console

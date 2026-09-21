@@ -372,7 +372,7 @@ static int app_load_flash(void)
     const freya_app_header_t *hdr = app_flash_header();
 
     if (!hdr) {
-        kprintf("load: no program installed in flash - use 'install <file>'\r\n");
+        kprintf("load: no program in flash - install one, or flash it with the kernel\r\n");
         return -1;
     }
     if (check_xip_header(hdr, hdr->image_size, "load") != 0) return -1;
@@ -433,8 +433,8 @@ int app_load(const char *path)
     }
     if (hdr.flags & FREYA_APP_F_XIP) {
 #ifdef FREYA_APP_FLASH_ADDR
-        kprintf("load: that is a flash image - 'install %s', then "
-                "'run %s'\r\n", path, APP_FLASH_PATH);
+        kprintf("load: that is a flash image - 'install %s', then 'runflash'\r\n",
+                path);
 #else
         kprintf("load: that is a flash image, and this board keeps no "
                 "program in flash\r\n");
