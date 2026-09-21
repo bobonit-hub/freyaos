@@ -18,7 +18,7 @@
 #define BOARD_CORE          "ARM Cortex-M3"
 #define BOARD_HSE_NAME      "HSE 8 MHz crystal"
 #define BOARD_HSI_NAME      "HSI 8 MHz oscillator"
-#define BOARD_CONSOLE_NAME  "USART2 115200 8N1 on PA2/PA3"
+#define BOARD_CONSOLE_NAME  "USART2 921600 8N1 on PA2/PA3"
 #define BOARD_LED_NAME      "PC13"
 #define BOARD_FLASH_WS      2
 

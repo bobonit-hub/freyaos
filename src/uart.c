@@ -1,5 +1,5 @@
 /*
- * Freya - USART2 console driver, 115200 8N1.  The board wires the pins up
+ * Freya - USART2 console driver, 921600 8N1.  The board wires the pins up
  * in board_uart_pins(); everything below is the same on every STM32.
  *
  * Receive is interrupt driven into a ring buffer so that characters are

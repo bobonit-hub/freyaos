@@ -83,7 +83,7 @@ void freya_main(void)
 {
     sys_init();
     heap_init();
-    uart_init(115200);
+    uart_init(921600);
 
     console_banner();
     kprintf("[boot] clocks     : %s + PLL, sysclk %u MHz, flash %u WS\r\n",

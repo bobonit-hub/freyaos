@@ -67,7 +67,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port", help="serial device, e.g. /dev/ttyUSB0")
     ap.add_argument("file", help="file to send")
-    ap.add_argument("-b", "--baud", type=int, default=115200)
+    ap.add_argument("-b", "--baud", type=int, default=921600)
     ap.add_argument("-k", "--block", type=int, choices=(128, 1024), default=1024,
                     help="packet payload size (default 1024)")
     ap.add_argument("-t", "--timeout", type=float, default=60.0,

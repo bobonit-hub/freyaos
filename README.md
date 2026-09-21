@@ -25,7 +25,7 @@ Freya 1.0 for STM32F411CEU6
 96 MHz, power-on reset. Type 'help'.
 
 [boot] clocks     : HSE 25 MHz crystal + PLL, sysclk 96 MHz, flash 3 WS
-[boot] console    : USART2 115200 8N1 on PA2/PA3
+[boot] console    : USART2 921600 8N1 on PA2/PA3
 [boot] SD card    : SD v2 (SDHC/SDXC), 14.8 GiB (31116288 blocks)
 [boot] filesystem : FAT32 "FREYA", cluster 16.0 KiB, mounted on /
 
@@ -58,7 +58,7 @@ Freya 1.0 for STM32F103C8T6
 72 MHz, power-on reset. Type 'help'.
 
 [boot] clocks     : HSE 8 MHz crystal + PLL, sysclk 72 MHz, flash 2 WS
-[boot] console    : USART2 115200 8N1 on PA2/PA3
+[boot] console    : USART2 921600 8N1 on PA2/PA3
 ```
 
 ## What it does
@@ -70,7 +70,7 @@ Freya 1.0 for STM32F103C8T6
   APB2, 2 flash wait states. Both fall back to the internal oscillator if the
   crystal does not start, and the SysTick reload, the console divisor and the
   microsecond delay all follow whatever the clock tree actually came up at.
-* Console shell on USART2 at 115200 8N1, interrupt driven, with line editing and
+* Console shell on USART2 at 921600 8N1, interrupt driven, with line editing and
   command history.
 * SD / SDHC cards over SPI, and a FAT16 / FAT32 implementation that reads *and*
   writes: files, directories, long file names, MBR partitions.
@@ -99,6 +99,18 @@ that exist, and mean the same thing, on the F103 and the F411 alike.
 | SD chip select | PA4 | CS |
 | Power | 3V3, GND | the card's 3.3 V and ground |
 | Status LED | PC13 | on board, active low |
+
+The console runs at 921600 baud, the fastest rate every common adapter agrees
+on: a CP2101, a CP2102 and an FT232 all list it, where 1 Mbaud is already the
+CP2102's ceiling and past a CP2101 entirely. Neither board divides it exactly —
+USARTDIV rounds to 52 against the Black Pill's 48 MHz APB1 and to 39 against
+the Blue Pill's 36 MHz, both landing on 923077 baud, 0.16% fast and far inside
+what 8N1 tolerates. A Blue Pill whose crystal did not start runs its APB1 at
+32 MHz instead and comes out 0.8% slow, which is still comfortable. The USART
+would reach 3 Mbaud on the Black Pill and 2.25 on the Blue Pill, so if the
+adapter is a faster one, the rate is `uart_init()` in `src/main.c` and the
+`BOARD_CONSOLE_NAME` string. Nothing drives RTS or CTS, so leave hardware flow
+control off on the host.
 
 SD cards are 3.3 V devices, so no level shifting is needed. Card identification
 runs inside the 100–400 kHz window the spec demands (375 kHz on the Black Pill,
@@ -142,7 +154,7 @@ adapter is not on `ttyUSB0`.
 Then open the console:
 
 ```sh
-picocom -b 115200 /dev/ttyUSB0      # or minicom, screen, putty ...
+picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 ```
 
 ## Commands
@@ -196,8 +208,9 @@ Ready to receive 'hello.bin' over XMODEM.
 ```
 
 ```sh
+stty -F /dev/ttyUSB0 921600 raw -echo -crtscts             # sx uses the line as it finds it
 sx -k build/apps/hello.bin < /dev/ttyUSB0 > /dev/ttyUSB0   # lrzsz
-python3 tools/send.py /dev/ttyUSB0 build/apps/hello.bin    # no lrzsz needed
+python3 tools/send.py /dev/ttyUSB0 build/apps/hello.bin    # no lrzsz needed, sets the rate itself
 ```
 
 minicom, Tera Term and ExtraPuTTY can send XMODEM from their menus. Because
