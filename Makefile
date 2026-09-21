@@ -9,6 +9,7 @@ TARGET    := freya
 BUILD     := build
 SRC_DIR   := src
 APP_DIR   := apps
+SMPL_DIR  := samples
 
 CROSS     ?= arm-none-eabi-
 CC        := $(CROSS)gcc
@@ -45,13 +46,17 @@ APP_BINS  := $(patsubst %,$(BUILD)/apps/%.bin,$(APPS))
 APP_CFLAGS:= $(CPUFLAGS) -std=gnu11 -Os -g3 -ffreestanding -fno-common \
              -fno-builtin -Wall -Wextra -Wno-unused-parameter -Iinclude
 
-.PHONY: all apps size clean flash dfu openocd test
+# Sample programs, same ABI and linker script, one directory each under samples/
+SAMPLES   := blink
+SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(SAMPLES))
+
+.PHONY: all apps samples size clean flash dfu openocd test
 .SECONDARY:
 
-all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps size
+all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size
 
 $(BUILD):
-	@mkdir -p $(BUILD)/apps
+	@mkdir -p $(BUILD)/apps $(BUILD)/samples
 
 $(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
 	@echo "  CC    $<"
@@ -86,6 +91,20 @@ $(BUILD)/apps/%.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_DIR
 	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
 
 $(BUILD)/apps/%.bin: $(BUILD)/apps/%.elf
+	@$(OBJCOPY) -O binary $< $@
+	@echo "  BIN   $@"
+
+# --------------------------------------------------------------- samples
+samples: $(SMPL_BINS)
+
+$(BUILD)/samples/%.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_DIR)/app.ld | $(BUILD)
+	@mkdir -p $(@D)
+	@echo "  SMPL  $@"
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_DIR)/app.ld \
+	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
+	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
+
+$(BUILD)/samples/%.bin: $(BUILD)/samples/%.elf
 	@$(OBJCOPY) -O binary $< $@
 	@echo "  BIN   $@"
 

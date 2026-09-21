@@ -166,7 +166,9 @@ int app_main(const freya_api_t *api, int argc, char **argv)
 
 Build your own by dropping a directory under `apps/` and adding its name to
 `APPS` in the Makefile; it is linked with `apps/common/app_start.c`, which
-supplies the header, and `apps/app.ld`.
+supplies the header, and `apps/app.ld`. `samples/` works the same way through
+the `SAMPLES` variable and builds into `build/samples/`; `samples/blink` is a
+minimal starting point.
 
 ```
 freya:/> run hello.bin
@@ -265,6 +267,7 @@ is measured rather than guessed).
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `ld/freya.ld` | memory layout |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
+| `samples/` | small standalone samples, `blink` to start from |
 | `tests/` | host side tests |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 
