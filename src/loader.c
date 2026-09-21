@@ -108,7 +108,9 @@ void app_abort_trampoline(void)
 
 void app_fault_trampoline(void)
 {
-    g_app.running = 0;
+    g_app.running = 0;                  /* a dump fault is a kernel panic */
+    if (g_app_stop_reason == APP_STOP_BUSFAULT)
+        ramdump_write();
     freya_longjmp(s_return_ctx, 1);
 }
 
@@ -736,24 +738,26 @@ static int slot_can_program(uint32_t cur, uint32_t want)
 }
 
 /*
- * Rewrite the auto-start slot, keeping whichever of the two words the
+ * Rewrite the auto-start slot, keeping whichever of the three words the
  * caller did not intend to change.  An erase of the 128-byte slot restores
  * the rest of the 1 KiB page (the start of a flash program image).
  */
-static int slot_write(uint32_t magic, uint32_t level)
+static int slot_write(uint32_t magic, uint32_t level, uint32_t ramdump)
 {
     uint32_t cur_m = slot_word(0);
     uint32_t cur_l = slot_word(FREYA_LOGLEVEL_OFF);
+    uint32_t cur_d = slot_word(FREYA_RAMDUMP_OFF);
     int rc;
 
-    if (cur_m == magic && cur_l == level) return FLASH_OK;
+    if (cur_m == magic && cur_l == level && cur_d == ramdump) return FLASH_OK;
     if (g_app.running) return FLASH_ERR_BUSY;
     if (g_app.loaded) app_unload();
 
     rc = flash_begin();
     if (rc != FLASH_OK) return rc;
 
-    if (!slot_can_program(cur_m, magic) || !slot_can_program(cur_l, level)) {
+    if (!slot_can_program(cur_m, magic) || !slot_can_program(cur_l, level) ||
+        !slot_can_program(cur_d, ramdump)) {
         rc = flash_erase(FREYA_AUTOSTART_ADDR, FREYA_AUTOSTART_SIZE);
         if (rc != FLASH_OK) {
             flash_end();
@@ -761,6 +765,7 @@ static int slot_write(uint32_t magic, uint32_t level)
         }
         cur_m = SLOT_ERASED;
         cur_l = SLOT_ERASED;
+        cur_d = SLOT_ERASED;
     }
     if (cur_m != magic) {
         rc = flash_program(FREYA_AUTOSTART_ADDR, &magic, sizeof(magic));
@@ -772,6 +777,14 @@ static int slot_write(uint32_t magic, uint32_t level)
     if (cur_l != level) {
         rc = flash_program(FREYA_AUTOSTART_ADDR + FREYA_LOGLEVEL_OFF,
                            &level, sizeof(level));
+        if (rc != FLASH_OK) {
+            flash_end();
+            return rc;
+        }
+    }
+    if (cur_d != ramdump) {
+        rc = flash_program(FREYA_AUTOSTART_ADDR + FREYA_RAMDUMP_OFF,
+                           &ramdump, sizeof(ramdump));
         if (rc != FLASH_OK) {
             flash_end();
             return rc;
@@ -790,7 +803,8 @@ int app_autostart_set(int enable)
 {
     uint32_t magic = enable ? FREYA_AUTOSTART_MAGIC : SLOT_ERASED;
 
-    return slot_write(magic, slot_word(FREYA_LOGLEVEL_OFF));
+    return slot_write(magic, slot_word(FREYA_LOGLEVEL_OFF),
+                      slot_word(FREYA_RAMDUMP_OFF));
 }
 
 uint32_t app_log_level_stored(void)
@@ -800,7 +814,19 @@ uint32_t app_log_level_stored(void)
 
 int app_log_level_store(uint32_t level)
 {
-    return slot_write(slot_word(0), level);
+    return slot_write(slot_word(0), level, slot_word(FREYA_RAMDUMP_OFF));
+}
+
+int app_ramdump_enabled(void)
+{
+    return slot_word(FREYA_RAMDUMP_OFF) == FREYA_RAMDUMP_MAGIC;
+}
+
+int app_ramdump_set(int enable)
+{
+    uint32_t flag = enable ? FREYA_RAMDUMP_MAGIC : SLOT_ERASED;
+
+    return slot_write(slot_word(0), slot_word(FREYA_LOGLEVEL_OFF), flag);
 }
 
 #endif /* FREYA_APP_FLASH_ADDR */

@@ -80,6 +80,18 @@ void freya_fault_handler(uint32_t *frame, uint32_t kind)
             frame[4], frame[5], frame[6], frame[7]);
     describe(kind);
     kprintf("  uptime: %u ms\r\n", sys_uptime_ms());
+
+#ifdef FREYA_BOARD_BLUEPILL
+    /* Dump from thread mode so SD timeouts still see SysTick. */
+    if (kind == APP_STOP_BUSFAULT && from_thread) {
+        clear_fault_status();
+        frame[6] = (uint32_t)(uintptr_t)ramdump_then_halt;
+        frame[7] = (frame[7] & ~0x0600FC00UL) | (1UL << 24);
+        uart_drain_tx();
+        return;
+    }
+#endif
+
     kprintf("\r\nSystem halted - press any key to reboot.\r\n");
     uart_drain_tx();
 

@@ -169,6 +169,8 @@ else
           "$(macro autostart_size)" \
           "$(( $(sym "$kelf" __autostart_end) - $(sym "$kelf" __autostart_start) ))"
     check "the auto-start slot is 128 bytes" "$(macro autostart_size)" 128
+    check "the ram-dump flag is the third word of the auto-start slot" \
+          "$(macro ramdump_off)" 8
     check "the auto-start slot is 128-byte aligned" \
           0 "$(( $(macro autostart_addr) % 128 ))"
     check "the program flash region is 128-byte aligned" \

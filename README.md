@@ -205,6 +205,7 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 | `install <file>` | write a program into internal flash (Blue Pill) |
 | `uninstall` | erase the program flash region (Blue Pill) |
 | `autostart [on\|off]` | run the flash program automatically at boot (Blue Pill) |
+| `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (Blue Pill; default off) |
 | `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
@@ -294,8 +295,8 @@ new `/freya.log` is started. With no card mounted the same line goes to the
 console instead, and the SD driver is not touched. The default level is
 `info` (3). On the Blue Pill
 that number is stored in the second word of the auto-start flash slot, so it
-survives a reset; `loglevel` writes it, and toggling `autostart` leaves it
-alone. On the Black Pill the level is RAM only.
+survives a reset; `loglevel` writes it, and toggling `autostart` or `ramdump`
+leaves it alone. On the Black Pill the level is RAM only.
 
 ### Stopping a program
 
@@ -327,11 +328,24 @@ spin: about to touch 0xF0000000 ...
   BFAR  : 0xf0000000 (bus address)
   detail: precise data bus error
 
+[freya] ram dump skipped (disabled)
+
 --- spin killed by bus fault, exit code 0, 3 ms ---
 ```
 
-A fault in the kernel itself is a different matter: that prints a register dump
-and halts.
+On the Blue Pill a BusFault can write the 20 KiB of SRAM to `/freya.ram` at the
+volume root. That is off by default: the third word of the auto-start slot is
+the enable flag, erased flash means off, and `ramdump on` programs it. With the
+flag on, a card present, and the filesystem mountable, the file is a raw image
+from `0x20000000`, overwritten on each BusFault, and loads in GDB with
+`restore freya.ram binary 0x20000000`. The dump runs in thread mode after the
+fault is contained, because the SD driver times out against SysTick, which does
+not preempt the BusFault handler. With the flag off, or with no card, the dump
+is skipped and the shell still comes back. A kernel BusFault in thread mode
+writes the same file (when enabled) and then halts.
+
+A fault in the kernel itself is otherwise a different matter: that prints a
+register dump and halts. The Black Pill does not write a ram dump.
 
 ### Running from flash
 
@@ -366,8 +380,10 @@ the same image — flash endurance is 10k cycles, and there is no reason to
 spend one per `run`. `autostart on` writes a flag into the first word of the
 128-byte slot immediately before the program region so the next boot runs that
 program without waiting for `runflash`. The second word of the same slot is
-the default log level. `autostart off` erases the flag (the log level and the
-rest of that 1 KiB page are restored, so the program image is kept).
+the default log level; the third is the ram-dump-on-BusFault flag (`ramdump
+on`, off in erased flash). `autostart off` erases the flag (the log level, the
+ram-dump flag and the rest of that 1 KiB page are restored, so the program
+image is kept).
 
 Such a program is linked differently. A RAM image is one contiguous blob whose
 `.data` is writable where it lands; a flash image is the ordinary split, with
@@ -475,6 +491,7 @@ is measured rather than guessed).
 | `src/loader.c` | program loading and installing, the service table, start and stop |
 | `boards/bluepill/flash.c` | internal flash erase and program, bounded to the program region |
 | `src/fault.c` | fault containment and the kernel panic dump |
+| `src/ramdump.c` | Blue Pill SRAM dump to `/freya.ram` after a BusFault |
 | `src/shell.c` | line editing and the commands |
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
@@ -519,7 +536,7 @@ the kernel compares them at boot, and this compares them at build time.
 132 checks, 0 failures     FAT32
 11 checks, 0 failures     interoperability
 18 checks, 0 failures     XMODEM
-34 checks, 0 failures     program image layout
+35 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```
 

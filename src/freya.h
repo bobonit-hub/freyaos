@@ -208,8 +208,9 @@ void app_unload(void);
 /* The installed flash image is addressed as a pseudo-path, so 'load',
  * 'run' and 'stop' need no special case for it. */
 #define APP_FLASH_PATH  "@flash"
-/* First word of the auto-start slot; erased flash reads 0xFFFFFFFF. */
+/* Auto-start slot words; erased flash reads 0xFFFFFFFF (flag off). */
 #define FREYA_AUTOSTART_MAGIC  0x31415946UL   /* 'F','Y','A','1' */
+#define FREYA_RAMDUMP_MAGIC    0x50444D52UL   /* 'R','M','D','P' */
 int  app_install(const char *path);           /* card image -> flash    */
 int  app_flash_erase(void);
 const freya_app_header_t *app_flash_header(void);   /* NULL if empty    */
@@ -217,6 +218,8 @@ int  app_autostart_enabled(void);
 int  app_autostart_set(int enable);           /* 0 = FLASH_OK           */
 uint32_t app_log_level_stored(void);          /* 0xFFFFFFFF if erased   */
 int  app_log_level_store(uint32_t level);     /* 0 = FLASH_OK           */
+int  app_ramdump_enabled(void);
+int  app_ramdump_set(int enable);             /* 0 = FLASH_OK           */
 #endif
 void app_request_stop(void);
 void app_guard_enter(void);
@@ -248,6 +251,13 @@ void        klog(int level, const char *fmt, ...);
 int         log_get_level(void);
 int         log_set_level(int level);          /* persists when flash allows */
 const char *log_level_str(int level);
+
+/* ----------------------------------------------------------- ram dump */
+/* Blue Pill: write SRAM to /freya.ram after a BusFault if a card is up.
+ * Other boards: no-ops.  ramdump_then_halt() is the kernel BusFault
+ * trampoline and does not return. */
+void ramdump_write(void);
+void ramdump_then_halt(void) __attribute__((noreturn));
 
 /* -------------------------------------------------------------- shell */
 void shell_run(void) __attribute__((noreturn));

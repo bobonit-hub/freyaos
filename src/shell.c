@@ -285,6 +285,9 @@ static int cmd_meminfo(int argc, char **argv)
         kprintf("  log level      : %s (%d)  stored at 0x%08x\r\n",
                 log_level_str(log_get_level()), log_get_level(),
                 (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_LOGLEVEL_OFF));
+        kprintf("  ram dump       : %s  stored at 0x%08x\r\n",
+                app_ramdump_enabled() ? "on" : "off",
+                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_RAMDUMP_OFF));
     }
 #endif
 
@@ -862,6 +865,46 @@ static int cmd_autostart(int argc, char **argv)
         kprintf("(no program is installed in flash yet - 'install <file>')\r\n");
     return 0;
 }
+
+static int cmd_ramdump(int argc, char **argv)
+{
+    int rc, enable;
+
+    if (argc < 2) {
+        kprintf("ram dump is %s (flag at 0x%08x)\r\n",
+                app_ramdump_enabled() ? "on" : "off",
+                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_RAMDUMP_OFF));
+        kprintf("usage: ramdump on|off\r\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "on") == 0) enable = 1;
+    else if (strcmp(argv[1], "off") == 0) enable = 0;
+    else {
+        kprintf("usage: ramdump on|off\r\n");
+        return -1;
+    }
+
+    if (g_app.running) {
+        kprintf("ramdump: a program is running - stop it first\r\n");
+        return -1;
+    }
+
+    if (enable == app_ramdump_enabled()) {
+        kprintf("ram dump is already %s\r\n", enable ? "on" : "off");
+        return 0;
+    }
+
+    kprintf("ramdump: console input is dropped while flash is busy\r\n");
+    uart_drain_tx();
+    rc = app_ramdump_set(enable);
+    uart_rx_flush();
+    if (rc != FLASH_OK) {
+        kprintf("ramdump: %s\r\n", flash_err_str(rc));
+        return -1;
+    }
+    kprintf("ram dump %s\r\n", enable ? "on" : "off");
+    return 0;
+}
 #endif
 
 static int parse_log_level(const char *s, int *out)
@@ -1082,6 +1125,7 @@ static const command_t s_cmds[] = {
     { "install",  cmd_install,  "install <file>",            "copy a program image into internal flash" },
     { "uninstall",cmd_uninstall,"uninstall",                 "erase the program flash region" },
     { "autostart",cmd_autostart,"autostart [on|off]",        "run the flash program automatically at boot" },
+    { "ramdump",  cmd_ramdump,  "ramdump [on|off]",          "write SRAM to /freya.ram after a BusFault" },
 #endif
     { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]","show or set the clock" },
     { "loglevel", cmd_loglevel, "loglevel [level]",          "show or set the file log level" },

@@ -27,6 +27,7 @@ int main(void)
     printf("app_flash_size %lu\n",  (unsigned long)FREYA_APP_FLASH_SIZE);
     printf("autostart_addr %lu\n",  (unsigned long)FREYA_AUTOSTART_ADDR);
     printf("autostart_size %lu\n",  (unsigned long)FREYA_AUTOSTART_SIZE);
+    printf("ramdump_off %lu\n",     (unsigned long)FREYA_RAMDUMP_OFF);
 #endif
     return 0;
 }
