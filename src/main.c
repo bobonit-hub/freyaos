@@ -78,8 +78,8 @@ static void boot_autorun(void)
     kprintf("--- %s starting (Ctrl-C stops it) ---\r\n",
             g_app.name[0] ? g_app.name : path);
     app_run(1, argv);
-    kprintf("\r\n--- autorun %s, exit code %d ---\r\n",
-            app_stop_reason_str(g_app.last_stop_reason), g_app.last_exit_code);
+    kprintf("\r\n--- autorun %s, exit status %d ---\r\n",
+            app_stop_reason_str(g_app.last_stop_reason), g_app.last_status);
 }
 
 void freya_main(void)

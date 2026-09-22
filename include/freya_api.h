@@ -108,6 +108,59 @@ typedef struct {
  * of an old image's .text for the appended fields. */
 #define FREYA_APP_HDR_V1_SIZE  48
 
+/*
+ * How a run ended.  The kernel decides this, not the program: a program
+ * either returns from app_main() or calls api->exit(), and everything else
+ * is the console or a fault.
+ */
+enum {
+    FREYA_STOP_NONE = 0,      /* app_main() returned                   */
+    FREYA_STOP_EXIT,          /* the program called api->exit()        */
+    FREYA_STOP_CTRLC,         /* stopped from the console              */
+    FREYA_STOP_HARDFAULT,
+    FREYA_STOP_MEMFAULT,
+    FREYA_STOP_BUSFAULT,
+    FREYA_STOP_USAGEFAULT
+};
+
+/*
+ * Exit status.
+ *
+ * A status is a byte, so the kernel keeps the low eight bits of whatever
+ * the program asked for: exit(-1) reads back as 255, the way waitpid()
+ * would report it.  A run the kernel ended itself reports 128 + the reason
+ * instead, which puts Ctrl-C at 130 - the number a POSIX shell gives a
+ * program killed by SIGINT, because FREYA_STOP_CTRLC and SIGINT are both
+ * 2.  A program is free to exit with 130 of its own accord; the reason is
+ * recorded separately, and 'status' at the console prints both.
+ */
+#define FREYA_EXIT_OK        0      /* the only status that means success */
+#define FREYA_EXIT_FAIL      1      /* the program failed                 */
+#define FREYA_EXIT_USAGE     2      /* it was called wrongly              */
+#define FREYA_EXIT_NOEXEC    126    /* the image was there but refused    */
+#define FREYA_EXIT_NOTFOUND  127    /* there was nothing to run           */
+#define FREYA_EXIT_KILLED    128    /* + FREYA_STOP_*: the kernel ended it */
+#define FREYA_EXIT_STOPPED   (FREYA_EXIT_KILLED + FREYA_STOP_CTRLC)
+#define FREYA_EXIT_MAX       255
+
+/* The status a run reports, from the reason it ended and the code the
+ * program asked for.  The kernel applies this; a program can use it to
+ * read a status it was handed. */
+static inline int freya_exit_status(int reason, int code)
+{
+    if (reason <= FREYA_STOP_EXIT || reason > FREYA_STOP_USAGEFAULT)
+        return code & FREYA_EXIT_MAX;
+    return FREYA_EXIT_KILLED + reason;
+}
+
+/* What became of the last program that ran.  Filled in by last_exit(). */
+typedef struct {
+    int32_t  status;      /* 0 .. FREYA_EXIT_MAX                       */
+    int32_t  reason;      /* FREYA_STOP_*                              */
+    uint32_t run_ms;      /* how long the run lasted                   */
+    char     name[20];    /* the program's header name, NUL terminated */
+} freya_exit_t;
+
 /* open() flags */
 #define FREYA_O_RDONLY  0x01
 #define FREYA_O_WRONLY  0x02
@@ -167,7 +220,7 @@ typedef struct freya_api {
     /* flow control */
     int      (*should_stop)(void);   /* non-zero once Ctrl-C was pressed  */
     void     (*yield)(void);         /* aborts the program if stopped     */
-    void     (*exit)(int code);      /* never returns                     */
+    void     (*exit)(int code);      /* never returns; code -> a status   */
 
     /* filesystem */
     int      (*open)(const char *path, int flags);
@@ -194,6 +247,19 @@ typedef struct freya_api {
     void     (*log)(int level, const char *fmt, ...);
     int      (*get_log_level)(void);
     int      (*set_log_level)(int level);
+
+    /* appended: the exit status of the run before this one */
+    int         (*last_exit)(freya_exit_t *st);   /* -1 if nothing ran   */
+    const char *(*exit_reason_str)(int reason);
 } freya_api_t;
+
+/*
+ * Whether the running kernel's table reaches past a given call, which is
+ * how a program written against an older kernel uses one that was
+ * appended later: FREYA_API_HAS(api, last_exit).
+ */
+#define FREYA_API_HAS(api, field)                            \
+    ((api)->size >= __builtin_offsetof(freya_api_t, field) +  \
+                    sizeof((api)->field))
 
 #endif /* FREYA_API_H */

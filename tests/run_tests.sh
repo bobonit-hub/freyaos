@@ -116,6 +116,14 @@ echo "================= forth ================="
 $CC $CFLAGS -DFREYA_APP_XIP -no-pie tests/host_forth_test.c -o "$OUT/hostforth"
 "$OUT/hostforth" || status=1
 
+# The exit status rule: how a program's code, a Ctrl-C and a fault each
+# become the number the shell reports as '$?'.
+echo
+echo "================= exit status ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_exit_test.c -o "$OUT/hostexit"
+"$OUT/hostexit" || status=1
+
 # ---------------------------------------------------------------------
 # Program image layout.
 #

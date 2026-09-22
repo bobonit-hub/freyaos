@@ -2,7 +2,8 @@
  * Freya - console shell on USART2.
  *
  * Line editing with backspace, Ctrl-U, Ctrl-C and a small command
- * history on the cursor keys, plus the built-in command set.
+ * history on the cursor keys, plus the built-in command set.  Every
+ * command leaves an exit status behind, which '$?' and 'status' read.
  */
 #include "freya.h"
 #include "fat.h"
@@ -14,6 +15,7 @@
 static char s_hist[HIST_DEPTH][LINE_MAX];
 static int  s_hist_count;
 static int  s_hist_pos;
+static int  s_status;               /* status of the last command, '$?' */
 
 /* ------------------------------------------------------- line editing */
 static void erase_line(int len)
@@ -123,6 +125,41 @@ static int split_args(char *line, char **argv, int max)
         if (*line) *line++ = '\0';
     }
     return argc;
+}
+
+/*
+ * A command's own result becomes '$?'.  Commands report failure as -1,
+ * which is a status of 1; 'run' reports the program's exit status, which
+ * passes through as it is.
+ */
+static int status_of(int rc)
+{
+    if (rc < 0) return FREYA_EXIT_FAIL;
+    return rc & FREYA_EXIT_MAX;
+}
+
+/*
+ * '$?' in a line becomes the status of the command before it, which is
+ * what makes 'echo $?' and 'write /runs.txt $?' work.  Nothing else is
+ * expanded: this is a console, not a scripting language.
+ */
+static void expand_status(const char *in, char *out, int size)
+{
+    int o = 0;
+
+    while (*in && o < size - 1) {
+        if (in[0] == '$' && in[1] == '?') {
+            char num[12];
+            int n = ksnprintf(num, (int)sizeof(num), "%d", s_status);
+
+            if (n > (int)sizeof(num) - 1) n = (int)sizeof(num) - 1;
+            for (int i = 0; i < n && o < size - 1; i++) out[o++] = num[i];
+            in += 2;
+            continue;
+        }
+        out[o++] = *in++;
+    }
+    out[o] = '\0';
 }
 
 static void print_fat_time(uint16_t date, uint16_t time)
@@ -875,10 +912,10 @@ static int cmd_run(int argc, char **argv)
 
         if (is_file) {
             if (g_app.loaded) app_unload();
-            if (app_load(argv[1]) != 0) return -1;
+            if (app_load(argv[1]) != 0) return FREYA_EXIT_NOEXEC;
         } else if (!g_app.loaded) {
             kprintf("run: %s: %s\r\n", argv[1], "no such program");
-            return -1;
+            return FREYA_EXIT_NOTFOUND;
         }
         for (int i = 1; i < argc && app_argc < MAX_ARGS; i++)
             app_argv[app_argc++] = argv[i];
@@ -889,7 +926,7 @@ static int cmd_run(int argc, char **argv)
 #else
             kprintf("run: no program loaded - use 'load <file>' or 'run <file>'\r\n");
 #endif
-            return -1;
+            return FREYA_EXIT_NOTFOUND;
         }
         app_argv[app_argc++] = g_app.path;
     }
@@ -900,7 +937,7 @@ static int cmd_run(int argc, char **argv)
 
     ret = app_run(app_argc, app_argv);
 
-    kprintf("\r\n--- %s %s, exit code %d, %u ms ---\r\n",
+    kprintf("\r\n--- %s %s, exit status %d, %u ms ---\r\n",
             g_app.name[0] ? g_app.name : g_app.path,
             app_stop_reason_str(g_app.last_stop_reason), ret, g_app.last_run_ms);
     return ret;
@@ -1055,11 +1092,48 @@ static int cmd_stop(int argc, char **argv)
     }
 
     kprintf("unloading %s", g_app.path);
-    if (g_app.last_stop_reason != APP_STOP_NONE || g_app.last_run_ms)
-        kprintf(" (last run: %s, exit code %d)",
-                app_stop_reason_str(g_app.last_stop_reason), g_app.last_exit_code);
+    if (g_app.runs)
+        kprintf(" (last run: %s, exit status %d)",
+                app_stop_reason_str(g_app.last_stop_reason), g_app.last_status);
     kprintf("\r\n");
     app_unload();
+    return 0;
+}
+
+/*
+ * The exit status of the last command and of the last program, which the
+ * shell keeps even after the image has been unloaded or replaced.  'run'
+ * prints the same status on its own closing line; this is how to ask for
+ * it again later, and '$?' is the number on its own.
+ */
+static int cmd_status(int argc, char **argv)
+{
+    freya_exit_t st;
+
+    if (argc > 1) return usage("status");
+
+    inf("command");
+    kprintf("%d\r\n", s_status);
+    if (app_last_exit(&st) != 0) {
+        inf("program");
+        kprintf("nothing has run since reset\r\n");
+        return 0;
+    }
+
+    inf("program");
+    kprintf("%s\r\n", st.name[0] ? st.name : "unnamed");
+    inf("ended by");
+    kprintf("%s\r\n", app_stop_reason_str(st.reason));
+    inf("exit status");
+    if (st.reason > FREYA_STOP_EXIT)
+        kprintf("%d  (%d + reason %d, the kernel ended the run)\r\n",
+                st.status, FREYA_EXIT_KILLED, st.reason);
+    else
+        kprintf("%d\r\n", st.status);
+    inf("run time");
+    kprintf("%u ms\r\n", st.run_ms);
+    inf("runs");
+    kprintf("%u since reset\r\n", g_app.runs);
     return 0;
 }
 
@@ -1188,6 +1262,7 @@ static const command_t s_cmds[] = {
     { "runflash", cmd_runflash, "runflash [args...]" },
 #endif
     { "stop",     cmd_stop,     "unload the program" },
+    { "status",   cmd_status,   "last exit status (also $?)" },
 #ifdef FREYA_APP_FLASH_ADDR
     { "install",  cmd_install,  "install <file>" },
     { "saveflash",cmd_saveflash,"saveflash [file]" },
@@ -1226,19 +1301,22 @@ static int cmd_help(int argc, char **argv)
 }
 
 /* --------------------------------------------------------------- loop */
+/* Runs one line and records its status, which the next line's '$?' and
+ * the 'status' command read back.  An empty line changes nothing, the
+ * way a shell leaves '$?' alone. */
 int shell_exec(char *line)
 {
     char *argv[MAX_ARGS];
     int argc = split_args(line, argv, MAX_ARGS);
 
-    if (argc == 0) return 0;
+    if (argc == 0) return s_status;
 
     for (unsigned i = 0; i < ARRAY_SIZE(s_cmds); i++) {
         if (strcmp(s_cmds[i].name, argv[0]) == 0)
-            return s_cmds[i].fn(argc, argv);
+            return s_status = status_of(s_cmds[i].fn(argc, argv));
     }
     kprintf("%s: command not found (try 'help')\r\n", argv[0]);
-    return -1;
+    return s_status = FREYA_EXIT_NOTFOUND;
 }
 
 void console_banner(void)
@@ -1263,6 +1341,7 @@ void console_banner(void)
 void shell_run(void)
 {
     static char line[LINE_MAX];
+    static char cmd[LINE_MAX];
 
     for (;;) {
         int n;
@@ -1271,7 +1350,8 @@ void shell_run(void)
         n = readline(line, sizeof(line));
         if (n <= 0) continue;
 
-        hist_push(line);
-        shell_exec(line);
+        hist_push(line);                    /* history keeps what was typed */
+        expand_status(line, cmd, sizeof(cmd));
+        shell_exec(cmd);
     }
 }

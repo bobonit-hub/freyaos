@@ -10,7 +10,8 @@
  *   - app_main() returns,
  *   - the program calls api->exit(),
  *   - the program is stopped (Ctrl-C from the console ISR, or a fault),
- * and all three unwind through the same freya_longjmp() back into run().
+ * and all three unwind through the same freya_longjmp() back into run(),
+ * which settles the exit status and keeps it for the shell to report.
  */
 #include "freya.h"
 #include "fat.h"
@@ -37,7 +38,7 @@ static volatile int s_guard;            /* >0: an abort must be deferred */
 void app_request_stop(void)
 {
     s_stop_requested = 1;
-    if (!g_app_stop_reason) g_app_stop_reason = APP_STOP_CTRLC;
+    if (!g_app_stop_reason) g_app_stop_reason = FREYA_STOP_CTRLC;
     if (g_app.running) SCB->ICSR = PENDSV_SET;
 }
 
@@ -84,6 +85,7 @@ int app_should_stop(void)
 
 const char *app_stop_reason_str(int reason)
 {
+    /* Indexed by FREYA_STOP_*, in the order the ABI declares them. */
     static const char *const s[] = {
         "returned",
         "exited",
@@ -105,14 +107,14 @@ const char *app_stop_reason_str(int reason)
 void app_abort_trampoline(void)
 {
     g_app.running = 0;                  /* close the window for a second kill */
-    g_app_stop_reason = APP_STOP_CTRLC;
+    g_app_stop_reason = FREYA_STOP_CTRLC;
     freya_longjmp(s_return_ctx, 1);
 }
 
 void app_fault_trampoline(void)
 {
     g_app.running = 0;                  /* a dump fault is a kernel panic */
-    if (g_app_stop_reason == APP_STOP_BUSFAULT)
+    if (g_app_stop_reason == FREYA_STOP_BUSFAULT)
         ramdump_write();
     freya_longjmp(s_return_ctx, 1);
 }
@@ -157,16 +159,35 @@ static int api_should_stop(void) { return s_stop_requested; }
 static void api_yield(void)
 {
     if (s_stop_requested) {
-        g_app_stop_reason = APP_STOP_CTRLC;
+        g_app_stop_reason = FREYA_STOP_CTRLC;
         freya_longjmp(s_return_ctx, 1);
     }
 }
 
+/* The code is kept whole here and truncated to a byte once, where the
+ * status is settled, so exit(-1) and exit(255) end up alike. */
 static void api_exit(int code)
 {
     s_exit_code = code;
-    g_app_stop_reason = APP_STOP_EXIT;
+    g_app_stop_reason = FREYA_STOP_EXIT;
     freya_longjmp(s_return_ctx, 1);
+}
+
+/*
+ * What became of the run before this one.  During a run g_app still holds
+ * the previous result - app_run() writes the new one only once the program
+ * is done - so a program can ask how its predecessor ended.
+ */
+int app_last_exit(freya_exit_t *st)
+{
+    if (!st || !g_app.runs) return -1;
+
+    memset(st, 0, sizeof(*st));
+    st->status = g_app.last_status;
+    st->reason = g_app.last_stop_reason;
+    st->run_ms = g_app.last_run_ms;
+    strncpy(st->name, g_app.last_name, sizeof(st->name) - 1);
+    return 0;
 }
 
 static int api_path(int (*fn)(const char *), const char *path)
@@ -180,39 +201,41 @@ static int api_unlink(const char *path) { return api_path(fat_unlink, path); }
 static int api_mkdir(const char *path)  { return api_path(fat_mkdir, path); }
 
 static const freya_api_t s_api = {
-    .size          = sizeof(freya_api_t),
-    .version       = FREYA_ABI_VERSION,
-    .putc          = uart_putc,
-    .puts          = uart_puts,
-    .printf        = kprintf,
-    .getc          = uart_getc,
-    .getc_timeout  = uart_getc_timeout,
-    .kbhit         = uart_rx_ready,
-    .malloc        = api_malloc,
-    .free          = api_free,
-    .ticks_ms      = sys_ticks,
-    .delay_ms      = api_delay,
-    .should_stop   = api_should_stop,
-    .yield         = api_yield,
-    .exit          = api_exit,
-    .open          = fs_fd_open,
-    .close         = fs_fd_close,
-    .read          = fs_fd_read,
-    .write         = fs_fd_write,
-    .seek          = fs_fd_seek,
-    .tell          = fs_fd_tell,
-    .fsize         = fs_fd_size,
-    .unlink        = api_unlink,
-    .mkdir         = api_mkdir,
-    .opendir       = fs_dd_open,
-    .readdir       = fs_dd_read,
-    .closedir      = fs_dd_close,
-    .led           = led_set,
-    .cpu_hz        = api_cpu_hz,
-    .rename        = fs_rename,
-    .log           = klog,
-    .get_log_level = log_get_level,
-    .set_log_level = log_set_level,
+    .size            = sizeof(freya_api_t),
+    .version         = FREYA_ABI_VERSION,
+    .putc            = uart_putc,
+    .puts            = uart_puts,
+    .printf          = kprintf,
+    .getc            = uart_getc,
+    .getc_timeout    = uart_getc_timeout,
+    .kbhit           = uart_rx_ready,
+    .malloc          = api_malloc,
+    .free            = api_free,
+    .ticks_ms        = sys_ticks,
+    .delay_ms        = api_delay,
+    .should_stop     = api_should_stop,
+    .yield           = api_yield,
+    .exit            = api_exit,
+    .open            = fs_fd_open,
+    .close           = fs_fd_close,
+    .read            = fs_fd_read,
+    .write           = fs_fd_write,
+    .seek            = fs_fd_seek,
+    .tell            = fs_fd_tell,
+    .fsize           = fs_fd_size,
+    .unlink          = api_unlink,
+    .mkdir           = api_mkdir,
+    .opendir         = fs_dd_open,
+    .readdir         = fs_dd_read,
+    .closedir        = fs_dd_close,
+    .led             = led_set,
+    .cpu_hz          = api_cpu_hz,
+    .rename          = fs_rename,
+    .log             = klog,
+    .get_log_level   = log_get_level,
+    .set_log_level   = log_set_level,
+    .last_exit       = app_last_exit,
+    .exit_reason_str = app_stop_reason_str,
 };
 
 const freya_api_t *app_api(void)
@@ -814,16 +837,16 @@ int app_run(int argc, char **argv)
     typedef int (*entry_fn)(const freya_api_t *, int, char **);
     entry_fn entry;
     uint32_t t0;
-    int ret;
+    int ret, status;
 
     if (!g_app.loaded) {
         kprintf("run: no program loaded\r\n");
-        return -1;
+        return FREYA_EXIT_NOTFOUND;
     }
 
     memset(s_app_allocs, 0, sizeof(s_app_allocs));
     s_stop_requested  = 0;
-    g_app_stop_reason = APP_STOP_NONE;
+    g_app_stop_reason = FREYA_STOP_NONE;
     s_exit_code       = 0;
 
 #ifdef FREYA_APP_FLASH_ADDR
@@ -849,16 +872,31 @@ int app_run(int argc, char **argv)
         g_app.running = 1;
         ret = entry(app_api(), argc, argv);
         s_exit_code = ret;
-        if (!g_app_stop_reason) g_app_stop_reason = APP_STOP_NONE;
+        if (!g_app_stop_reason) g_app_stop_reason = FREYA_STOP_NONE;
     } else {
         /* Unwound from exit(), Ctrl-C or a fault. */
         ret = s_exit_code;
     }
 
+    /*
+     * The status is the program's code only when the program itself ended
+     * the run; a Ctrl-C or a fault reports 128 + the reason instead, so a
+     * caller can tell a program that failed from one that never finished.
+     */
+    status = freya_exit_status(g_app_stop_reason, ret);
+
     g_app.running = 0;
     g_app.last_run_ms = sys_ticks() - t0;
-    g_app.last_exit_code = ret;
+    g_app.last_status = status;
     g_app.last_stop_reason = g_app_stop_reason;
+    g_app.runs++;
+    strncpy(g_app.last_name, g_app.name[0] ? g_app.name : g_app.path,
+            sizeof(g_app.last_name) - 1);
+    g_app.last_name[sizeof(g_app.last_name) - 1] = '\0';
+
+    klog(status == FREYA_EXIT_OK ? FREYA_LOG_INFO : FREYA_LOG_WARN,
+         "%s %s, status %d, %u ms", g_app.last_name,
+         app_stop_reason_str(g_app_stop_reason), status, g_app.last_run_ms);
 
     /* Reclaim anything the program left behind. */
     for (int i = 0; i < APP_MAX_ALLOCS; i++) {
@@ -868,5 +906,5 @@ int app_run(int argc, char **argv)
     uart_set_raw(0);
     s_stop_requested = 0;
 
-    return ret;
+    return status;
 }

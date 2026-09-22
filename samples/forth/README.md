@@ -29,7 +29,7 @@ forth> 5 triangle
 forth> bye
   ok
 forth: 80 of 43008 dictionary bytes used
---- forth returned, exit code 0, 41283 ms ---
+--- forth returned, exit status 0, 41283 ms ---
 ```
 
 ## Build and run

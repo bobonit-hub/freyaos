@@ -87,6 +87,9 @@ Freya 1.0 for STM32F103C8T6
   module when Freya itself is flashed.
 * Stops a running program at any time — even one stuck in a tight loop — and
   contains a program that crashes instead of taking the system down with it.
+* Reports how every run ended: the program's own exit code, 130 for Ctrl-C or
+  128 plus the fault that killed it, readable at the prompt as `$?` or with
+  `status`, written to the log, and available to the next program that runs.
 
 ## Hardware
 
@@ -208,6 +211,7 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `run [file] [args...]` | run the loaded program |
 | `runflash [args...]` | run the program stored in internal flash |
 | `stop` | stop, or unload, the program |
+| `status` | exit status of the last command and the last program (also `$?`) |
 | `install <file>` | write a program into internal flash |
 | `saveflash [file]` | copy the installed program from flash onto the card (default `/<name>.xip.bin`) |
 | `uninstall` | erase the program flash region |
@@ -292,11 +296,11 @@ interpreter is 8 KiB on its own.
 freya:/> run hello.bin
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program RAM region
-  api version 2, table size 132 bytes
+  api version 2, table size 140 bytes
   code at 0x20001840, data at 0x20001c7c
   initialised data survived the load: .data ok, .bss clear
 ...
---- hello stopped by Ctrl-C, exit code 0, 4193 ms ---
+--- hello stopped by Ctrl-C, exit status 130, 4193 ms ---
 ```
 
 `run <file>` loads and runs in one step, `load` then `run` separates the two,
@@ -306,7 +310,8 @@ time — Freya does not multitask.
 The service table (`include/freya_api.h`) gives a program console I/O and
 `printf`, `malloc`/`free`, milliseconds and delays, the LED, the filesystem:
 `open`, `read`, `write`, `seek`, `close`, `unlink`, `mkdir`, `rename`,
-`opendir`, `readdir`, `closedir`, and a file log: `log`, `get_log_level`,
+`opendir`, `readdir`, `closedir`, the exit status of the run before it:
+`exit`, `last_exit`, `exit_reason_str`, and a file log: `log`, `get_log_level`,
 `set_log_level`. Log lines are `YYYY-MM-DD HH:MM:SS LEVEL message` in
 `/freya.log` at the root of the card. The file is capped at 1 MiB; when it
 fills, it is renamed to `/freya.log.old` (replacing any previous copy) and a
@@ -348,7 +353,7 @@ spin: about to touch 0xF0000000 ...
 
 [freya] ram dump skipped (disabled)
 
---- spin killed by bus fault, exit code 0, 3 ms ---
+--- spin killed by bus fault, exit status 133, 3 ms ---
 ```
 
 On either board a BusFault can write SRAM to `/freya.ram` at the volume root
@@ -364,6 +369,61 @@ writes the same file (when enabled) and then halts.
 
 A fault in the kernel itself is otherwise a different matter: that prints a
 register dump and halts.
+
+### Exit status
+
+Every run ends with a status, and the rule is the one a POSIX shell uses. A
+program that finished decides its own: whatever `app_main` returns, or the
+argument to `api->exit()`, keeping the low byte — so `exit(-1)` reads back as
+255. A run Freya ended itself reports `128 + the reason` instead, which puts
+Ctrl-C at 130 because the stop reason for the console and `SIGINT` are both 2,
+and the four fault statuses after it:
+
+| Status | Means |
+|---|---|
+| 0 | the program succeeded (`FREYA_EXIT_OK`) |
+| 1 .. 125 | it failed and said how: 1 is `FREYA_EXIT_FAIL`, 2 `FREYA_EXIT_USAGE` |
+| 126 | the image was there and the loader refused it (`FREYA_EXIT_NOEXEC`) |
+| 127 | there was nothing to run (`FREYA_EXIT_NOTFOUND`) |
+| 130 | stopped with Ctrl-C (`FREYA_EXIT_STOPPED`) |
+| 131 .. 134 | killed by a hard, memory, bus or usage fault |
+
+Everything above 125 is the shell's convention or the kernel's, but nothing
+stops a program returning those numbers itself, so the reason is kept beside
+the status rather than deduced from it. `run` prints both on its closing line,
+`status` prints them again later — even after the image has been unloaded or
+replaced — and `$?` in a command line is the number on its own:
+
+```
+freya:/> run hello.bin 3
+--- hello starting (Ctrl-C stops it) ---
+...
+exiting with status 3
+
+--- hello exited, exit status 3, 12 ms ---
+freya:/> echo $?
+3
+freya:/> status
+  command    : 0
+  program    : hello
+  ended by   : exited
+  exit status: 3
+  run time   : 12 ms
+  runs       : 1 since reset
+```
+
+`$?` is the shell's own status too: a command that failed is 1, a word that is
+not a command is 127, and an empty line leaves it alone. Since `$?` is
+expanded before the line is split, `write /runs.txt $?` records the status of
+the last run on the card. Each run also writes its outcome to `/freya.log`,
+at `info` when the status is 0 and at `warn` when it is not.
+
+A program reads the status of the run before it with `api->last_exit()`,
+which fills in the name, the reason, the status and how long that run took;
+`api->exit_reason_str()` names the reason. Both were appended to the service
+table, so a program built against an older kernel keeps working and one
+built against this ABI can check before calling:
+`FREYA_API_HAS(api, last_exit)`.
 
 ### Running from flash
 
@@ -386,7 +446,7 @@ installed /hello.xip.bin at 0x08009c80: 1.2 KiB in 2 pages
 freya:/> run @flash
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program flash region
-  api version 2, table size 132 bytes
+  api version 2, table size 140 bytes
   code at 0x08009cc0, data at 0x20001800
   initialised data survived the load: .data ok, .bss clear
 ```
@@ -563,6 +623,14 @@ file read through `include`, and each way the interpreter can fail. The
 same binary talks to a terminal with `-i`, which is the quickest way to
 try the language without a board.
 
+A run's exit status is decided in one place — `freya_exit_status()` in the ABI
+header — so that the closing line of `run`, `$?`, the log line and a program
+asking `last_exit()` can never disagree. That rule is a pure function of how
+the run ended and what the program asked for, so it is checked on the host:
+the truncation to a byte, the `128 + reason` statuses Freya synthesises for
+Ctrl-C and the four faults, and the `FREYA_API_HAS` test a program uses on a
+service table older than itself.
+
 The flash programming itself cannot be reached from the host, which is the main
 argument for keeping that driver small and its bounds check absolute. What can
 be checked off the board is the part most likely to be quietly wrong: a last
@@ -579,6 +647,7 @@ the kernel compares them at boot, and this compares them at build time.
 11 checks, 0 failures     interoperability
 18 checks, 0 failures     XMODEM
 79 checks, 0 failures     forth
+26 checks, 0 failures     exit status
 35 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```

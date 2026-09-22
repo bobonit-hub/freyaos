@@ -14,11 +14,11 @@ extern volatile int g_app_stop_reason;  /* loader.c */
 static const char *fault_name(uint32_t kind)
 {
     switch (kind) {
-    case APP_STOP_HARDFAULT:  return "HardFault";
-    case APP_STOP_MEMFAULT:   return "MemManage fault";
-    case APP_STOP_BUSFAULT:   return "BusFault";
-    case APP_STOP_USAGEFAULT: return "UsageFault";
-    default:                  return "Fault";
+    case FREYA_STOP_HARDFAULT:  return "HardFault";
+    case FREYA_STOP_MEMFAULT:   return "MemManage fault";
+    case FREYA_STOP_BUSFAULT:   return "BusFault";
+    case FREYA_STOP_USAGEFAULT: return "UsageFault";
+    default:                    return "Fault";
     }
 }
 
@@ -58,7 +58,7 @@ static void clear_fault_status(void)
 
 /*
  * Entered from the assembly shim with r0 = exception frame of the faulting
- * context and r1 = APP_STOP_* code.
+ * context and r1 = FREYA_STOP_* code.
  */
 void freya_fault_handler(uint32_t *frame, uint32_t kind)
 {
@@ -88,7 +88,7 @@ void freya_fault_handler(uint32_t *frame, uint32_t kind)
 
 #ifdef FREYA_APP_FLASH_ADDR
     /* Dump from thread mode so SD timeouts still see SysTick. */
-    if (kind == APP_STOP_BUSFAULT && from_thread) {
+    if (kind == FREYA_STOP_BUSFAULT && from_thread) {
         clear_fault_status();
         frame[6] = (uint32_t)(uintptr_t)ramdump_then_halt;
         frame[7] = (frame[7] & ~0x0600FC00UL) | (1UL << 24);

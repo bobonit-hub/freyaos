@@ -20,7 +20,7 @@ int app_main(const freya_api_t *api, int argc, char **argv)
         api->puts("spin: about to touch 0xF0000000 ...\r\n");
         *bad = 0xDEADBEEF;
         api->puts("spin: still alive?\r\n");
-        return 1;
+        return FREYA_EXIT_FAIL;
     }
 
     api->puts("spin: looping forever without checking anything.\r\n");

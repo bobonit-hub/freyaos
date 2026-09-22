@@ -172,15 +172,8 @@ typedef uint32_t freya_jmpbuf[10];
 int  freya_setjmp(freya_jmpbuf buf) __attribute__((returns_twice));
 void freya_longjmp(freya_jmpbuf buf, int value) __attribute__((noreturn));
 
-enum {
-    APP_STOP_NONE = 0,
-    APP_STOP_EXIT,
-    APP_STOP_CTRLC,
-    APP_STOP_HARDFAULT,
-    APP_STOP_MEMFAULT,
-    APP_STOP_BUSFAULT,
-    APP_STOP_USAGEFAULT
-};
+/* How a run ended, and the status it reports, are both ABI: see
+ * FREYA_STOP_* and freya_exit_status() in freya_api.h. */
 
 typedef struct {
     int      loaded;
@@ -196,9 +189,13 @@ typedef struct {
     uint32_t data_src;       /* .data initialiser, XIP only             */
     uint32_t data_start;
     uint32_t data_end;
-    int      last_exit_code;
+    /* The last run, which outlives the image: these survive an unload so
+     * that 'status' can still say what happened. */
+    int      last_status;    /* freya_exit_status(), 0 .. 255           */
     int      last_stop_reason;
     uint32_t last_run_ms;
+    uint32_t runs;           /* runs since reset; 0 means nothing ran   */
+    char     last_name[20];  /* which program that was                  */
 } app_state_t;
 
 extern app_state_t g_app;
@@ -228,6 +225,7 @@ void app_guard_enter(void);
 void app_guard_leave(void);
 int  app_should_stop(void);
 const char *app_stop_reason_str(int reason);
+int  app_last_exit(freya_exit_t *st);         /* -1 if nothing ran      */
 const freya_api_t *app_api(void);
 
 /* --------------------------------------------------------- filesystem */
@@ -263,7 +261,7 @@ void ramdump_then_halt(void) __attribute__((noreturn));
 
 /* -------------------------------------------------------------- shell */
 void shell_run(void) __attribute__((noreturn));
-int  shell_exec(char *line);
+int  shell_exec(char *line);                  /* returns the status     */
 void console_banner(void);
 
 /* ------------------------------------------------------------- xmodem */

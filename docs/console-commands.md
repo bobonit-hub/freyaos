@@ -30,6 +30,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `run [file\|@flash] [args...]` | run the loaded program |
 | `runflash [args...]` | run the program stored in internal flash |
 | `stop` | stop, or unload, the program |
+| `status` | exit status of the last command and the last program |
 | `install <file>` | write a program into internal flash |
 | `saveflash [file]` | copy the installed program from flash onto the card (default `/<name>.xip.bin`) |
 | `uninstall` | erase the program flash region |
@@ -41,6 +42,13 @@ Every command Freya implements.  The Black Pill now has the same list.
 
 Ctrl-C stops a running program, Ctrl-U clears the input line, and the up and
 down cursor keys walk the command history.
+
+`$?` anywhere in a line becomes the exit status of the previous command: 0 when
+it worked, 1 when it failed, 127 for a word that is not a command, and for
+`run` the status of the program — its own code, 130 after Ctrl-C, or 131..134
+after a fault. It is expanded before the line is split, so `echo $?` and
+`write /runs.txt $?` both work, and `status` prints the same numbers with the
+reason and the run time beside them.
 
 ## Commands that were Blue Pill only
 
