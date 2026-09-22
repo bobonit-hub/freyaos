@@ -22,6 +22,7 @@
 #endif
 
 #define FREYA_VERSION   "1.0"
+#define FREYA_CODENAME  "Chupacabra"
 #define FREYA_BUILD_ID  __DATE__ " " __TIME__
 
 /* --------------------------------------------------------------- misc */
