@@ -10,6 +10,17 @@
 #include "board.h"
 #include "freya_api.h"
 
+/* Every board Freya runs on has at least this much internal flash.  A
+ * smaller figure in the size register is the register being wrong. */
+#if !defined(BOARD_FLASH_KIB) || (BOARD_FLASH_KIB < 128)
+#error "supported boards have at least 128 KiB of internal flash"
+#endif
+#if defined(FREYA_APP_FLASH_ADDR) && \
+    ((FREYA_APP_FLASH_ADDR + FREYA_APP_FLASH_SIZE) > \
+     (0x08000000UL + (BOARD_FLASH_KIB) * 1024UL))
+#error "program flash region extends past the board's flash"
+#endif
+
 #define FREYA_VERSION   "1.0"
 #define FREYA_BUILD_ID  __DATE__ " " __TIME__
 

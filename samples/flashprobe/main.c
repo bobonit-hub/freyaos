@@ -1,13 +1,14 @@
 /*
  * flashprobe - how much internal flash the chip really has.
  *
- * An STM32F103C8 says 64 KiB and usually has 128: most of those dies are
- * the C8B's with the top half untested rather than absent.  Reading the
- * extra pages proves nothing, because unimplemented flash reads back as
- * something; only a write settles it.  So this program writes.
+ * Every board Freya supports has at least 128 KiB.  An STM32F103C8 often
+ * still says 64; that report is raised to 128 before anything is believed,
+ * and a write is what settles the question of flash past that floor.
+ * Reading extra pages proves nothing, because unimplemented flash reads
+ * back as something.  So this program writes.
  *
- *     run flashprobe.bin        probe to twice the declared size
- *     run flashprobe.bin 128    probe to 128 KiB
+ *     run flashprobe.bin        probe to twice the size used below
+ *     run flashprobe.bin 256    probe to 256 KiB
  *
  * One erase unit at a time, starting at the last unit inside the declared
  * flash and walking upwards, it programs a 256 byte block, reads it back,
@@ -36,6 +37,7 @@
 #endif
 
 #define FLASH_ORIGIN        0x08000000UL
+#define FLASH_MIN_KIB       128u            /* every supported board has this  */
 #define BLOCK_BYTES         256u            /* the data block each step writes */
 #define PROBE_MAX_KIB       1024u           /* as far up as this will look     */
 #define ERR_TIMEOUT         0x80000000UL    /* not an SR bit: our own          */
@@ -76,7 +78,7 @@ static inline void isb(void) { __asm volatile ("isb 0xF" ::: "memory"); }
 #define MCU_NAME        "STM32F103"
 #define FL              ((flash_regs_t *)0x40022000UL)
 #define FLASHSIZE_REG   (*(const volatile uint16_t *)0x1FFFF7E0UL)
-#define DECLARED_KIB    64u                 /* if the chip will not say  */
+#define DECLARED_KIB    128u                /* if the chip will not say  */
 #define SPIN_LIMIT      2000000UL           /* 40 ms page erase, loosely */
 
 #define SR_BSY          (1UL << 0)
@@ -504,6 +506,7 @@ int app_main(const freya_api_t *api, int argc, char **argv)
 
     reported = declared_kib;
     if (declared_kib == 0 || declared_kib == 0xFFFFu) declared_kib = DECLARED_KIB;
+    if (declared_kib < FLASH_MIN_KIB) declared_kib = FLASH_MIN_KIB;
     declared = declared_kib * 1024u;
 
     proven  = FLASH_ORIGIN + declared;
@@ -515,8 +518,10 @@ int app_main(const freya_api_t *api, int argc, char **argv)
     end = FLASH_ORIGIN + ceiling;
 
     api->printf("flashprobe: %s reports %u KiB", MCU_NAME, reported);
-    if (reported != declared_kib) api->printf(" (unreadable - assuming %u)",
-                                              declared_kib);
+    if (reported == 0 || reported == 0xFFFFu)
+        api->printf(" (unreadable - assuming %u)", declared_kib);
+    else if (reported != declared_kib)
+        api->printf(" (using %u)", declared_kib);
     api->printf(", probing to %u KiB\r\n", ceiling / 1024u);
     api->puts("flashprobe: each step writes 256 B into an erase unit that "
               "reads blank,\r\n"

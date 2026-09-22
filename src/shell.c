@@ -260,13 +260,24 @@ static int is_flash_path(const char *p)
 #endif
 }
 
+/* KiB of internal flash.  The size register is a floor of BOARD_FLASH_KIB:
+ * a Blue Pill often still reads 64, and every supported board has at least
+ * 128.  A larger report (the Black Pill's 512) is kept. */
+static uint32_t mcu_flash_kib(void)
+{
+    uint32_t kib = *(volatile uint16_t *)FLASHSIZE_BASE;
+
+    if (kib < BOARD_FLASH_KIB) kib = BOARD_FLASH_KIB;
+    return kib;
+}
+
 /* ----------------------------------------------------------- commands */
 static int cmd_help(int argc, char **argv);
 
 static int cmd_sysinfo(int argc, char **argv)
 {
     uint32_t idcode = DBGMCU_IDCODE;
-    uint16_t fl_kb = *(volatile uint16_t *)FLASHSIZE_BASE;
+    uint32_t fl_kb = mcu_flash_kib();
     const uint32_t *uid = (const uint32_t *)UID_BASE;
     uint32_t up = sys_uptime_ms();
     rtc_time_t t;
@@ -330,7 +341,7 @@ static int cmd_meminfo(int argc, char **argv)
     uint32_t data_sz = (uint32_t)((uint8_t *)__data_end - (uint8_t *)__data_start);
     uint32_t bss_sz  = (uint32_t)((uint8_t *)__bss_end  - (uint8_t *)__bss_start);
     uint32_t flash_used = (uint32_t)((uint8_t *)__kernel_flash_end - (uint8_t *)0x08000000UL);
-    uint32_t flash_total = (uint32_t)(*(volatile uint16_t *)FLASHSIZE_BASE) * 1024UL;
+    uint32_t flash_total = mcu_flash_kib() * 1024UL;
     uint32_t heap_total, heap_used, heap_free, heap_big, heap_blocks;
     uint32_t stack_total = (uint32_t)((uint8_t *)__stack_top - (uint8_t *)__stack_limit);
     uint32_t app_total = FREYA_APP_REGION_SIZE;
@@ -781,7 +792,7 @@ static int cmd_flashdump(int argc, char **argv)
     if (argc > 2) return usage("flashdump [file]");
     if (argc == 2) name = argv[1];
 
-    size = (uint32_t)(*(volatile uint16_t *)FLASHSIZE_BASE) << 10;
+    size = mcu_flash_kib() << 10;
     return write_mem_file("flashdump", name, (const uint8_t *)0x08000000UL, size);
 }
 

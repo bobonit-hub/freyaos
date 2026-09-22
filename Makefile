@@ -261,15 +261,15 @@ endif
 image: $(FLASH_IMAGE)
 
 flash: $(FLASH_IMAGE)
-	st-flash --reset write $< 0x08000000
+	st-flash $(STFLASH_OPTS) --reset write $< 0x08000000
 
 ifeq ($(PROGRAM),)
 openocd: $(BUILD)/$(TARGET).elf
-	openocd -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
+	openocd $(OPENOCD_PRE) -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
 	        -c "program $< verify reset exit"
 else
 openocd: $(FLASH_IMAGE)
-	openocd -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
+	openocd $(OPENOCD_PRE) -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
 	        -c "program $(FLASH_IMAGE) verify reset exit 0x08000000"
 endif
 

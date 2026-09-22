@@ -23,9 +23,10 @@
 #define BOARD_FLASH_WS      2
 
 /* ------------------------------------------------------ internal flash */
-/* The F1 erases in 1 KiB pages and programs halfwords.  The auto-start
- * slot and the program image share page 39, so flash_erase() restores
- * whichever of the two a write did not cover. */
+/* 128 KiB, in 1 KiB pages; halfword programming.  FLASHSIZE_BASE often
+ * still reads 64.  The auto-start slot and the program image share page
+ * 44, so flash_erase() restores whichever of the two a write did not cover. */
+#define BOARD_FLASH_KIB         128U
 #define BOARD_FLASH_PAGE_SIZE   1024U
 
 /* ---------------------------------------------------------- SD on SPI1 */

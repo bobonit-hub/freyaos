@@ -13,11 +13,14 @@ verifies the whole region against the file and eyeballing a hex dump adds
 nothing; and the kernel grew 4 KiB rather than the 1.5 KiB guessed at here,
 leaving 7 KiB of headroom instead of 11.
 
-**The boundary has since moved once.** The kernel spent that headroom and the
-split is 44/20: the slot is at `0x0800B000` and a program gets 20352 bytes
-rather than 24448. Everything below describes 40/24, which is where it
-started; `include/freya_api.h` and `boards/bluepill/freya.ld` are where it is
-now, and `make test` compares the two.
+**The boundary has since moved twice.** The kernel spent that headroom and the
+split became 44 KiB of kernel plus a 128-byte slot at `0x0800B000`. The
+program region then grew with the flash: every supported board has at least
+128 KiB, so a Blue Pill program gets 85888 bytes, through `0x0801FFFF`,
+rather than the 20352 bytes that fit in a 64 KiB part. Everything below
+describes 40/24, which is where it started; `include/freya_api.h` and
+`boards/bluepill/freya.ld` are where it is now, and `make test` compares the
+two.
 
 **Execution has since moved to RAM.** ABI 3 appends an explicit relocation
 table to each `.xip.bin`. The loader copies an installed image to the top of
@@ -103,20 +106,17 @@ program 3× what it has now. 48/16 is more conservative on the kernel and only
 kernel headroom, which the flash driver itself will eat into. 40/24 is the
 recommendation.
 
-**Not relying on the hidden flash.** Most STM32F103C8 dies are physically the
-128 KiB C**B** part with the top half untested rather than absent, and pages 64
-to 127 usually work. `FLASHSIZE_BASE` reports 64 KiB and ST specifies 64 KiB, so
-the region stays inside the specified half. A probe that tests for the extra
-pages and extends the region would be a separate, optional change, and not one
-to make while the erase path is still new.
+**The upper 64 KiB is part of the map.** Most STM32F103C8 dies are physically
+the 128 KiB part, and `FLASHSIZE_BASE` still often reports 64 KiB. Freya no
+longer stays inside that report. Every supported board is built as having at
+least 128 KiB, the Blue Pill program region runs to `0x0801FFFF`, and the
+size used by `sysinfo`, `meminfo` and `flashdump` is at least 128 KiB.
 
-That probe now exists as a program rather than as part of the kernel:
-`samples/flashprobe` walks the erase units above the declared end, programs a
+`samples/flashprobe` still walks erase units above that floor, programs a
 256-byte block into each one, reads it back and erases it again, and prints
-where the flash actually stops. It only ever writes to a unit that reads blank,
-so a die where the top half really is missing loses nothing, and nothing in the
-kernel acts on the answer — the region bounds are still build-time constants
-the kernel checks against the linker script at boot.
+where the flash actually stops. It only ever writes to a unit that reads blank.
+The kernel does not resize itself from the answer — the region bounds are
+build-time constants, checked against the linker script at boot.
 
 ## ABI changes
 

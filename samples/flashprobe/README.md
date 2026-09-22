@@ -3,15 +3,15 @@
 How much internal flash the chip really has, as opposed to how much it says it
 has.
 
-An STM32F103C8 reports 64 KiB. Most of those dies are the C8**B**'s with the
-top half untested rather than absent, and pages 64 to 127 usually work — which
-is why `docs/flash-programs.md` keeps Freya's program region inside the
-specified half and leaves the question to a program. This is that program.
+Every board Freya supports has at least 128 KiB of flash, and the Blue Pill
+program region runs to the end of that. An STM32F103C8 often still reports
+64 KiB. This program raises any smaller report to 128 KiB and then writes,
+which is how to find out whether one chip has still more.
 
 Reading the extra pages proves nothing: unimplemented flash reads back as
 *something*, and on a part whose address decoder wraps it reads back as the
 kernel. Only a write settles it. So `flashprobe` walks the erase units from the
-end of the declared flash upwards and, for each one, programs a 256-byte block,
+end of that 128 KiB upwards and, for each one, programs a 256-byte block,
 reads it back, compares it, and erases the unit again. The first unit that does
 not compare is where the flash ends.
 
@@ -20,45 +20,42 @@ not compare is where the flash ends.
 ```
 freya:/> run flashprobe.bin
 --- flashprobe starting (Ctrl-C stops it) ---
-flashprobe: STM32F103 reports 64 KiB, probing to 128 KiB
+flashprobe: STM32F103 reports 64 KiB (using 128), probing to 256 KiB
 flashprobe: each step writes 256 B into an erase unit that reads blank,
             compares it, and erases the unit again
-  0x0800fc00   reference  ok
-  0x08010000      65 KiB  ok
-  0x08010400      66 KiB  ok
+  0x0801fc00   reference  ok
+  0x08020000     129 KiB  ok
   ...
-  0x0801fc00     128 KiB  ok
-flashprobe: 128 KiB of flash - 64 KiB more than the chip declares
-
---- flashprobe exited, exit status 0, 3512 ms ---
+flashprobe: at least 256 KiB of flash - 128 KiB more than the chip declares
+flashprobe: that is where the probe was told to stop, not where the flash is
 ```
 
-A chip that has only what it claims stops on the first step past the declared
-end, and says which of the several ways it stopped:
+A chip that has only the 128 KiB every board is built for stops on the first
+step past that, and says which of the several ways it stopped:
 
 ```
-  0x08010000      65 KiB  reads back as 0x08000000 - a mirror, not new flash
-flashprobe: 64 KiB of flash - the declared size is all of it
+  0x08020000     129 KiB  reads back as 0x08000000 - a mirror, not new flash
+flashprobe: 128 KiB of flash - the declared size is all of it
 ```
 
 ```sh
-run flashprobe.bin        # probe up to twice the declared size
-run flashprobe.bin 128    # probe up to 128 KiB
+run flashprobe.bin        # probe up to twice the size used below
+run flashprobe.bin 256    # probe up to 256 KiB
 ```
 
 | Argument | |
 |---|---|
-| KiB | where to stop, 1024 at the most; the default is twice the declared size |
+| KiB | where to stop, 1024 at the most; the default is twice the size used, and nothing below 128 KiB |
 
 ## The first step is a control
 
-The step before any of the interesting ones is the last erase unit *inside* the
-declared flash — flash that certainly exists — and it is labelled `reference`.
-If the write-read-compare procedure cannot pass there, none of its answers
-higher up are worth believing. On the Blue Pill that unit is the last page of
-the program flash region, so the step is skipped with `not blank` when a
-program is installed; on the Black Pill it is sector 7, which Freya never uses,
-and erasing 128 KiB of it takes a second or two.
+The step before any of the interesting ones is the last erase unit inside the
+128 KiB already assumed, and it is labelled `reference`. If the
+write-read-compare procedure cannot pass there,
+none of its answers higher up are worth believing. On the Blue Pill that unit
+is the last page of the program flash region, so the step is skipped with
+`not blank` when a program is installed; on the Black Pill it is sector 7,
+which Freya never uses, and erasing 128 KiB of it takes a second or two.
 
 ## What a step actually does
 
@@ -171,9 +168,8 @@ onto the card (or `download` it over XMODEM) and `run` it.
 
 ## Afterwards
 
-Nothing uses what it finds. The program region in `include/freya_api.h` and
-`boards/<board>/freya.ld` is a build-time constant that the kernel checks
-against the linker script at boot, so extending Freya into flash the chip does
-not admit to having would be a separate change, and one that would have to
-decide what happens when the same image is flashed onto a die where the top
-half really is missing.
+Nothing resizes Freya from what it finds. The program region in
+`include/freya_api.h` and `boards/<board>/freya.ld` is a build-time constant
+that the kernel checks against the linker script at boot. On the Blue Pill
+that constant already covers the 128 KiB every one of these boards has, past
+the 64 KiB the size register often still reports.

@@ -74,7 +74,7 @@ uint32_t timer_clock_hz(void)
  * is forty seconds, which at 96 MHz is 3.84e9 timer ticks and still
  * inside a word.  Anything a faster board could overflow is refused
  * instead of wrapping, and 64-bit arithmetic - three quarters of a KiB
- * of libgcc on a part with 64 KiB of flash - is never reached for.
+ * of libgcc on a part with 128 KiB of flash - is never reached for.
  */
 __attribute__((noinline))
 static int timer_divide(uint32_t hz, uint32_t us, uint16_t *psc, uint16_t *arr)
