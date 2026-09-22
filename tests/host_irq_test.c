@@ -13,7 +13,9 @@
  *
  * The board's PWM map is checked beside them, because it is a table
  * written by hand: every pin in it has to be one a program may have, and
- * no two entries may name the same pin or the same timer channel.
+ * no two entries may name the same pin or the same timer channel.  The
+ * I2C map is the same kind of table, and the half-period of its clock
+ * is asked what frequency that delay would actually produce.
  *
  * The kernel they expect around them is not here, so the few symbols
  * they refer to are defined below; nothing in the test calls the
@@ -30,6 +32,7 @@ app_state_t  g_app;
 volatile uint32_t g_irq_events;
 
 uint32_t sys_ticks(void) { return 0; }
+void sys_delay_us(uint32_t us) { (void)us; }
 int  app_in_handler(void) { return 0; }
 int  app_should_stop(void) { return 0; }
 int  app_handler_call(freya_irq_fn fn, int source, void *arg) { return 0; }
@@ -46,6 +49,7 @@ void board_pin_af(GPIO_TypeDef *port, int pin, int af) { }
 
 #include "../src/timer.c"
 #include "../src/pwm.c"
+#include "../src/i2c.c"
 
 static int checks, fails;
 
@@ -219,6 +223,62 @@ static void pwm_map(void)
     check("there is at least one channel to open", 1, PWM_COUNT > 0);
 }
 
+/* What the microsecond delay will actually clock the bus at.  Two half
+ * periods are the cycle, and the half is rounded up, so this is the
+ * asked-for rate or slower. */
+static uint32_t i2c_got(uint32_t hz)
+{
+    return 1000000U / (2U * i2c_half_us(hz));
+}
+
+static void i2c_sweep(void)
+{
+    int bad = 0;
+
+    for (uint32_t hz = FREYA_I2C_MIN_HZ; hz <= FREYA_I2C_MAX_HZ;
+         hz += (hz / 7) + 1) {
+        uint32_t half = (500000U + hz - 1U) / hz;
+        uint32_t out;
+
+        if (half == 0) half = 1;
+        out = i2c_got(hz);
+        if (i2c_half_us(hz) != half || out == 0 || out > hz) bad++;
+    }
+    check("every I2C speed in range is accepted and not run fast", 0, bad);
+}
+
+static void i2c_map(void)
+{
+    static const uint16_t reserved[] = BOARD_PIN_RESERVED;
+    i2c_info_t a, b;
+    int n = 0, bad = 0, dup = 0;
+
+    while (i2c_info(n, &a) == 0) {
+        int pins[2] = { a.scl, a.sda };
+
+        if (a.scl == a.sda || !a.name) bad++;
+        for (int k = 0; k < 2; k++) {
+            int port = FREYA_PIN_PORT(pins[k]);
+            int num  = FREYA_PIN_NUM(pins[k]);
+            if (port >= BOARD_PIN_PORTS || (reserved[port] & (1U << num)))
+                bad++;
+        }
+        for (int j = 0; j < n; j++) {
+            i2c_info(j, &b);
+            if (b.scl == a.scl || b.scl == a.sda ||
+                b.sda == a.scl || b.sda == a.sda) dup++;
+        }
+        n++;
+    }
+
+    printf("  --    %d I2C buses on this board\n", n);
+    check("this board has an I2C bus", 1, n > 0);
+    check("bus 1 is SCL PB6 and SDA PB7", 1,
+          i2c_info(0, &a) == 0 && a.scl == FREYA_PB(6) && a.sda == FREYA_PB(7));
+    check("no I2C pin is one the kernel keeps", 0, bad);
+    check("no I2C pin is shared between buses", 0, dup);
+}
+
 /*
  * A period is exact when the timer clock divides it into a prescaler and
  * a reload that both fit; when it does not, what a program gets is the
@@ -347,12 +407,29 @@ int main(void)
 
     pwm_map();
 
+    /* -------------------------------------------------- the I2C clock */
+    check("a speed below the floor is refused",
+          FREYA_ERR_ARG, i2c_open(1, FREYA_I2C_MIN_HZ - 1));
+    check("and a speed above fast mode",
+          FREYA_ERR_ARG, i2c_open(1, FREYA_I2C_MAX_HZ + 1));
+    check("and a bus the board does not have",
+          FREYA_ERR_ARG, i2c_open(0, 100000));
+    check("100 kHz is one half-period of 5 us", 5, (long)i2c_half_us(100000));
+    check("and that is 100 kHz", 100000, (long)i2c_got(100000));
+    check("10 kHz is one half-period of 50 us", 50, (long)i2c_half_us(10000));
+    check("400 kHz cannot be split into microseconds",
+          2, (long)i2c_half_us(400000));
+    check("so it is clocked at 250 kHz", 250000, (long)i2c_got(400000));
+    i2c_sweep();
+    i2c_map();
+
     /* ------------------------------------------- the table a program sees */
     memset(&api, 0, sizeof(api));
     api.size = sizeof(freya_api_t);
     check("a full table has the pin calls", 1, FREYA_API_HAS(&api, pin_mode) ? 1 : 0);
     check("and the timer calls", 1, FREYA_API_HAS(&api, timer_open) ? 1 : 0);
     check("and the PWM calls", 1, FREYA_API_HAS(&api, pwm_freq) ? 1 : 0);
+    check("and the I2C calls", 1, FREYA_API_HAS(&api, i2c_transfer) ? 1 : 0);
     api.size = __builtin_offsetof(freya_api_t, exit_reason_str) +
                sizeof(api.exit_reason_str);
     check("a kernel from before them says so", 0,
@@ -362,6 +439,9 @@ int main(void)
     api.size = __builtin_offsetof(freya_api_t, irq_wait) + sizeof(api.irq_wait);
     check("a kernel with the interrupts but not PWM says that too", 0,
           FREYA_API_HAS(&api, pwm_open) ? 1 : 0);
+    api.size = __builtin_offsetof(freya_api_t, pwm_freq) + sizeof(api.pwm_freq);
+    check("a kernel with PWM but not I2C says that too", 0,
+          FREYA_API_HAS(&api, i2c_open) ? 1 : 0);
 
     printf("\n%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;

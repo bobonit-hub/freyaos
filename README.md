@@ -41,7 +41,7 @@ freya:/>
 | Crystal | 25 MHz | 8 MHz |
 | Flash | 512 KiB | 128 KiB |
 | SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 85888 B flash |
+| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 81792 B flash |
 | Build | `make` | `make BOARD=bluepill` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -86,9 +86,14 @@ Freya 1.0 for STM32F103C8T6
 * Drives eight of those pins as PWM from the same timers, 1 Hz to 1 MHz with
   the duty cycle in ten-thousandths or as a pulse width for a servo, from a
   program or straight from the console with `pwm PB6 1000 25`.
+* Speaks I2C as a master, 7-bit, from 10 kHz up to 400 kHz, including the
+  repeated start a register read needs. The clock is that rate or a little
+  slower when a microsecond cannot land on it. Bus 1 is PB6/PB7 on both
+  boards; `i2c 1 scan` at the console and `samples/i2c` do the same thing
+  ([docs/i2c.md](docs/i2c.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
-  size from 8 KiB to 85888 bytes; on the Black Pill the flash region is 64 KiB
+  size from 8 KiB to 81792 bytes; on the Black Pill the flash region is 64 KiB
   (sector 4) and is there so the same console commands work with no card in
   the socket. The program can be copied from the card, or packed into the
   module when Freya itself is flashed.
@@ -118,6 +123,14 @@ Those six pins are the only ones Freya keeps: PA2 and PA3 for the console,
 PA4 to PA7 for the card. Every other pin of ports A, B and C is a program's
 to drive or take interrupts on, and eight of them — PA0, PA1, PB0, PB1 and
 PB6 to PB9 — have a timer channel behind them and can be driven as PWM.
+
+I2C uses two more of those pins, and one pair that is not. Bus 1 is PB6
+(SCL) and PB7 (SDA) on both boards. Bus 2 is PB10/PB11 on the Blue Pill and
+PB10/PB9 on the Black Pill, which has no PB11. Both lines are open drain and
+need a pull-up to 3.3 V; 4.7 kΩ is the usual value. The Black Pill also turns
+on the pin's own weak pull-up; the Blue Pill cannot, so the resistors are
+required there. A pin that is already a PWM output is not also an I2C pin
+until that channel is turned off.
 
 The console runs at 921600 baud, the fastest rate every common adapter agrees
 on: a CP2101, a CP2102 and an FT232 all list it, where 1 Mbaud is already the
@@ -498,9 +511,9 @@ built against this ABI can check before calling:
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-most of the 128 KiB of flash sits idle. So the board reserves 85888 bytes
-at the top of flash — the rest of page 44 after a 128-byte auto-start slot,
-then pages 45 to 127 — for one program image. The size register on these
+most of the 128 KiB of flash sits idle. So the board reserves 81792 bytes
+at the top of flash — the rest of page 48 after a 128-byte auto-start slot,
+then pages 49 to 127 — for one program image. The size register on these
 parts often still reads 64 KiB; the region runs to the end of the 128 KiB
 anyway. The Black Pill does not need
 the size (it already has 56 KiB of program RAM) but it keeps the same
@@ -513,13 +526,13 @@ kind of image into the module together with the kernel:
 freya:/> install hello.xip.bin
 install: console input is dropped while flash is busy
   erasing 2 pages ... writing ... ok
-installed /hello.xip.bin at 0x0800b080: 1.2 KiB in 2 pages
+installed /hello.xip.bin at 0x0800c080: 1.2 KiB in 2 pages
 
 freya:/> run @flash
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program flash region
   api version 2, table size 200 bytes
-  code at 0x0800b0c0, data at 0x20001800
+  code at 0x0800c0c0, data at 0x20001800
   initialised data survived the load: .data ok, .bss clear
 ```
 
@@ -549,7 +562,7 @@ flash into the RAM region before `app_main` is called. That is what the second
 linker script (`boards/<board>/app_flash.ld`) describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
-spends the 8 KiB RAM window entirely on its variables, and gets 85888 bytes
+spends the 8 KiB RAM window entirely on its variables, and gets 81792 bytes
 for code instead of 8 KiB. On the Black Pill the RAM window is still 56 KiB and
 the flash image may be up to 64 KiB.
 
@@ -614,12 +627,12 @@ leaves behind:
 
 ```
 0x08000000  +--------------------------------+
-            |  Freya kernel (~42 KiB used)   |  44 KiB, pages 0..43
-0x0800B000  +--------------------------------+
-            |  auto-start flag + log level  |  128 B, page 44
-0x0800B080  +--------------------------------+
-            |  program flash region          |  85888 B, rest of page 44
-            |                                |  and pages 45..127, installed
+            |  Freya kernel (~45 KiB used)   |  48 KiB, pages 0..47
+0x0800C000  +--------------------------------+
+            |  auto-start flag + log level  |  128 B, page 48
+0x0800C080  +--------------------------------+
+            |  program flash region          |  81792 B, rest of page 48
+            |                                |  and pages 49..127, installed
 0x08020000  +--------------------------------+  from the card
 
 0x20000000  +--------------------------------+
@@ -652,6 +665,7 @@ is measured rather than guessed).
 | `src/gpio.c` | pins a program may drive, and the sixteen EXTI interrupt lines |
 | `src/timer.c` | the general purpose timers and their interrupts |
 | `src/pwm.c` | the compare channels of those timers, driving pins |
+| `src/i2c.c` | I2C master, on the buses the board header names |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
 | `src/fs.c` | paths, working directory, descriptor table |
 | `src/xmodem.c` | the `download` receiver |
@@ -663,10 +677,11 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `flashprobe`, `tetris`, `forth` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `flashprobe`, `tetris`, `forth` |
 | `tests/` | host side tests |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
+| `docs/i2c.md` | the I2C master API, the pins, and the `i2c` command |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
 
@@ -718,7 +733,10 @@ and exact on the round numbers; frequencies inside 0.6%, which is the counts
 running out at the top of the range rather than the arithmetic. The pin
 encoding is checked beside them, and so is the board's table of PWM channels:
 a hand written table whose two temptations are naming a pin the kernel keeps
-and giving one timer channel to two pins.
+and giving one timer channel to two pins. The I2C half-period gets the same
+treatment: each half of the clock is a whole number of microseconds, rounded
+up, so the bus is the rate that was asked for or a little slower and never
+faster, and bus 1 of the pin table is PB6/PB7 on either board.
 
 The flash programming itself cannot be reached from the host, which is the main
 argument for keeping that driver small and its bounds check absolute. What can
@@ -770,7 +788,7 @@ ALL TESTS PASSED
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 128 KiB of
   flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
   KiB instead of sixty. Installing a program into flash is the answer to the
-  first half of that, not the second — such a program gets 85888 bytes of code, but
+  first half of that, not the second — such a program gets 81792 bytes of code, but
   the heap is still small and the stack is still shared.
 * The Black Pill keeps a program in flash for the same console commands, not
   because 56 KiB of program RAM is too small. Its erase unit at the program

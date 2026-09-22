@@ -44,7 +44,8 @@ int (*pin_toggle)(int pin);
 ```
 
 The modes are `FREYA_PIN_IN`, `FREYA_PIN_IN_PULLUP`, `FREYA_PIN_IN_PULLDOWN`,
-`FREYA_PIN_OUT`, `FREYA_PIN_OUT_OD` (open drain) and `FREYA_PIN_ANALOG`. Ports
+`FREYA_PIN_OUT`, `FREYA_PIN_OUT_OD` (open drain; on the F4 the pin's pull-up
+is on as well) and `FREYA_PIN_ANALOG`. Ports
 A, B and C exist on both boards; the register layout behind them does not
 (the F1 configures a pin in one four-bit field, the F4 in four two-bit ones),
 which is why the chip half lives in `boards/<board>/board.c`.
@@ -216,11 +217,12 @@ serve several, and `arg` is whatever was registered beside it.
 What a handler may do follows from what it can preempt. Console output, the
 LED, `ticks_ms()`, the pin calls and `timer_start` / `timer_stop` /
 `timer_period` / the counters are all safe. `malloc()`, `free()` and the
-filesystem are not — a handler can land in the middle of the heap's or FAT's
-own bookkeeping — so **the kernel refuses them from a handler** rather than
-let a program corrupt the card or the heap: `malloc()` returns `NULL`, the
-file calls return an error, and `api->log()` writes to the console instead of
-the card. `pin_irq_attach`, `pin_irq_detach`, `timer_open` and `timer_close`
+filesystem and the I2C calls are not — a handler can land in the middle of
+the heap's or FAT's own bookkeeping, or spin on a bus — so **the kernel
+refuses them from a handler** rather than let a program corrupt the card or
+the heap: `malloc()` returns `NULL`, the file calls return an error,
+`api->log()` writes to the console instead of the card, and an I2C call
+returns `FREYA_ERR_HANDLER`. `pin_irq_attach`, `pin_irq_detach`, `timer_open` and `timer_close`
 are refused too, with `FREYA_ERR_HANDLER`: they rearrange the tables the
 interrupt itself is walking.
 
@@ -277,6 +279,12 @@ and everything else in thread mode.
 | `FREYA_ERR_BUSY` (-2) | that interrupt line is taken, every timer is taken, or the timer is already running at another frequency |
 | `FREYA_ERR_ARG` (-3) | mode, edge, period, frequency, duty cycle or handle out of range |
 | `FREYA_ERR_HANDLER` (-4) | not callable from a handler |
+| `FREYA_ERR_NACK` (-5) | an I2C address or byte was not acknowledged |
+| `FREYA_ERR_TIMEOUT` (-6) | an I2C transfer did not finish |
+| `FREYA_ERR_IO` (-7) | an I2C bus error, or a stop requested mid-transfer |
+
+I2C is the other bus a program can drive. It is not an interrupt source;
+[docs/i2c.md](i2c.md) is its API.
 
 ## Older kernels
 

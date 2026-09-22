@@ -25,7 +25,7 @@
 /* ------------------------------------------------------ internal flash */
 /* 128 KiB, in 1 KiB pages; halfword programming.  FLASHSIZE_BASE often
  * still reads 64.  The auto-start slot and the program image share page
- * 44, so flash_erase() restores whichever of the two a write did not cover. */
+ * 48, so flash_erase() restores whichever of the two a write did not cover. */
 #define BOARD_FLASH_KIB         128U
 #define BOARD_FLASH_PAGE_SIZE   1024U
 
@@ -73,6 +73,16 @@
       { FREYA_PB(0), 1, 3, 0 }, { FREYA_PB(1), 1, 4, 0 },  \
       { FREYA_PB(6), 2, 1, 0 }, { FREYA_PB(7), 2, 2, 0 },  \
       { FREYA_PB(8), 2, 3, 0 }, { FREYA_PB(9), 2, 4, 0 } }
+
+/* ----------------------------------------------- I2C a program may open */
+/* Each bus is { SCL pin, SDA pin }.  The master drives them as open-drain
+ * GPIO.  Bus 1 is PB6/PB7, the pair every board has, and bus 2 is
+ * PB10/PB11.  An output on this chip cannot turn its pull-up on, so the
+ * lines need external resistors. */
+#define BOARD_I2C_MAP \
+    { { FREYA_PB(6), FREYA_PB(7) }, \
+      { FREYA_PB(10), FREYA_PB(11) } }
+#define BOARD_I2C_NAMES { "I2C1", "I2C2" }
 
 /* --------------------------------------------------------------- hooks */
 void board_clock_init(void);            /* clock tree, fills g_clocks    */

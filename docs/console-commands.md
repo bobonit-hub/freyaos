@@ -40,6 +40,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin, by the name a program uses for it |
 | `pwm [<pin> <hz> <duty%>\|<pin> off]` | list the PWM channels, or start and stop one |
+| `i2c [<bus> <hz>\|<bus> off\|<bus> scan\|<bus> <addr> …]` | list the I2C buses, or open, scan and talk to one |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
 
 ## Pins and PWM at the prompt
@@ -91,6 +92,25 @@ servo sits at. A channel started here keeps running — that is the point of it
 Frequencies are 1 Hz to 1 MHz, the channels of one timer share one frequency,
 and a timer driving pins is not one a program can open with `timer_open()`.
 [docs/interrupts.md](interrupts.md) has the rest.
+
+## I2C at the prompt
+
+`i2c` is the I2C service calls with a prompt in front of them — the same
+`src/i2c.c` a program reaches through `api->i2c_open()` and
+`api->i2c_transfer()`. With no arguments it lists the buses and the pins:
+
+```
+freya:/> i2c
+  1  I2C1  SCL PB6  SDA PB7  off
+  2  I2C2  SCL PB10  SDA PB11  off
+pull SCL and SDA up to 3.3 V
+usage: i2c [<bus> <hz> | <bus> off | <bus> scan | <bus> <addr> [w <byte>...] [r <n>]]
+```
+
+Bus 2's pins are the board's: PB10/PB11 on the Blue Pill, PB10/PB9 on the
+Black Pill. The rest of the command is opening a speed, scanning, a write, a
+read, or a write then a read, and closing again. [docs/i2c.md](i2c.md) has
+the worked transcript and the reasons a call is refused.
 
 Ctrl-C stops a running program, Ctrl-U clears the input line, and the up and
 down cursor keys walk the command history.

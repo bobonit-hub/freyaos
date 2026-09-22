@@ -364,6 +364,11 @@ static const freya_api_t s_api = {
     .pwm_duty        = pwm_duty,
     .pwm_pulse_us    = pwm_pulse_us,
     .pwm_freq        = pwm_freq,
+    .i2c_open        = i2c_open,
+    .i2c_close       = i2c_close,
+    .i2c_write       = i2c_write,
+    .i2c_read        = i2c_read,
+    .i2c_transfer    = i2c_transfer,
 };
 
 const freya_api_t *app_api(void)
@@ -1094,11 +1099,13 @@ int app_run(int argc, char **argv)
     g_app.running = 0;
     /* Nothing belonging to the program may still be able to run: its pin
      * and timer interrupts are dropped before the memory their handlers
-     * were using is handed back, and its PWM pins stop driving whatever
-     * they were driving. */
+     * were using is handed back, its PWM pins stop driving whatever they
+     * were driving, and an I2C bus it opened is released even if a
+     * transfer was abandoned halfway through a byte. */
     gpio_irq_release();
     pwm_release();
     timer_release();
+    i2c_release();
     g_app.last_run_ms = sys_ticks() - t0;
     g_app.last_status = status;
     g_app.last_stop_reason = g_app_stop_reason;

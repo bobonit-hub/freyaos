@@ -64,6 +64,8 @@ typedef struct {
 #define RCC_APB1ENR_TIM2EN  (1UL << 0)
 #define RCC_APB1ENR_TIM3EN  (1UL << 1)
 #define RCC_APB1ENR_TIM4EN  (1UL << 2)
+#define RCC_APB1ENR_I2C1EN  (1UL << 21)
+#define RCC_APB1ENR_I2C2EN  (1UL << 22)
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB1ENR_PWREN   (1UL << 28)
 
@@ -218,6 +220,44 @@ typedef struct {
 #define SPI_SR_RXNE         (1UL << 0)
 #define SPI_SR_TXE          (1UL << 1)
 #define SPI_SR_BSY          (1UL << 7)
+
+/* --------------------------------------------------------------- I2C */
+/* The original STM32 I2C.  The baud rate is CCR, a transfer is one byte
+ * at a time, and a two-byte read is a special case of the ACK bit. */
+typedef struct {
+    __IO uint32_t CR1;
+    __IO uint32_t CR2;
+    __IO uint32_t OAR1;
+    __IO uint32_t OAR2;
+    __IO uint32_t DR;
+    __IO uint32_t SR1;
+    __IO uint32_t SR2;
+    __IO uint32_t CCR;
+    __IO uint32_t TRISE;
+} I2C_TypeDef;
+
+#define I2C1                ((I2C_TypeDef *)0x40005400UL)
+#define I2C2                ((I2C_TypeDef *)0x40005800UL)
+
+#define I2C_CR1_PE          (1UL << 0)
+#define I2C_CR1_START       (1UL << 8)
+#define I2C_CR1_STOP        (1UL << 9)
+#define I2C_CR1_ACK         (1UL << 10)
+#define I2C_CR1_POS         (1UL << 11)
+
+#define I2C_SR1_SB          (1UL << 0)
+#define I2C_SR1_ADDR        (1UL << 1)
+#define I2C_SR1_BTF         (1UL << 2)
+#define I2C_SR1_RXNE        (1UL << 6)
+#define I2C_SR1_TXE         (1UL << 7)
+#define I2C_SR1_BERR        (1UL << 8)
+#define I2C_SR1_ARLO        (1UL << 9)
+#define I2C_SR1_AF          (1UL << 10)
+
+#define I2C_SR2_BUSY        (1UL << 1)
+
+#define I2C_CCR_FS          (1UL << 15)
+#define I2C_OAR1_FIXED      (1UL << 14)   /* the manual says keep this set */
 
 /* -------------------------------------------------- general purpose timers */
 /* Only the fields a periodic interrupt and a PWM output need are

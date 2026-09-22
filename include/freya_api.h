@@ -56,7 +56,7 @@
 #define FREYA_APP_LOAD_ADDR    0x20001800UL     /* 20 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE  (8U * 1024U)
 #define FREYA_AUTOSTART_ALIGN  128U
-#define FREYA_AUTOSTART_ADDR   0x0800B000UL     /* page 44, 128-byte aligned */
+#define FREYA_AUTOSTART_ADDR   0x0800C000UL     /* page 48, 128-byte aligned */
 #define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
@@ -257,9 +257,23 @@ typedef struct {
 #define FREYA_PWM_MIN_HZ     1UL
 #define FREYA_PWM_MAX_HZ     1000000UL
 
+/* --------------------------------------------------------------- I2C */
 /*
- * What the pin, timer, PWM and interrupt calls return.  Anything else
- * they hand back is the value asked for: a pin level, a handle, a count.
+ * Speeds the master will run at, or a little slower when a microsecond
+ * is too coarse to hit the one that was asked for.  Below the floor a
+ * transfer is all timeout; above the ceiling is Fast-mode Plus, which
+ * these pins are not set up for.
+ * A transfer longer than FREYA_I2C_MAX_LEN is refused rather than split,
+ * because 255 is a whole SMBus block and the usual EEPROM page.
+ */
+#define FREYA_I2C_MIN_HZ     10000UL
+#define FREYA_I2C_MAX_HZ     400000UL
+#define FREYA_I2C_MAX_LEN    255
+
+/*
+ * What the pin, timer, PWM, I2C and interrupt calls return.  Anything
+ * else they hand back is the value asked for: a pin level, a handle, a
+ * count.
  */
 #define FREYA_ERR_PIN        -1   /* no such pin, one the kernel owns, or
                                    * one with no PWM channel behind it   */
@@ -268,6 +282,11 @@ typedef struct {
 #define FREYA_ERR_ARG        -3   /* mode, edge, period, frequency or
                                    * duty cycle out of range             */
 #define FREYA_ERR_HANDLER    -4   /* not allowed from a handler          */
+#define FREYA_ERR_NACK       -5   /* an I2C address or byte was not
+                                   * acknowledged                        */
+#define FREYA_ERR_TIMEOUT    -6   /* an I2C transfer did not finish      */
+#define FREYA_ERR_IO         -7   /* an I2C bus error, or the run was
+                                   * asked to stop mid-transfer          */
 
 /*
  * A pin or timer handler.  It runs in interrupt context, on the same
@@ -276,11 +295,12 @@ typedef struct {
  *
  * What a handler may do is decided by what it can preempt.  Console
  * output, the LED, ticks_ms(), the pin calls and the timer calls are all
- * safe.  malloc(), free() and the filesystem are not - they can be
- * interrupted halfway through their own bookkeeping - so the kernel
- * refuses them from a handler instead of letting a program corrupt the
- * heap or the card.  A handler that faults, or one that never returns,
- * is killed and ends the run the way a fault in the program would; it
+ * safe.  malloc(), free(), the filesystem and the I2C calls are not -
+ * they can be interrupted halfway through their own bookkeeping, or
+ * they spin on a bus - so the kernel refuses them from a handler
+ * instead of letting a program corrupt the heap or the card.  A handler
+ * that faults, or one that never returns, is killed and ends the run
+ * the way a fault in the program would; it
  * does not take Freya down with it.
  *
  * A handler is optional.  Attached as NULL, the interrupt is still
@@ -383,6 +403,19 @@ typedef struct freya_api {
     int      (*pwm_duty)(int pwm, uint32_t duty);     /* 0..FREYA_PWM_FULL */
     int      (*pwm_pulse_us)(int pwm, uint32_t us);   /* the high time     */
     int      (*pwm_freq)(int pwm, uint32_t freq_hz);  /* the whole timer   */
+
+    /* appended: I2C master.  'bus' is 1 for the first bus the board
+     * lists.  Addresses are 7-bit.  A length of zero writes the
+     * address and stops, which is a scan.  i2c_transfer() with both
+     * buffers is the write-then-read of a device register: the repeated
+     * start between them is the kernel's, so nothing else can own the
+     * bus in the middle.  Opening an open bus sets a new speed. */
+    int      (*i2c_open)(int bus, uint32_t hz);       /* 0, or FREYA_ERR_* */
+    int      (*i2c_close)(int bus);
+    int      (*i2c_write)(int bus, int addr, const void *buf, int len);
+    int      (*i2c_read)(int bus, int addr, void *buf, int len);
+    int      (*i2c_transfer)(int bus, int addr, const void *tx, int txlen,
+                             void *rx, int rxlen);
 } freya_api_t;
 
 /*

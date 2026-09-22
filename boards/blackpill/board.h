@@ -75,6 +75,16 @@
       { FREYA_PB(6), 2, 1, 2 }, { FREYA_PB(7), 2, 2, 2 },  \
       { FREYA_PB(8), 2, 3, 2 }, { FREYA_PB(9), 2, 4, 2 } }
 
+/* ----------------------------------------------- I2C a program may open */
+/* Each bus is { SCL pin, SDA pin }.  The master drives them as open-drain
+ * GPIO.  Bus 1 is PB6/PB7, the pair every board has.  This package does
+ * not bond PB11, so bus 2's SDA is PB9 instead of the Blue Pill's PB11;
+ * PB9 is also a PWM pin, and can be only one. */
+#define BOARD_I2C_MAP \
+    { { FREYA_PB(6), FREYA_PB(7) }, \
+      { FREYA_PB(10), FREYA_PB(9) } }
+#define BOARD_I2C_NAMES { "I2C1", "I2C2" }
+
 /* --------------------------------------------------------------- hooks */
 void board_clock_init(void);            /* clock tree, fills g_clocks    */
 void board_uart_pins(void);             /* console pins and USART clock  */

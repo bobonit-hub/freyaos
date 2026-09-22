@@ -145,8 +145,8 @@ void board_pin_mode(GPIO_TypeDef *port, int pin, int mode)
     switch (mode) {
     case FREYA_PIN_IN_PULLUP:   pupdr = 1; break;
     case FREYA_PIN_IN_PULLDOWN: pupdr = 2; break;
-    case FREYA_PIN_OUT:
-    case FREYA_PIN_OUT_OD:      moder = 1; break;
+    case FREYA_PIN_OUT:         moder = 1; break;
+    case FREYA_PIN_OUT_OD:      moder = 1; pupdr = 1; break; /* ~40 kΩ, for I2C */
     case FREYA_PIN_ANALOG:      moder = 3; break;
     default:                    break;          /* floating input */
     }

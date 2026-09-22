@@ -74,6 +74,8 @@ typedef struct {
 #define RCC_APB1ENR_TIM2EN  (1UL << 0)
 #define RCC_APB1ENR_TIM3EN  (1UL << 1)
 #define RCC_APB1ENR_TIM4EN  (1UL << 2)
+#define RCC_APB1ENR_I2C1EN  (1UL << 21)
+#define RCC_APB1ENR_I2C2EN  (1UL << 22)
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB1ENR_PWREN   (1UL << 28)
 #define RCC_APB2ENR_SPI1EN  (1UL << 12)
@@ -229,6 +231,50 @@ typedef struct {
 #define SPI_SR_RXNE         (1UL << 0)
 #define SPI_SR_TXE          (1UL << 1)
 #define SPI_SR_BSY          (1UL << 7)
+
+/* --------------------------------------------------------------- I2C */
+/* The F4 I2C is not the F1's.  A transfer is a byte count in CR2, and
+ * the baud rate is one timing word rather than a CCR prescaler. */
+typedef struct {
+    __IO uint32_t CR1;
+    __IO uint32_t CR2;
+    __IO uint32_t OAR1;
+    __IO uint32_t OAR2;
+    __IO uint32_t TIMINGR;
+    __IO uint32_t TIMEOUTR;
+    __IO uint32_t ISR;
+    __IO uint32_t ICR;
+    __IO uint32_t PECR;
+    __IO uint32_t RXDR;
+    __IO uint32_t TXDR;
+} I2C_TypeDef;
+
+#define I2C1                ((I2C_TypeDef *)0x40005400UL)
+#define I2C2                ((I2C_TypeDef *)0x40005800UL)
+
+#define I2C_CR1_PE          (1UL << 0)
+
+#define I2C_CR2_RD_WRN      (1UL << 10)
+#define I2C_CR2_START       (1UL << 13)
+#define I2C_CR2_STOP        (1UL << 14)
+#define I2C_CR2_NBYTES_SHIFT 16
+#define I2C_CR2_AUTOEND     (1UL << 25)
+
+#define I2C_ISR_TXIS        (1UL << 1)
+#define I2C_ISR_RXNE        (1UL << 2)
+#define I2C_ISR_NACKF       (1UL << 4)
+#define I2C_ISR_STOPF       (1UL << 5)
+#define I2C_ISR_TC          (1UL << 6)
+#define I2C_ISR_BERR        (1UL << 8)
+#define I2C_ISR_ARLO        (1UL << 9)
+#define I2C_ISR_OVR         (1UL << 10)
+#define I2C_ISR_BUSY        (1UL << 15)
+
+#define I2C_ICR_NACKCF      (1UL << 4)
+#define I2C_ICR_STOPCF      (1UL << 5)
+#define I2C_ICR_BERRCF      (1UL << 8)
+#define I2C_ICR_ARLOCF      (1UL << 9)
+#define I2C_ICR_OVRCF       (1UL << 10)
 
 /* -------------------------------------------------- general purpose timers */
 /* Only the fields a periodic interrupt and a PWM output need are

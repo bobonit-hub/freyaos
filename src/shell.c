@@ -1290,9 +1290,18 @@ static int pin_fail(const char *cmd, int rc)
 
     switch (rc) {
     case FREYA_ERR_PIN:  why = "not a pin Freya hands out"; break;
-    case FREYA_ERR_BUSY: why = "that timer is taken"; break;
-    case FREYA_ERR_ARG:  why = "out of range"; break;
-    default:             why = "refused"; break;
+    case FREYA_ERR_BUSY:
+        why = (strcmp(cmd, "i2c") == 0) ? "that bus or its pins are taken"
+                                        : "that timer is taken";
+        break;
+    case FREYA_ERR_ARG:
+        why = (strcmp(cmd, "i2c") == 0)
+              ? "speed, address or length out of range" : "out of range";
+        break;
+    case FREYA_ERR_NACK:    why = "no answer"; break;
+    case FREYA_ERR_TIMEOUT: why = "timed out"; break;
+    case FREYA_ERR_IO:      why = "bus error"; break;
+    default:                why = "refused"; break;
     }
     kprintf("%s: %s\r\n", cmd, why);
     return -1;
@@ -1420,6 +1429,112 @@ static int cmd_pwm(int argc, char **argv)
     return 0;
 }
 
+/* ------------------------------------------------------------ I2C */
+#define I2C_USAGE \
+    "i2c [<bus> <hz> | <bus> off | <bus> scan | <bus> <addr> [w <byte>...] [r <n>]]"
+
+#define I2C_TX_MAX  32
+
+static int cmd_i2c(int argc, char **argv)
+{
+    i2c_info_t in;
+    uint8_t tx[I2C_TX_MAX], rx[FREYA_I2C_MAX_LEN];
+    uint32_t bus, n, len;
+    int i, rc, txlen, rlen;
+
+    if (argc < 2) {
+        for (i = 0; i2c_info(i, &in) == 0; i++) {
+            kprintf("  %d  %s  SCL ", i + 1, in.name);
+            put_pin(in.scl);
+            kprintf("  SDA ");
+            put_pin(in.sda);
+            if (in.open) kprintf("  %u Hz\r\n", in.hz);
+            else         kprintf("  off\r\n");
+        }
+        kprintf("pull SCL and SDA up to 3.3 V\r\nusage: %s\r\n", I2C_USAGE);
+        return 0;
+    }
+
+    if (str_to_u32(argv[1], &bus) != 0 || i2c_info((int)bus - 1, &in) != 0) {
+        kprintf("i2c: no such bus\r\n");
+        return -1;
+    }
+
+    if (argc == 3 && strcmp(argv[2], "off") == 0) {
+        if (i2c_close((int)bus) != 0) {
+            kprintf("i2c: not open\r\n");
+            return -1;
+        }
+        kprintf("%s off\r\n", in.name);
+        return 0;
+    }
+    if (argc == 3 && strcmp(argv[2], "scan") == 0) {
+        if (!in.open) {
+            kprintf("i2c: not open\r\n");
+            return -1;
+        }
+        for (i = 0x08; i <= 0x77; i++) {
+            if (uart_rx_ready() && uart_getc_timeout(0) == 0x03) {
+                uart_rx_flush();
+                kprintf("^C\r\n");
+                return -1;
+            }
+            rc = i2c_write((int)bus, i, NULL, 0);
+            if (rc == 0) kprintf("%02x ", i);
+            else if (rc != FREYA_ERR_NACK) return pin_fail("i2c", rc);
+        }
+        kprintf("\r\n");
+        return 0;
+    }
+    if (argc == 3 && str_to_u32(argv[2], &n) == 0 && n >= FREYA_I2C_MIN_HZ) {
+        rc = i2c_open((int)bus, n);
+        if (rc != 0) return pin_fail("i2c", rc);
+        kprintf("%s  %u Hz\r\n", in.name, n);
+        return 0;
+    }
+
+    if (!in.open) {
+        kprintf("i2c: not open\r\n");
+        return -1;
+    }
+    if (argc < 5 || str_to_u32(argv[2], &n) != 0 || n > 0x7F)
+        return usage(I2C_USAGE);
+
+    txlen = 0;
+    rlen = 0;
+    i = 3;
+    if (strcmp(argv[i], "w") == 0) {
+        for (i++; i < argc && strcmp(argv[i], "r") != 0; i++) {
+            if (txlen >= I2C_TX_MAX || str_to_u32(argv[i], &len) != 0 ||
+                len > 0xFF) return usage(I2C_USAGE);
+            tx[txlen++] = (uint8_t)len;
+        }
+        if (txlen == 0) return usage(I2C_USAGE);
+    }
+    if (i < argc && strcmp(argv[i], "r") == 0) {
+        if (i + 2 != argc || str_to_u32(argv[i + 1], &len) != 0 ||
+            len < 1 || len > FREYA_I2C_MAX_LEN) return usage(I2C_USAGE);
+        rlen = (int)len;
+        i += 2;
+    }
+    if (i != argc || (txlen == 0 && rlen == 0)) return usage(I2C_USAGE);
+
+    rc = i2c_transfer((int)bus, (int)n, txlen ? tx : NULL, txlen,
+                      rlen ? rx : NULL, rlen);
+    if (rc != 0) return pin_fail("i2c", rc);
+    if (rlen == 0) {
+        kprintf("ok\r\n");
+        return 0;
+    }
+    for (i = 0; i < rlen; i++) {
+        if (i && (i % 16) == 0) kprintf("\r\n");
+        else if (i) kprintf(" ");
+        kprintf("%02x", rx[i]);
+    }
+    kprintf("\r\n");
+    return 0;
+}
+
 /* ------------------------------------------------------ command table */
 typedef struct {
     const char *name;
@@ -1466,6 +1581,7 @@ static const command_t s_cmds[] = {
     { "led",      cmd_led,      "led on|off|blink" },
     { "pin",      cmd_pin,      PIN_USAGE },
     { "pwm",      cmd_pwm,      PWM_USAGE },
+    { "i2c",      cmd_i2c,      I2C_USAGE },
     { "echo",     cmd_echo,     "echo <text...>" },
     { "clear",    cmd_clear,    "clear the screen" },
     { "reboot",   cmd_reboot,   "restart the MCU" },

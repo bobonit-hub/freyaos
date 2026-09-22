@@ -101,6 +101,12 @@ int pwm_lookup(int pin)
     return FREYA_ERR_PIN;
 }
 
+int pwm_pin_busy(int pin)
+{
+    int idx = pwm_lookup(pin);
+    return (idx >= 0 && s_chan[idx].open) ? 1 : 0;
+}
+
 /* ---------------------------------------------------------- hardware */
 /* Counting from zero to the reload, over and over.  UG loads both the
  * prescaler and the reload immediately, which costs the channels already
@@ -194,6 +200,12 @@ int pwm_open(int pin, uint32_t freq_hz, uint32_t duty)
 
     idx = pwm_lookup(pin);
     if (idx < 0) return idx;
+
+    /* An open I2C bus owns both of its pins.  Taking one of them as a
+     * compare output would pull it off the bus without either side
+     * saying so. */
+    if (i2c_owns_pin(pin)) return FREYA_ERR_BUSY;
+
     t = &s_tim[s_map[idx].timer];
 
     rc = pwm_divide(timer_clock_hz(), freq_hz, &psc, &arr);

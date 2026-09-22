@@ -197,6 +197,33 @@ typedef struct {
 } pwm_info_t;
 
 int      pwm_info(int idx, pwm_info_t *info);   /* -1 past the last one   */
+int      pwm_pin_busy(int pin);           /* 1 when that pin is driving   */
+
+/* ---------------------------------------------------------------- I2C */
+/*
+ * Master only, polled, on the buses BOARD_I2C_MAP names.  The pins are
+ * driven as open-drain GPIO, the same code on both chips.  A bus a
+ * program opened is closed when the run ends.  One opened at the console
+ * is not, and a program that wants it is told it is busy.
+ */
+int      i2c_open(int bus, uint32_t hz);  /* 0, or FREYA_ERR_*            */
+int      i2c_close(int bus);
+int      i2c_write(int bus, int addr, const void *buf, int len);
+int      i2c_read(int bus, int addr, void *buf, int len);
+int      i2c_transfer(int bus, int addr, const void *tx, int txlen,
+                      void *rx, int rxlen);
+int      i2c_owns_pin(int pin);           /* 1 when an open bus uses it   */
+void     i2c_release(void);               /* drop whatever a run left     */
+
+typedef struct {
+    const char *name;
+    int         scl;
+    int         sda;
+    int         open;
+    uint32_t    hz;
+} i2c_info_t;
+
+int      i2c_info(int idx, i2c_info_t *info);   /* -1 past the last bus   */
 
 /* ---------------------------------------------------------------- SPI */
 void     spi_init(void);

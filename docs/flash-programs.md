@@ -13,14 +13,14 @@ verifies the whole region against the file and eyeballing a hex dump adds
 nothing; and the kernel grew 4 KiB rather than the 1.5 KiB guessed at here,
 leaving 7 KiB of headroom instead of 11.
 
-**The boundary has since moved twice.** The kernel spent that headroom and the
-split became 44 KiB of kernel plus a 128-byte slot at `0x0800B000`. The
-program region then grew with the flash: every supported board has at least
-128 KiB, so a Blue Pill program gets 85888 bytes, through `0x0801FFFF`,
-rather than the 20352 bytes that fit in a 64 KiB part. Everything below
-describes 40/24, which is where it started; `include/freya_api.h` and
-`boards/bluepill/freya.ld` are where it is now, and `make test` compares the
-two.
+**The boundary has since moved.** The kernel spent the headroom this note
+allowed, then spent it again: the split is 48 KiB of kernel plus a 128-byte
+slot at `0x0800C000`. The program region grew with the flash along the way —
+every supported board has at least 128 KiB — so a Blue Pill program gets
+81792 bytes, through `0x0801FFFF`, rather than the 20352 bytes that fit in a
+64 KiB part. Everything below describes 40/24, which is where it started;
+`include/freya_api.h` and `boards/bluepill/freya.ld` are where it is now, and
+`make test` compares the two.
 
 **Execution has since moved to RAM.** ABI 3 appends an explicit relocation
 table to each `.xip.bin`. The loader copies an installed image to the top of

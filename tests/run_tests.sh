@@ -124,11 +124,11 @@ echo "================= exit status ================="
 $CC $CFLAGS tests/host_exit_test.c -o "$OUT/hostexit"
 "$OUT/hostexit" || status=1
 
-# Pins, timers and PWM: the pin numbering a program uses, the two
-# dividers compiled for the host and asked for every period and every
-# frequency they accept, and the board's table of PWM channels.
+# Pins, timers, PWM and I2C: the pin numbering a program uses, the two
+# timer dividers and the I2C half-period compiled for the host and asked
+# for every value they accept, and the board's pin tables.
 echo
-echo "================= pins, timers and PWM ================="
+echo "================= pins, timers, PWM and I2C ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_irq_test.c -o "$OUT/hostirq"
 "$OUT/hostirq" || status=1
