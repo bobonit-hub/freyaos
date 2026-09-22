@@ -1,3 +1,29 @@
+# Freya 1.0.1 "Chupacabra"
+
+22 September 2026
+
+1.0.1 is a small follow-up to Chupacabra. The kernel, the program ABI and
+both boards are unchanged. The console banner and `sysinfo` print the new
+version:
+
+```
+Freya 1.0.1 "Chupacabra" for STM32F411CEU6
+```
+
+## What changed
+
+* The tree is under the MIT license. See [LICENSE](LICENSE).
+* `help` lists each command by the word you type. `help <command>` prints
+  that name, then a usage line when the usage is more than the name.
+  Commands that take no arguments no longer show a description in place of
+  the name.
+* The README describes Freya as a 32-bit, single-task, single-user, text OS
+  for STM32 small MCUs.
+* SD slot wiring for each board is drawn in
+  [docs/sd-slot.txt](docs/sd-slot.txt). The README points there, and says
+  to ground the USB-serial adapter with the board.
+* Host tests cover the shell help text (`make test`).
+
 # Freya 1.0 "Chupacabra"
 
 22 September 2026
