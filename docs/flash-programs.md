@@ -13,6 +13,12 @@ verifies the whole region against the file and eyeballing a hex dump adds
 nothing; and the kernel grew 4 KiB rather than the 1.5 KiB guessed at here,
 leaving 7 KiB of headroom instead of 11.
 
+**The boundary has since moved once.** The kernel spent that headroom and the
+split is 44/20: the slot is at `0x0800B000` and a program gets 20352 bytes
+rather than 24448. Everything below describes 40/24, which is where it
+started; `include/freya_api.h` and `boards/bluepill/freya.ld` are where it is
+now, and `make test` compares the two.
+
 Today a Freya program is a RAM image: `load` copies the file from the card
 into the program region, zeroes its `.bss` and `run` branches into it. On the
 Blue Pill that region is 8 KiB, because 8 KiB is what a 20 KiB SRAM can spare

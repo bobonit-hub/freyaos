@@ -1230,6 +1230,176 @@ static int cmd_led(int argc, char **argv)
     return 0;
 }
 
+/* ------------------------------------------------------- pins and PWM */
+/*
+ * The same pins and the same channels a program gets, driven by hand.
+ * Nothing here is a second implementation: the commands call src/gpio.c
+ * and src/pwm.c exactly as the service table does, which is also why a
+ * pin Freya keeps is refused at the prompt for the same reason.
+ */
+#define PIN_USAGE  "pin <pin> [in|up|down|out|od|analog] [0|1|toggle]"
+#define PWM_USAGE  "pwm [<pin> <hz> <duty%> | <pin> off]"
+
+/* The modes in the order the ABI numbers them, FREYA_PIN_IN first. */
+static const char *const s_pin_modes[] = {
+    "in", "up", "down", "out", "od", "analog"
+};
+
+/* "PB0", "pb0" and "B0" are the same pin; -1 is not a pin at all. */
+static int parse_pin(const char *s)
+{
+    uint32_t n;
+    int port;
+
+    if (*s == 'P' || *s == 'p') s++;
+    port = to_upper(*s) - 'A';
+    if (port < 0 || port >= BOARD_PIN_PORTS) return -1;
+    if (!s[1] || str_to_u32(s + 1, &n) != 0 || n > 15) return -1;
+    return FREYA_PIN(port, (int)n);
+}
+
+static void put_pin(int pin)
+{
+    kprintf("P%c%d", 'A' + FREYA_PIN_PORT(pin), FREYA_PIN_NUM(pin));
+}
+
+/* The pin and PWM calls answer with the same few numbers. */
+static int pin_fail(const char *cmd, int rc)
+{
+    const char *why;
+
+    switch (rc) {
+    case FREYA_ERR_PIN:  why = "not a pin Freya hands out"; break;
+    case FREYA_ERR_BUSY: why = "that timer is taken"; break;
+    case FREYA_ERR_ARG:  why = "out of range"; break;
+    default:             why = "refused"; break;
+    }
+    kprintf("%s: %s\r\n", cmd, why);
+    return -1;
+}
+
+/* "50" and "7.5" are a duty cycle in percent; the API takes ten
+ * thousandths, so hundredths of a percent are as fine as it gets. */
+static int parse_duty(const char *s, uint32_t *out)
+{
+    uint32_t v = 0;
+    int digits = 0, places = -1;
+
+    for (; *s; s++) {
+        if (*s == '.' && places < 0) { places = 0; continue; }
+        if (*s < '0' || *s > '9' || v > FREYA_PWM_FULL) return -1;
+        if (places < 0 || places < 2) {
+            v = v * 10U + (uint32_t)(*s - '0');
+            if (places >= 0) places++;
+        }
+        digits++;
+    }
+    if (!digits) return -1;
+    if (places < 0) places = 0;
+    while (places++ < 2) v *= 10U;
+    if (v > FREYA_PWM_FULL) return -1;
+    *out = v;
+    return 0;
+}
+
+static void put_duty(uint32_t duty)
+{
+    kprintf("%u.%02u%%", duty / 100U, duty % 100U);
+}
+
+/*
+ * A mode, a level, or both, and then what the pin reads either way - a
+ * pin driven is still a pin read back, and IDR is what it really is.
+ */
+static int cmd_pin(int argc, char **argv)
+{
+    int pin, rc = 0, at = 2;
+
+    if (argc < 2) return usage(PIN_USAGE);
+    pin = parse_pin(argv[1]);
+    if (pin < 0) return usage(PIN_USAGE);
+
+    if (argc > 2) {
+        for (unsigned i = 0; i < ARRAY_SIZE(s_pin_modes); i++)
+            if (strcmp(argv[2], s_pin_modes[i]) == 0) {
+                rc = gpio_pin_mode(pin, (int)i);
+                at = 3;                     /* a level may follow it */
+                break;
+            }
+        /* A level with no mode before it: the pin becomes a push-pull
+         * output, which is what 'pin PB5 1' at a prompt means by it. */
+        if (at == 2) rc = gpio_pin_mode(pin, FREYA_PIN_OUT);
+        if (rc != 0) return pin_fail("pin", rc);
+    }
+    if (argc > at) {
+        if (strcmp(argv[at], "toggle") == 0)  rc = gpio_pin_toggle(pin);
+        else if (strcmp(argv[at], "0") == 0)  rc = gpio_pin_write(pin, 0);
+        else if (strcmp(argv[at], "1") == 0)  rc = gpio_pin_write(pin, 1);
+        else return usage(PIN_USAGE);
+        if (rc != 0) return pin_fail("pin", rc);
+    }
+
+    rc = gpio_pin_read(pin);
+    if (rc < 0) return pin_fail("pin", rc);
+    put_pin(pin);
+    kprintf(" = %d\r\n", rc);
+    return 0;
+}
+
+/* With no arguments, the board's channels and what each is doing; with
+ * them, one channel started, changed or stopped. */
+static int cmd_pwm(int argc, char **argv)
+{
+    pwm_info_t in;
+    uint32_t hz, duty;
+    int pin, ch, rc;
+
+    if (argc < 2) {
+        for (int i = 0; pwm_info(i, &in) == 0; i++) {
+            kprintf("  ");
+            put_pin(in.pin);
+            kprintf("  %s CH%d  ", in.timer, in.ch);
+            if (in.open) {
+                kprintf("%u Hz ", in.freq_hz);
+                put_duty(in.duty);
+            } else {
+                kprintf("off");
+            }
+            kprintf("\r\n");
+        }
+        kprintf("the channels of one timer share its frequency\r\n"
+                "usage: %s\r\n", PWM_USAGE);
+        return 0;
+    }
+
+    pin = parse_pin(argv[1]);
+    ch  = (pin < 0) ? FREYA_ERR_PIN : pwm_lookup(pin);
+    if (ch < 0) return pin_fail("pwm", ch);
+
+    if (argc == 3 && strcmp(argv[2], "off") == 0) {
+        put_pin(pin);
+        if (pwm_close(ch) != 0) {           /* the handle is good, so: */
+            kprintf(" is not running\r\n");
+            return -1;
+        }
+        kprintf(" off, and an input again\r\n");
+        return 0;
+    }
+    if (argc < 4 || str_to_u32(argv[2], &hz) != 0 ||
+        parse_duty(argv[3], &duty) != 0) return usage(PWM_USAGE);
+
+    rc = pwm_open(pin, hz, duty);
+    if (rc < 0) return pin_fail("pwm", rc);
+
+    /* It outlives the command: nothing stops it but 'pwm <pin> off'. */
+    pwm_info(rc, &in);
+    put_pin(pin);
+    kprintf("  %s CH%d  %u Hz ", in.timer, in.ch, in.freq_hz);
+    put_duty(in.duty);
+    kprintf("\r\n");
+    return 0;
+}
+
 /* ------------------------------------------------------ command table */
 typedef struct {
     const char *name;
@@ -1274,6 +1444,8 @@ static const command_t s_cmds[] = {
     { "loglevel", cmd_loglevel, "loglevel [level]" },
     { "uptime",   cmd_uptime,   "time since reset" },
     { "led",      cmd_led,      "led on|off|blink" },
+    { "pin",      cmd_pin,      PIN_USAGE },
+    { "pwm",      cmd_pwm,      PWM_USAGE },
     { "echo",     cmd_echo,     "echo <text...>" },
     { "clear",    cmd_clear,    "clear the screen" },
     { "reboot",   cmd_reboot,   "restart the MCU" },

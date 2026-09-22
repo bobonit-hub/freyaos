@@ -42,13 +42,13 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--kernel", required=True, help="freya.bin")
     p.add_argument("--app", required=True, help="program .xip.bin")
-    p.add_argument("--load-addr", required=True, help="program region base, e.g. 0x0800A080")
+    p.add_argument("--load-addr", required=True, help="program region base, e.g. 0x0800B080")
     p.add_argument("--region-end", required=True, help="first address after the region")
     p.add_argument("--flash-base", default=hex(FLASH_BASE_DEFAULT),
                    help="start of internal flash (default 0x08000000)")
     p.add_argument("--slot-addr",
                    help="auto-start slot base from the kernel ELF "
-                        "(__autostart_start), e.g. 0x0800A000")
+                        "(__autostart_start), e.g. 0x0800B000")
     p.add_argument("--slot-end",
                    help="first address after the auto-start slot "
                         "(__autostart_end)")

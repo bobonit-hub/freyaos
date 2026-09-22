@@ -359,6 +359,11 @@ static const freya_api_t s_api = {
     .timer_count     = timer_count,
     .irq_count       = api_irq_count,
     .irq_wait        = api_irq_wait,
+    .pwm_open        = pwm_open,
+    .pwm_close       = pwm_close,
+    .pwm_duty        = pwm_duty,
+    .pwm_pulse_us    = pwm_pulse_us,
+    .pwm_freq        = pwm_freq,
 };
 
 const freya_api_t *app_api(void)
@@ -1013,8 +1018,10 @@ int app_run(int argc, char **argv)
     g_app.running = 0;
     /* Nothing belonging to the program may still be able to run: its pin
      * and timer interrupts are dropped before the memory their handlers
-     * were using is handed back. */
+     * were using is handed back, and its PWM pins stop driving whatever
+     * they were driving. */
     gpio_irq_release();
+    pwm_release();
     timer_release();
     g_app.last_run_ms = sys_ticks() - t0;
     g_app.last_status = status;

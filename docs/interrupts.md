@@ -1,10 +1,10 @@
-# Pins, timers and interrupts
+# Pins, timers, PWM and interrupts
 
 A Freya program can drive the board's spare pins, take an interrupt when one
-of them changes, and have a hardware timer interrupt it every so many
-microseconds. All of it is in the service table (`include/freya_api.h`), so a
-program uses it the way it uses `printf` or `open`, and none of it needs the
-card.
+of them changes, have a hardware timer interrupt it every so many
+microseconds, and leave a timer square-waving a pin on its own. All of it is
+in the service table (`include/freya_api.h`), so a program uses it the way it
+uses `printf` or `open`, and none of it needs the card.
 
 ```c
 static void on_tick(int timer, void *arg)   /* runs in interrupt context */
@@ -23,7 +23,8 @@ int app_main(const freya_api_t *api, int argc, char **argv)
 ```
 
 `samples/irq` is the worked example: a timer blinking the LED and a button on
-a pin, counted and reported. Build it with `make` and run `run irq.bin`.
+a pin, counted and reported. `samples/pwm` is the other one, fading an LED and
+sweeping a servo. Build them with `make` and run `run irq.bin`.
 
 ## Pins
 
@@ -113,6 +114,94 @@ every clock either board can run at.
 `timer_period()` changes the period of a timer that is already running; it
 takes effect at its next expiry, because the reload register is buffered.
 
+## PWM
+
+The other thing those timers do is drive a pin directly. `pwm_open()` starts a
+square wave and returns a handle; from then on the hardware toggles the pin and
+the program can do anything else, or nothing.
+
+```c
+int (*pwm_open)(int pin, uint32_t freq_hz, uint32_t duty);  /* -> a handle */
+int (*pwm_close)(int pwm);
+int (*pwm_duty)(int pwm, uint32_t duty);      /* 0 .. FREYA_PWM_FULL */
+int (*pwm_pulse_us)(int pwm, uint32_t us);    /* the same, as a high time */
+int (*pwm_freq)(int pwm, uint32_t freq_hz);
+```
+
+A duty cycle is a fraction of the period in ten-thousandths, so
+`FREYA_PWM_FULL` (10000) is a pin held high the whole period, 5000 is half and
+750 is the 7.5% a servo sits in the middle at. It is a fraction rather than a
+count of ticks so that it survives a change of frequency and means the same on
+both boards. A channel comes up already running at the duty cycle
+`pwm_open()` was given, and `pwm_close()` stops it **and puts the pin back to
+an input** — a stopped PWM pin would otherwise freeze at whichever level the
+period happened to be at, which for whatever it drives is an arbitrary one of
+the two.
+
+### Which pins
+
+Eight, the same on both boards, with no remapping and no JTAG pin among them:
+
+| Pin | | Pin | | Pin | | Pin | |
+|---|---|---|---|---|---|---|---|
+| PA0 | TIM2 CH1 | PB0 | TIM3 CH3 | PB6 | TIM4 CH1 | PB8 | TIM4 CH3 |
+| PA1 | TIM2 CH2 | PB1 | TIM3 CH4 | PB7 | TIM4 CH2 | PB9 | TIM4 CH4 |
+
+Any other pin is refused with `FREYA_ERR_PIN`, and `pwm` at the console prints
+the table with the state of each channel beside it. On a Black Pill, note that
+PA0 is also the KEY button, which holds it low when pressed.
+
+These are the same TIM2, TIM3 and TIM4 that `timer_open()` hands out, so the
+two share three timers between them: a timer driving pins is not one a program
+can also take a periodic interrupt from, and whichever asks first gets it. The
+second one is told `FREYA_ERR_BUSY`.
+
+Within one timer the counter is shared too, which is why **all the channels of
+a timer run at one frequency**. The first `pwm_open()` on a timer sets it; a
+second pin on the same timer has to ask for the frequency that is already
+running, or it is refused with `FREYA_ERR_BUSY`. `pwm_freq()` changes it for
+every channel of that timer at once, each keeping the duty cycle it was given.
+PB6 and PB9 therefore always share a frequency; PB6 and PB0 never do.
+
+### Frequency, and what it costs in resolution
+
+From `FREYA_PWM_MIN_HZ` (1) to `FREYA_PWM_MAX_HZ` (1 MHz). The prescaler and
+the reload are worked out the way a timer period is, smallest prescaler first,
+and what the reload comes to is the resolution the duty cycle actually has:
+1 kHz at 96 MHz counts 96000 ticks, so a ten-thousandth of the period is real,
+while 1 MHz counts 96 and the duty cycle moves in steps of about a percent.
+Round frequencies land exactly, and the error only becomes visible up where
+the counts run out: the worst the sweep in `make test` finds is 0.3% at
+956 kHz, or 0.6% on a Blue Pill running without its crystal.
+
+### Servos
+
+A servo is specified as a pulse width, not a fraction, and `pwm_pulse_us()`
+says it that way:
+
+```c
+int servo = api->pwm_open(FREYA_PA(0), 50, 0);   /* a 20 ms frame */
+
+api->pwm_pulse_us(servo, 1500);                  /* centre */
+```
+
+The compare value is worked out from the timer clock rather than from the duty
+fraction, so the pulse lands on the finest step the prescaler left — 312 ns at
+50 Hz on either board — instead of on a ten-thousandth of the period. A pulse
+longer than the period is `FREYA_ERR_ARG`.
+
+### From a handler, and at the end of a run
+
+`pwm_duty()`, `pwm_pulse_us()` and `pwm_freq()` are safe from an interrupt
+handler: they write compare registers and nothing else. `pwm_open()` and
+`pwm_close()` are refused with `FREYA_ERR_HANDLER`, like `timer_open()` and
+`pin_irq_attach()`, because they rearrange the tables.
+
+Every channel a program opened is closed when its run ends, however it ended,
+and its pins go back to being inputs — nothing a program leaves behind keeps
+driving a motor after the shell comes back. A channel started at the console
+with `pwm` is not a program's, and keeps running until `pwm <pin> off`.
+
 ## Handlers, and what they may do
 
 A handler is the program's own code running in interrupt context:
@@ -184,9 +273,9 @@ and everything else in thread mode.
 
 | | |
 |---|---|
-| `FREYA_ERR_PIN` (-1) | no such pin, or one the kernel owns |
-| `FREYA_ERR_BUSY` (-2) | that interrupt line, or every timer, is taken |
-| `FREYA_ERR_ARG` (-3) | mode, edge, period or handle out of range |
+| `FREYA_ERR_PIN` (-1) | no such pin, one the kernel owns, or one with no PWM channel |
+| `FREYA_ERR_BUSY` (-2) | that interrupt line is taken, every timer is taken, or the timer is already running at another frequency |
+| `FREYA_ERR_ARG` (-3) | mode, edge, period, frequency, duty cycle or handle out of range |
 | `FREYA_ERR_HANDLER` (-4) | not callable from a handler |
 
 ## Older kernels
@@ -201,3 +290,6 @@ if (!FREYA_API_HAS(api, irq_wait)) {
     return FREYA_EXIT_FAIL;
 }
 ```
+
+PWM was appended after those, so it is asked about separately:
+`FREYA_API_HAS(api, pwm_open)`.

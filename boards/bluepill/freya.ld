@@ -4,13 +4,13 @@
  * 64 KiB internal flash @ 0x08000000
  * 20 KiB SRAM           @ 0x20000000
  *
- * Flash map - the kernel keeps the bottom 40 KiB, the first unused
+ * Flash map - the kernel keeps the bottom 44 KiB, the first unused
  * 128-byte aligned slot holds the auto-start flag and reserved padding,
  * and the rest of flash holds one program image, installed from the card
  * or packed in when the module is programmed, and executed in place:
- *   0x08000000 .. 0x08009FFF   Freya kernel                      (40 KiB)
- *   0x0800A000 .. 0x0800A07F   auto-start flag + reserved          (128 B)
- *   0x0800A080 .. 0x0800FFFF   program flash region              (24448 B)
+ *   0x08000000 .. 0x0800AFFF   Freya kernel                      (44 KiB)
+ *   0x0800B000 .. 0x0800B07F   auto-start flag + reserved          (128 B)
+ *   0x0800B080 .. 0x0800FFFF   program flash region              (20352 B)
  *
  * RAM map - the whole system has to fit in a fifth of what the Black Pill
  * offers, so the heap is small and the program region is sized for the
@@ -27,16 +27,16 @@ ENTRY(Reset_Handler)
 
 MEMORY
 {
-    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 40K
+    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 44K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
 __stack_size         = 6K;
 __app_ram_start      = 0x20001800;
 __app_ram_end        = 0x20003800;
-__autostart_start    = 0x0800A000;
-__autostart_end      = 0x0800A080;
-__app_flash_start    = 0x0800A080;
+__autostart_start    = 0x0800B000;
+__autostart_end      = 0x0800B080;
+__app_flash_start    = 0x0800B080;
 __app_flash_end      = 0x08010000;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;

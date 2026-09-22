@@ -165,6 +165,18 @@ void board_pin_mode(GPIO_TypeDef *port, int pin, int mode)
     gpio_config(port, pin, cfg);
 }
 
+/*
+ * Hand a pin to a peripheral - a timer channel, in the one place this is
+ * called from.  The F1 has no alternate function numbers: a pin already
+ * belongs to one peripheral, and saying so is the CNF field alone, so
+ * 'af' is there for the F4's sake and is not used here.
+ */
+void board_pin_af(GPIO_TypeDef *port, int pin, int af)
+{
+    (void)af;
+    gpio_config(port, pin, GPIO_AF_PP_50M);
+}
+
 /* Route EXTI line 'pin' to this port.  Four lines per EXTICR word. */
 void board_exti_select(int port, int pin)
 {

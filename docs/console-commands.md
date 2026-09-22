@@ -38,7 +38,59 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (default off) |
 | `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
+| `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin, by the name a program uses for it |
+| `pwm [<pin> <hz> <duty%>\|<pin> off]` | list the PWM channels, or start and stop one |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
+
+## Pins and PWM at the prompt
+
+`pin` and `pwm` are the pin and PWM service calls with a prompt in front of
+them — the same `src/gpio.c` and `src/pwm.c` a program reaches through
+`api->pin_mode()` and `api->pwm_open()`, so a pin Freya keeps is refused here
+for the same reason, and what works at the prompt works in a program.
+
+A pin is named the way `FREYA_PB(0)` is written: `PB0`, `pb0` and `B0` are the
+same pin. `pin PB0` reads it; a mode word (`in`, `up`, `down`, `out`, `od`,
+`analog`) sets it; `0`, `1` or `toggle` drives it, making the pin a push-pull
+output first if no mode was given. Either way the command finishes by reading
+the pin back, so what it prints is what the pin really is:
+
+```
+freya:/> pin PB5 out
+PB5 = 0
+freya:/> pin PB5 1
+PB5 = 1
+freya:/> pin PB0 up
+PB0 = 1
+```
+
+`pwm` with no arguments lists the board's eight channels, which timer and
+channel each pin is, and what each is doing:
+
+```
+freya:/> pwm PB6 1000 25
+PB6  TIM4 CH1  1000 Hz 25.00%
+freya:/> pwm
+  PA0  TIM2 CH1  off
+  PA1  TIM2 CH2  off
+  PB0  TIM3 CH3  off
+  PB1  TIM3 CH4  off
+  PB6  TIM4 CH1  1000 Hz 25.00%
+  PB7  TIM4 CH2  off
+  PB8  TIM4 CH3  off
+  PB9  TIM4 CH4  off
+the channels of one timer share its frequency
+usage: pwm [<pin> <hz> <duty%> | <pin> off]
+```
+
+A duty cycle is a percentage and may have a decimal point: `7.5` is what a
+servo sits at. A channel started here keeps running — that is the point of it
+— until `pwm PB6 off`, which also puts the pin back to an input. A channel a
+*program* opened is closed when its run ends instead.
+
+Frequencies are 1 Hz to 1 MHz, the channels of one timer share one frequency,
+and a timer driving pins is not one a program can open with `timer_open()`.
+[docs/interrupts.md](interrupts.md) has the rest.
 
 Ctrl-C stops a running program, Ctrl-U clears the input line, and the up and
 down cursor keys walk the command history.

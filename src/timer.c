@@ -25,6 +25,7 @@ typedef struct {
 } timer_hw_t;
 
 static const timer_hw_t s_hw[] = BOARD_TIMER_LIST;
+static const char *const s_name[] = BOARD_TIMER_NAMES;
 
 #define TIMER_COUNT  ((int)ARRAY_SIZE(s_hw))
 
@@ -41,6 +42,16 @@ typedef struct {
 } timer_state_t;
 
 static timer_state_t s_timer[ARRAY_SIZE(s_hw)];
+
+/* One bit per timer, held by src/pwm.c.  A timer raises a periodic
+ * interrupt or it drives PWM pins, never both: the two want different
+ * things of the reload register, so whichever asks first gets it. */
+static uint8_t s_pwm_taken;
+
+const char *timer_name(int timer)
+{
+    return (timer >= 0 && timer < TIMER_COUNT) ? s_name[timer] : "?";
+}
 
 /*
  * The timer clock is PCLK1 when the APB1 prescaler is one and twice it
@@ -122,7 +133,7 @@ int timer_open(uint32_t period_us, int flags, freya_irq_fn fn, void *arg)
     if (rc != 0) return rc;
 
     for (i = 0; i < TIMER_COUNT; i++)
-        if (!s_timer[i].open) break;
+        if (!s_timer[i].open && !(s_pwm_taken & (1U << i))) break;
     if (i == TIMER_COUNT) return FREYA_ERR_BUSY;
 
     t = &s_timer[i];
@@ -222,6 +233,36 @@ void timer_release(void)
     irq_restore(pm);
 }
 
+/* ------------------------------------------------------ lending to PWM */
+/*
+ * src/pwm.c drives the compare channels of these same timers, and the
+ * counter underneath them is one thing that cannot be shared: it belongs
+ * to a program's periodic interrupt or to its PWM pins.  A timer is
+ * borrowed with its clock on and its interrupt off, and given back
+ * stopped, so timer_open() can hand it out again afterwards.
+ */
+TIM_TypeDef *timer_take(int timer)
+{
+    if (timer < 0 || timer >= TIMER_COUNT) return NULL;
+    if (s_timer[timer].open) return NULL;
+
+    s_pwm_taken |= (uint8_t)(1U << timer);
+    RCC->APB1ENR |= s_hw[timer].enr;
+    (void)RCC->APB1ENR;
+    hw_stop(timer);
+    nvic_disable(s_hw[timer].irq);
+    return s_hw[timer].tim;
+}
+
+void timer_give(int timer)
+{
+    if (timer < 0 || timer >= TIMER_COUNT) return;
+
+    hw_stop(timer);
+    RCC->APB1ENR &= ~s_hw[timer].enr;
+    s_pwm_taken &= (uint8_t)~(1U << timer);
+}
+
 /*
  * One expiry.  A timer whose program has gone - or is going - is stopped
  * here rather than left firing into nothing, which is also what makes a
@@ -259,3 +300,6 @@ void TIM4_IRQHandler(void) { timer_isr(2); }
 
 _Static_assert(ARRAY_SIZE(s_hw) == 3,
                "the board's timer list and the handlers above must match");
+_Static_assert(ARRAY_SIZE(s_name) == ARRAY_SIZE(s_hw) &&
+               BOARD_TIMER_COUNT == (int)ARRAY_SIZE(s_hw),
+               "the board must name every timer it lists, and count them");

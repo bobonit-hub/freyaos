@@ -54,6 +54,24 @@
     { { TIM2, TIM2_IRQn, RCC_APB1ENR_TIM2EN }, \
       { TIM3, TIM3_IRQn, RCC_APB1ENR_TIM3EN }, \
       { TIM4, TIM4_IRQn, RCC_APB1ENR_TIM4EN } }
+#define BOARD_TIMER_COUNT   3
+#define BOARD_TIMER_NAMES   { "TIM2", "TIM3", "TIM4" }
+
+/* ------------------------------------------- PWM outputs a program may open */
+/*
+ * The pins those timers can drive: { pin, timer index in the list above,
+ * channel 1..4, alternate function }.  The F1 has no alternate function
+ * numbers - a pin belongs to one peripheral and AFIO->MAPR moves whole
+ * timers around - so the last field is zero and these are the default
+ * mappings, which keeps AFIO out of it and leaves the JTAG pins alone.
+ * They are the same eight pins as on the Black Pill, and none of them is
+ * a pin Freya keeps (BOARD_PIN_RESERVED; 'make test' checks that).
+ */
+#define BOARD_PWM_MAP \
+    { { FREYA_PA(0), 0, 1, 0 }, { FREYA_PA(1), 0, 2, 0 },  \
+      { FREYA_PB(0), 1, 3, 0 }, { FREYA_PB(1), 1, 4, 0 },  \
+      { FREYA_PB(6), 2, 1, 0 }, { FREYA_PB(7), 2, 2, 0 },  \
+      { FREYA_PB(8), 2, 3, 0 }, { FREYA_PB(9), 2, 4, 0 } }
 
 /* --------------------------------------------------------------- hooks */
 void board_clock_init(void);            /* clock tree, fills g_clocks    */
@@ -65,6 +83,7 @@ void board_spi_pins(void);              /* SD card pins, SPI and CS      */
 GPIO_TypeDef *board_gpio_port(int port);          /* NULL: no such port  */
 void          board_pin_mode(GPIO_TypeDef *port, int pin, int mode);
 void          board_exti_select(int port, int pin);
+void          board_pin_af(GPIO_TypeDef *port, int pin, int af);  /* PWM  */
 
 /* led_init(), led_set() and led_toggle() are declared in freya.h and
  * implemented per board. */

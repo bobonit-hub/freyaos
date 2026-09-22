@@ -55,6 +55,23 @@
     { { TIM2, TIM2_IRQn, RCC_APB1ENR_TIM2EN }, \
       { TIM3, TIM3_IRQn, RCC_APB1ENR_TIM3EN }, \
       { TIM4, TIM4_IRQn, RCC_APB1ENR_TIM4EN } }
+#define BOARD_TIMER_COUNT   3
+#define BOARD_TIMER_NAMES   { "TIM2", "TIM3", "TIM4" }
+
+/* ------------------------------------------- PWM outputs a program may open */
+/*
+ * The pins those timers can drive: { pin, timer index in the list above,
+ * channel 1..4, alternate function }.  The F4 reaches several pins per
+ * channel and the F1 reaches one, so the list is the intersection - the
+ * eight pins that mean the same thing on both boards with no remapping,
+ * and none of them a pin Freya keeps (BOARD_PIN_RESERVED; 'make test'
+ * checks that).  PA0 is also the Black Pill's KEY button.
+ */
+#define BOARD_PWM_MAP \
+    { { FREYA_PA(0), 0, 1, 1 }, { FREYA_PA(1), 0, 2, 1 },  \
+      { FREYA_PB(0), 1, 3, 2 }, { FREYA_PB(1), 1, 4, 2 },  \
+      { FREYA_PB(6), 2, 1, 2 }, { FREYA_PB(7), 2, 2, 2 },  \
+      { FREYA_PB(8), 2, 3, 2 }, { FREYA_PB(9), 2, 4, 2 } }
 
 /* --------------------------------------------------------------- hooks */
 void board_clock_init(void);            /* clock tree, fills g_clocks    */
@@ -66,6 +83,7 @@ void board_spi_pins(void);              /* SD card pins, SPI and CS      */
 GPIO_TypeDef *board_gpio_port(int port);          /* NULL: no such port  */
 void          board_pin_mode(GPIO_TypeDef *port, int pin, int mode);
 void          board_exti_select(int port, int pin);
+void          board_pin_af(GPIO_TypeDef *port, int pin, int af);  /* PWM  */
 
 /* led_init(), led_set() and led_toggle() are declared in freya.h and
  * implemented per board. */

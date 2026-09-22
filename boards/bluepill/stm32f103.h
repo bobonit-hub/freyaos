@@ -220,9 +220,10 @@ typedef struct {
 #define SPI_SR_BSY          (1UL << 7)
 
 /* -------------------------------------------------- general purpose timers */
-/* Only the fields a periodic interrupt needs are described.  TIM2..TIM4
- * live at the same addresses, with the same layout, on the F1 and the F4
- * alike, which is why src/timer.c is board independent. */
+/* Only the fields a periodic interrupt and a PWM output need are
+ * described.  TIM2..TIM4 live at the same addresses, with the same
+ * layout, on the F1 and the F4 alike, which is why src/timer.c and
+ * src/pwm.c are board independent. */
 typedef struct {
     __IO uint32_t CR1;
     __IO uint32_t CR2;
@@ -236,6 +237,8 @@ typedef struct {
     __IO uint32_t CNT;
     __IO uint32_t PSC;
     __IO uint32_t ARR;
+    __IO uint32_t RCR;               /* reserved on TIM2..TIM4          */
+    __IO uint32_t CCR[4];            /* the four compare channels       */
 } TIM_TypeDef;
 
 #define TIM2                ((TIM_TypeDef *)0x40000000UL)
@@ -250,6 +253,14 @@ typedef struct {
 #define TIM_DIER_UIE        (1UL << 0)
 #define TIM_SR_UIF          (1UL << 0)
 #define TIM_EGR_UG          (1UL << 0)   /* load PSC and ARR now        */
+
+/* One channel of CCMR1 (channels 1 and 2) or CCMR2 (3 and 4) is a byte:
+ * PWM mode 1 - the output is active while CNT is below CCR - with the
+ * compare value preloaded, so a duty cycle written mid-period takes
+ * effect at the next one rather than cutting the pulse short. */
+#define TIM_CCMR_PWM1       0x68UL
+#define TIM_CCMR_SHIFT(ch)  ((((ch) - 1) & 1U) * 8U)
+#define TIM_CCER_CCE(ch)    (1UL << (((ch) - 1) * 4))
 
 /* ------------------------------------------------------- Cortex-M core */
 typedef struct {

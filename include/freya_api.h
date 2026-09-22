@@ -49,7 +49,7 @@
 #define FREYA_APP_LOAD_ADDR    0x20001800UL     /* 20 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE  (8U * 1024U)
 #define FREYA_AUTOSTART_ALIGN  128U
-#define FREYA_AUTOSTART_ADDR   0x0800A000UL     /* page 40, 128-byte aligned */
+#define FREYA_AUTOSTART_ADDR   0x0800B000UL     /* page 44, 128-byte aligned */
 #define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
@@ -234,13 +234,28 @@ typedef struct {
 #define FREYA_TIMER_MIN_US   10UL
 #define FREYA_TIMER_MAX_US   40000000UL
 
+/* ---------------------------------------------------------------- PWM */
 /*
- * What the pin, timer and interrupt calls return.  Anything else they
- * hand back is the value asked for: a pin level, a timer handle, a count.
+ * A duty cycle is a fraction of the period in ten-thousandths, so 5000 is
+ * half and FREYA_PWM_FULL is a pin held high for the whole period.  The
+ * frequency floor is what a 16-bit prescaler and a 16-bit reload can
+ * still divide down to; the ceiling is where a period stops having
+ * enough counts left to set a duty cycle with.
  */
-#define FREYA_ERR_PIN        -1   /* no such pin, or one the kernel owns */
-#define FREYA_ERR_BUSY       -2   /* that line, or every timer, is taken */
-#define FREYA_ERR_ARG        -3   /* mode, edge or period out of range   */
+#define FREYA_PWM_FULL       10000UL
+#define FREYA_PWM_MIN_HZ     1UL
+#define FREYA_PWM_MAX_HZ     1000000UL
+
+/*
+ * What the pin, timer, PWM and interrupt calls return.  Anything else
+ * they hand back is the value asked for: a pin level, a handle, a count.
+ */
+#define FREYA_ERR_PIN        -1   /* no such pin, one the kernel owns, or
+                                   * one with no PWM channel behind it   */
+#define FREYA_ERR_BUSY       -2   /* that line is taken, every timer is,
+                                   * or the timer runs at another rate   */
+#define FREYA_ERR_ARG        -3   /* mode, edge, period, frequency or
+                                   * duty cycle out of range             */
 #define FREYA_ERR_HANDLER    -4   /* not allowed from a handler          */
 
 /*
@@ -347,6 +362,16 @@ typedef struct freya_api {
     /* appended: what both of them did, and how to wait for the next one */
     uint32_t (*irq_count)(void);        /* pin and timer events this run */
     int      (*irq_wait)(uint32_t ms);  /* 0 when one arrived, -1 if not */
+
+    /* appended: PWM on the pins a timer channel reaches.  The timers are
+     * the three timer_open() hands out, so one that drives pins is not
+     * one a program can also take an interrupt from, and every channel
+     * of a timer shares its frequency.  A channel comes up running. */
+    int      (*pwm_open)(int pin, uint32_t freq_hz, uint32_t duty);
+    int      (*pwm_close)(int pwm);
+    int      (*pwm_duty)(int pwm, uint32_t duty);     /* 0..FREYA_PWM_FULL */
+    int      (*pwm_pulse_us)(int pwm, uint32_t us);   /* the high time     */
+    int      (*pwm_freq)(int pwm, uint32_t freq_hz);  /* the whole timer   */
 } freya_api_t;
 
 /*

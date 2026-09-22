@@ -158,6 +158,26 @@ void board_pin_mode(GPIO_TypeDef *port, int pin, int mode)
     else                          port->OTYPER &= ~(1UL << pin);
 }
 
+/*
+ * Hand a pin to a peripheral - a timer channel, in the one place this is
+ * called from.  The F4 names the peripheral with a number in AFR, so the
+ * caller supplies the one its channel uses, and the pin is driven
+ * push-pull at the same medium speed a plain output gets.
+ */
+void board_pin_af(GPIO_TypeDef *port, int pin, int af)
+{
+    uint32_t pair = (uint32_t)(pin * 2);
+    uint32_t idx  = (uint32_t)pin >> 3;
+    uint32_t sh   = ((uint32_t)pin & 7U) * 4U;
+
+    port->AFR[idx] = (port->AFR[idx] & ~(0xFUL << sh)) |
+                     (((uint32_t)af & 0xFUL) << sh);
+    port->MODER    = (port->MODER    & ~(3UL << pair)) | (2UL << pair);
+    port->OTYPER  &= ~(1UL << pin);
+    port->PUPDR    = (port->PUPDR    & ~(3UL << pair));
+    port->OSPEEDR  = (port->OSPEEDR  & ~(3UL << pair)) | (1UL << pair);
+}
+
 /* Route EXTI line 'pin' to this port.  Four lines per EXTICR word. */
 void board_exti_select(int port, int pin)
 {

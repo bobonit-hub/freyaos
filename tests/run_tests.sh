@@ -124,10 +124,11 @@ echo "================= exit status ================="
 $CC $CFLAGS tests/host_exit_test.c -o "$OUT/hostexit"
 "$OUT/hostexit" || status=1
 
-# Pins and timers: the pin numbering a program uses, and the timer driver
-# itself, compiled for the host and asked for every period it accepts.
+# Pins, timers and PWM: the pin numbering a program uses, the two
+# dividers compiled for the host and asked for every period and every
+# frequency they accept, and the board's table of PWM channels.
 echo
-echo "================= pins and timers ================="
+echo "================= pins, timers and PWM ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_irq_test.c -o "$OUT/hostirq"
 "$OUT/hostirq" || status=1

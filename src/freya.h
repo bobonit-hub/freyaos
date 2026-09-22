@@ -153,6 +153,39 @@ int      timer_period(int timer, uint32_t period_us);
 uint32_t timer_count(int timer);
 void     timer_release(void);             /* drop whatever a run left     */
 uint32_t timer_clock_hz(void);
+const char *timer_name(int timer);        /* "TIM2", for the console      */
+
+/* Lent to src/pwm.c, which drives the compare channels of these same
+ * timers: a borrowed one is not handed out by timer_open(). */
+TIM_TypeDef *timer_take(int timer);       /* NULL when it is spoken for   */
+void         timer_give(int timer);
+
+/* ---------------------------------------------------------------- PWM */
+/*
+ * Square waves on the pins the board's timer channels reach, from 1 Hz
+ * to 1 MHz, with a duty cycle in ten-thousandths of the period.  A
+ * handle is the channel; the pins are BOARD_PWM_MAP, and the channels of
+ * one timer share its frequency because they share its counter.
+ */
+int      pwm_open(int pin, uint32_t freq_hz, uint32_t duty);
+int      pwm_close(int pwm);
+int      pwm_duty(int pwm, uint32_t duty);
+int      pwm_pulse_us(int pwm, uint32_t us);
+int      pwm_freq(int pwm, uint32_t freq_hz);
+int      pwm_lookup(int pin);             /* the channel a pin is         */
+void     pwm_release(void);               /* drop whatever a run left     */
+
+/* One of the board's channels, for the 'pwm' command to list. */
+typedef struct {
+    int         pin;
+    const char *timer;
+    int         ch;
+    int         open;
+    uint32_t    freq_hz;
+    uint32_t    duty;
+} pwm_info_t;
+
+int      pwm_info(int idx, pwm_info_t *info);   /* -1 past the last one   */
 
 /* ---------------------------------------------------------------- SPI */
 void     spi_init(void);
