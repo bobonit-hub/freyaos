@@ -3,7 +3,7 @@
 #   make                    build the kernel image and the example programs
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
 #   make flash              flash the image with st-flash
-#   make BOARD=bluepill flash PROGRAM=hello
+#   make flash PROGRAM=hello
 #                           flash the kernel and one program into the module
 #   make BOARD=bluepill flash PROGRAM=hello AUTOSTART=1
 #                           same, with the auto-start flag already on

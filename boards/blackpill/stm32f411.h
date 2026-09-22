@@ -106,6 +106,30 @@ typedef struct {
 #define FLASH_ACR_PRFTEN    (1UL << 8)
 #define FLASH_ACR_ICEN      (1UL << 9)
 #define FLASH_ACR_DCEN      (1UL << 10)
+#define FLASH_ACR_ICRST     (1UL << 11)
+#define FLASH_ACR_DCRST     (1UL << 12)
+
+/* Embedded flash programming.  Sectors, not pages; 32-bit words. */
+#define FLASH_KEY1          0x45670123UL
+#define FLASH_KEY2          0xCDEF89ABUL
+
+#define FLASH_SR_EOP        (1UL << 0)
+#define FLASH_SR_OPERR      (1UL << 1)
+#define FLASH_SR_WRPERR     (1UL << 4)
+#define FLASH_SR_PGAERR     (1UL << 5)
+#define FLASH_SR_PGPERR     (1UL << 6)
+#define FLASH_SR_PGSERR     (1UL << 7)
+#define FLASH_SR_BSY        (1UL << 16)
+#define FLASH_SR_ERRORS     (FLASH_SR_OPERR | FLASH_SR_WRPERR | \
+                             FLASH_SR_PGAERR | FLASH_SR_PGPERR | FLASH_SR_PGSERR)
+
+#define FLASH_CR_PG         (1UL << 0)
+#define FLASH_CR_SER        (1UL << 1)
+#define FLASH_CR_SNB(n)     (((uint32_t)(n) & 0xFUL) << 3)
+#define FLASH_CR_SNB_MASK   (0xFUL << 3)
+#define FLASH_CR_PSIZE_X32  (2UL << 8)
+#define FLASH_CR_STRT       (1UL << 16)
+#define FLASH_CR_LOCK       (1UL << 31)
 
 /* --------------------------------------------------------------- GPIO */
 typedef struct {

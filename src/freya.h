@@ -253,9 +253,9 @@ int         log_set_level(int level);          /* persists when flash allows */
 const char *log_level_str(int level);
 
 /* ----------------------------------------------------------- ram dump */
-/* Blue Pill: write SRAM to /freya.ram after a BusFault if a card is up.
- * Other boards: no-ops.  ramdump_then_halt() is the kernel BusFault
- * trampoline and does not return. */
+/* Write SRAM to /freya.ram after a BusFault if a card is up and the
+ * auto-start slot has the flag on.  ramdump_then_halt() is the kernel
+ * BusFault trampoline and does not return. */
 void ramdump_write(void);
 void ramdump_then_halt(void) __attribute__((noreturn));
 

@@ -8,9 +8,9 @@ internal flash.
 
 Freya gives you a serial console, a real FAT filesystem on an SD card, and the
 ability to download a program over the console, load it into RAM and run it —
-then stop it again with Ctrl-C. On the Blue Pill it will also write a program
-into a reserved area of its own flash and run it from there, so the program
-survives a power cycle and needs no card at all.
+then stop it again with Ctrl-C. Both boards also keep one program in a reserved
+area of their own flash and run it from there, so the program survives a power
+cycle and needs no card at all.
 
 ```
   ______
@@ -41,7 +41,7 @@ freya:/>
 | Crystal | 25 MHz | 8 MHz |
 | Flash | 512 KiB | 64 KiB |
 | SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM | 8 KiB RAM, or 25472 B flash |
+| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 25472 B flash |
 | Build | `make` | `make BOARD=bluepill` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -79,11 +79,12 @@ Freya 1.0 for STM32F103C8T6
   keeping one previous file when the log reaches 1 MiB.
 * Loads a program from the card into a RAM region and executes it as machine
   code, with a service table for console, memory, timing and file access.
-* On the Blue Pill, also keeps one program in a reserved area of its own
-  internal flash and executes it in place from there, which raises the
-  ceiling on program size from 8 KiB to 25472 bytes and leaves a program that
-  starts at boot with no card in the socket. The program can be copied from
-  the card, or packed into the module when Freya itself is flashed.
+* Keeps one program in a reserved area of its own internal flash and executes
+  it in place from there. On the Blue Pill that raises the ceiling on program
+  size from 8 KiB to 25472 bytes; on the Black Pill the flash region is 64 KiB
+  (sector 4) and is there so the same console commands work with no card in
+  the socket. The program can be copied from the card, or packed into the
+  module when Freya itself is flashed.
 * Stops a running program at any time — even one stuck in a tight loop — and
   contains a program that crashes instead of taking the system down with it.
 
@@ -134,11 +135,11 @@ make clean
 ```
 
 Each board builds into its own directory, so the two never overwrite each
-other: the result is `build/<board>/freya.bin` (30 KiB on the Black Pill, 34 on
-the Blue Pill, which also carries the flash programming code) plus
+other: the result is `build/<board>/freya.bin` (around 34 KiB on the Black Pill once
+the flash programmer is in, 34 on the Blue Pill) plus
 `build/<board>/freya.hex`, and the example programs in `build/<board>/apps/` —
-each one built both as a `.bin` to load into RAM and, on the Blue Pill, as a
-`.xip.bin` to install into flash.
+each one built both as a `.bin` to load into RAM and as a `.xip.bin` to
+install into flash.
 `BOARD=` applies to every target below as well.
 
 Flashing, whichever tool you have:
@@ -154,18 +155,19 @@ has no USB loader, so on the Blue Pill it drives the serial loader in ROM with
 `stm32flash`: pull BOOT0 high, tap NRST, and add `PORT=/dev/ttyUSB1` if the
 adapter is not on `ttyUSB0`.
 
-On the Blue Pill, `PROGRAM` packs one program into the image that those
+On either board, `PROGRAM` packs one program into the image that those
 targets write, so the module comes up with it already in the program flash
 region. It is an app name, a sample name, or the path of a `.xip.bin`:
 
 ```sh
+make flash PROGRAM=hello
 make BOARD=bluepill flash PROGRAM=hello
 make BOARD=bluepill flash PROGRAM=blink
 make BOARD=bluepill flash PROGRAM=path/to/mine.xip.bin
-make BOARD=bluepill flash PROGRAM=hello AUTOSTART=1
+make flash PROGRAM=hello AUTOSTART=1
 ```
 
-The file written is `build/bluepill/freya+hello.bin` (the tag follows the
+The file written is `build/<board>/freya+hello.bin` (the tag follows the
 program; `AUTOSTART=1` adds `+autostart`). `make image PROGRAM=hello` builds
 that file without programming the chip. A kernel-only `make flash` still
 leaves whatever is already in the region alone. `runflash` starts the
@@ -180,6 +182,9 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 ```
 
 ## Commands
+
+The full command list, and the six that used to exist only on the Blue Pill,
+are in [docs/console-commands.md](docs/console-commands.md).
 
 | Command | What it does |
 |---|---|
@@ -201,13 +206,13 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 | `df` | capacity, free and used space |
 | `load <file>` | load a program image into RAM |
 | `run [file] [args...]` | run the loaded program |
-| `runflash [args...]` | run the program stored in internal flash (Blue Pill) |
+| `runflash [args...]` | run the program stored in internal flash |
 | `stop` | stop, or unload, the program |
-| `install <file>` | write a program into internal flash (Blue Pill) |
-| `saveflash [file]` | copy the installed program from flash onto the card (Blue Pill; default `/<name>.xip.bin`) |
-| `uninstall` | erase the program flash region (Blue Pill) |
-| `autostart [on\|off]` | run the flash program automatically at boot (Blue Pill) |
-| `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (Blue Pill; default off) |
+| `install <file>` | write a program into internal flash |
+| `saveflash [file]` | copy the installed program from flash onto the card (default `/<name>.xip.bin`) |
+| `uninstall` | erase the program flash region |
+| `autostart [on\|off]` | run the flash program automatically at boot |
+| `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (default off) |
 | `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
@@ -218,9 +223,8 @@ down cursor keys walk the command history.
 `flashdump` copies the chip's mapped internal flash (from `0x08000000`, using
 the size the MCU reports) onto the card as a raw image. It overwrites
 `/freya.flash` unless you name another file. Ctrl-C stops the write and
-leaves whatever was written. On the Blue Pill, `saveflash` copies only the
-installed program image (not the kernel) to `/<name>.xip.bin`, or to a
-path you give.
+leaves whatever was written. `saveflash` copies only the installed program
+image (not the kernel) to `/<name>.xip.bin`, or to a path you give.
 
 `ls` prints names only; `ll` (or `ls -l`) adds sizes and timestamps:
 
@@ -276,7 +280,8 @@ supplies the header, and the board's `app.ld`. A program is built for one board
 for somewhere else. `samples/` works the same way through
 the `SAMPLES` variable and builds into `build/samples/`; `samples/blink` is a
 minimal starting point, `samples/log` writes one line at each log level, and
-`samples/tetris` is a console game (keys in `samples/tetris/README.md`).
+`samples/tetris` is a console game (keys in `samples/tetris/README.md`). Every
+app and sample is also built as `.xip.bin` for `install`.
 
 ```
 freya:/> run hello.bin
@@ -302,10 +307,9 @@ The service table (`include/freya_api.h`) gives a program console I/O and
 fills, it is renamed to `/freya.log.old` (replacing any previous copy) and a
 new `/freya.log` is started. With no card mounted the same line goes to the
 console instead, and the SD driver is not touched. The default level is
-`info` (3). On the Blue Pill
-that number is stored in the second word of the auto-start flash slot, so it
-survives a reset; `loglevel` writes it, and toggling `autostart` or `ramdump`
-leaves it alone. On the Black Pill the level is RAM only.
+`info` (3). That number is stored in the second word of the auto-start flash
+slot, so it survives a reset; `loglevel` writes it, and toggling `autostart`
+or `ramdump` leaves it alone.
 
 ### Stopping a program
 
@@ -342,8 +346,8 @@ spin: about to touch 0xF0000000 ...
 --- spin killed by bus fault, exit code 0, 3 ms ---
 ```
 
-On the Blue Pill a BusFault can write the 20 KiB of SRAM to `/freya.ram` at the
-volume root. That is off by default: the third word of the auto-start slot is
+On either board a BusFault can write SRAM to `/freya.ram` at the volume root
+(20 KiB on the Blue Pill, 128 KiB on the Black Pill). That is off by default: the third word of the auto-start slot is
 the enable flag, erased flash means off, and `ramdump on` programs it. With the
 flag on, a card present, and the filesystem mountable, the file is a raw image
 from `0x20000000`, overwritten on each BusFault, and loads in GDB with
@@ -354,14 +358,17 @@ is skipped and the shell still comes back. A kernel BusFault in thread mode
 writes the same file (when enabled) and then halts.
 
 A fault in the kernel itself is otherwise a different matter: that prints a
-register dump and halts. The Black Pill does not write a ram dump.
+register dump and halts.
 
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
 34 KiB of the 64 KiB of flash sits idle. So the board reserves 25472 bytes
 at the top of flash — the rest of page 39 after a 128-byte auto-start slot,
-then pages 40 to 63 — for one program image. `install` writes an
+then pages 40 to 63 — for one program image. The Black Pill does not need
+the size (it already has 56 KiB of program RAM) but it keeps the same
+commands: a 128-byte slot at the end of sector 3, then the whole of sector
+4 (64 KiB) for the image. `install` writes an
 image there from the card, and `make flash PROGRAM=<app>` writes the same
 kind of image into the module together with the kernel:
 
@@ -393,23 +400,25 @@ spend one per `run`. `autostart on` writes a flag into the first word of the
 128-byte slot immediately before the program region so the next boot runs that
 program without waiting for `runflash`. The second word of the same slot is
 the default log level; the third is the ram-dump-on-BusFault flag (`ramdump
-on`, off in erased flash). `autostart off` erases the flag (the log level, the
-ram-dump flag and the rest of that 1 KiB page are restored, so the program
-image is kept).
+on`, off in erased flash). `autostart off` erases the flag; the log level and
+the ram-dump flag are written back. On the Blue Pill the rest of that 1 KiB
+page is restored as well, so the start of the program image is kept. On the
+Black Pill the slot is in the previous sector and the image is not touched.
 
 Such a program is linked differently. A RAM image is one contiguous blob whose
 `.data` is writable where it lands; a flash image is the ordinary split, with
 `.text` and `.rodata` executing in place from flash and `.data` copied out of
 flash into the RAM region before `app_main` is called. That is what the second
-linker script, `boards/bluepill/app_flash.ld`, describes, and `make` builds
+linker script (`boards/<board>/app_flash.ld`) describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
-`hello.xip.bin` to `install`. A flash program therefore spends the 8 KiB RAM
-window entirely on its variables, and gets 25472 bytes for code instead of 8.
+`hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
+spends the 8 KiB RAM window entirely on its variables, and gets 25472 bytes
+for code instead of 8. On the Black Pill the RAM window is still 56 KiB and
+the flash image may be up to 64 KiB.
 
-Executing from flash needs nothing special — the Cortex-M3 is Harvard only in
-its bus topology, over a single unified address map, so an address in
-`0x0800xxxx` is fetchable exactly the way one in `0x2000xxxx` is. Writing to
-flash does: the F103 has no read-while-write, so the flash controller stalls
+Executing from flash needs nothing special — an address in `0x0800xxxx` is
+fetchable exactly the way one in `0x2000xxxx` is. Writing to flash does: neither
+the F103 nor the F411 has read-while-write, so the flash controller stalls
 bus reads for as long as an erase or a program is in flight. The routines that
 wait on it are linked for the base of the program RAM region and copied there
 when an install begins, which costs nothing permanently because a program
@@ -417,11 +426,11 @@ cannot be loaded at that moment anyway. What that does not fix is the console:
 the USART2 handler is itself in flash, so it stalls too, and console input
 during an install is lost. Interrupts are masked per operation rather than
 across the whole install so that the handler gets to drain the receive buffer
-between pages, and the software clock loses roughly the time the install takes.
+between operations, and the software clock loses roughly the time the install takes.
 
-Ctrl-C cannot interrupt an install half way through a page. Nothing outside
-`boards/bluepill/flash.c` can write to flash at all, one function there bounds
-every address against the writable pages (the auto-start slot and the program
+Ctrl-C cannot interrupt an install half way through an erase unit. Nothing outside
+`boards/<board>/flash.c` can write to flash at all, one function there bounds
+every address against the writable regions (the auto-start slot and the program
 region), and the service table has no flash call in it: a program cannot
 rewrite the kernel that is running it.
 
@@ -431,7 +440,7 @@ If `/autorun.bin` exists it is started automatically at boot, with two seconds
 to press a key and cancel. Failing that, on a board that keeps a program in
 flash, an installed image is started the same way when the auto-start flag is
 on — `autostart on` after `install`, or `AUTOSTART=1` when the program is
-packed into the module, so a Blue Pill with nothing in the card socket still
+packed into the module, so a board with nothing in the card socket still
 boots Freya and runs a program.
 
 ## Memory map
@@ -440,21 +449,28 @@ Black Pill:
 
 ```
 0x08000000  +--------------------------------+
-            |  Freya kernel (~30 KiB used)   |  512 KiB internal flash
+            |  Freya kernel (~34 KiB used)   |  48 KiB, sectors 0..2
+0x0800C000  +--------------------------------+
+            |  unused                        |  rest of sector 3
+0x0800FF80  +--------------------------------+
+            |  auto-start flag + log level  |  128 B, end of sector 3
+0x08010000  +--------------------------------+
+            |  program flash region          |  64 KiB, sector 4
+0x08020000  +--------------------------------+
+            |  unused                        |  sectors 5..7
 0x08080000  +--------------------------------+
 
 0x20000000  +--------------------------------+
             |  .data + .bss (~4 KiB)         |
             |  system heap (~60 KiB)         |
 0x20010000  +--------------------------------+
-            |  user program region (56 KiB)  |  image + .bss, loaded from card
-0x2001E000  +--------------------------------+
+            |  user program region (56 KiB)  |  image + .bss, loaded from
+0x2001E000  +--------------------------------+  card, or just .data + .bss
             |  main stack (8 KiB)            |  kernel and program share it
 0x20020000  +--------------------------------+
 ```
 
-Blue Pill — the same shape, squeezed into a fifth of the RAM, and with its
-flash split in two so that a program can live there. The stack keeps 6 KiB
+Blue Pill — the same shape, squeezed into a fifth of the RAM. The stack keeps 6 KiB
 because the kernel's deepest path (an XMODEM download writing through the
 filesystem) needs a little over three, and the heap takes whatever `.bss`
 leaves behind:
@@ -479,10 +495,9 @@ leaves behind:
 0x20005000  +--------------------------------+
 ```
 
-A flash-resident program uses the RAM window for its `.data` and `.bss` alone,
-so it gets 25472 bytes of code where a RAM image gets 8 KiB for everything. The
-kernel's 39 KiB is a hard limit: `boards/bluepill/freya.ld` fails the link
-rather than let the kernel grow into the auto-start slot.
+A flash-resident program uses the RAM window for its `.data` and `.bss` alone.
+The kernel flash ceiling is a hard limit: each board's `freya.ld` fails the
+link rather than let the kernel grow into the auto-start slot.
 
 `meminfo` reports all of it at runtime, including the heap's largest free block
 and the stack high-water mark (the reset handler paints the stack, so the peak
@@ -493,7 +508,7 @@ is measured rather than guessed).
 | Path | Contents |
 |---|---|
 | `boards/<board>/` | one directory per board: register header, `startup.s`, `board.c` (clock tree, pin mux, LED), linker scripts, compiler flags |
-| `boards/bluepill/app_flash.ld` | the second program linker script: code in flash, data in RAM |
+| `boards/<board>/app_flash.ld` | the second program linker script: code in flash, data in RAM |
 | `src/system.c` | SysTick, reset cause, delays, software clock |
 | `src/uart.c` | USART2 console, interrupt driven receive |
 | `src/spi.c`, `src/sd.c` | SPI1 and the SD / SDHC card protocol |
@@ -501,15 +516,16 @@ is measured rather than guessed).
 | `src/fs.c` | paths, working directory, descriptor table |
 | `src/xmodem.c` | the `download` receiver |
 | `src/loader.c` | program loading and installing, the service table, start and stop |
-| `boards/bluepill/flash.c` | internal flash erase and program, bounded to the program region |
+| `boards/<board>/flash.c` | internal flash erase and program, bounded to the program region |
 | `src/fault.c` | fault containment and the kernel panic dump |
-| `src/ramdump.c` | Blue Pill SRAM dump to `/freya.ram` after a BusFault |
+| `src/ramdump.c` | SRAM dump to `/freya.ram` after a BusFault |
 | `src/shell.c` | line editing and the commands |
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
 | `samples/` | small standalone samples: `blink`, `log`, `tetris` |
 | `tests/` | host side tests |
+| `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
 
@@ -566,9 +582,11 @@ ALL TESTS PASSED
   KiB instead of sixty. Installing a program into flash is the answer to the
   first half of that, not the second — such a program gets 25472 bytes of code, but
   the heap is still small and the stack is still shared.
-* Only the Blue Pill keeps a program in flash. The Black Pill could, but its
-  erase granularity past the kernel is a 64 KiB sector where the F103's is a
-  1 KiB page, and nothing about a board with 56 KiB of program RAM needs it.
+* The Black Pill keeps a program in flash for the same console commands, not
+  because 56 KiB of program RAM is too small. Its erase unit at the program
+  region is a 64 KiB sector; the auto-start slot sits in the previous 16 KiB
+  sector so toggling the flag does not erase the image. The kernel is limited
+  to the first 48 KiB so it never shares a sector with that slot.
 * One program in flash at a time, as with RAM. `install` erases and rewrites
   the region; `uninstall` erases it. `make flash` writes only the kernel and
   leaves an installed program alone, which is convenient but does mean a stale
@@ -577,8 +595,8 @@ ALL TESTS PASSED
   choice: the image it writes covers the whole program region, so the program
   packed in replaces whatever was there.
 * Console input is lost while flash is being erased or programmed, and the
-  software clock loses about the duration of the install. Both follow from the
-  F103 having no read-while-write, and neither is worth putting the console
+  software clock loses about the duration of the install. Both follow from
+  there being no read-while-write, and neither is worth putting the console
   interrupt handler in RAM to avoid.
 * `stop` typed at the prompt unloads the image and reports how the last run
   ended; to interrupt a program that is actually running, press Ctrl-C.

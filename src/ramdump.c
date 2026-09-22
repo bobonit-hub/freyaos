@@ -1,9 +1,6 @@
 /*
  * Freya - SRAM dump to the SD card after a BusFault.
  *
- * Only the Blue Pill does this.  Its 20 KiB of SRAM is a single file on
- * the card; a 128 KiB Black Pill dump would be a different product.
- *
  * The write is gated by the third word of the auto-start slot (`ramdump
  * on`); erased flash means off.  It runs in thread mode, never from the
  * BusFault handler: SysTick does not preempt the fault, and the SD driver
@@ -22,7 +19,7 @@
 
 #define FREYA_RAMDUMP_PATH  "/freya.ram"
 
-#if defined(FREYA_BOARD_BLUEPILL)
+#ifdef FREYA_APP_FLASH_ADDR
 
 static int s_busy;
 
@@ -125,4 +122,4 @@ void ramdump_then_halt(void)
     for (;;) { }
 }
 
-#endif /* FREYA_BOARD_BLUEPILL */
+#endif /* FREYA_APP_FLASH_ADDR */

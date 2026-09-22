@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Pack a Freya kernel and one flash-resident program into a single image.
 
-The program is a .xip.bin linked for the board's program flash region.  On
-the Blue Pill that region starts at 0x08009C80 (immediately after the
-128-byte auto-start slot), so the image written to the
-module is:
+The program is a .xip.bin linked for the board's program flash region.
+The image written to the module is:
 
     [kernel][0xFF up to the region][program][0xFF to the end of the region]
 
-`make BOARD=bluepill flash PROGRAM=hello` runs this.  The addresses come
+`make flash PROGRAM=hello` (or `make BOARD=bluepill flash PROGRAM=hello`)
+runs this.  The addresses come
 from the kernel ELF, which is where the linker script reserved the region.
 The auto-start slot is left erased (flag off) unless `--autostart` is
 passed; packing a program must not autorun on every reset unless asked.

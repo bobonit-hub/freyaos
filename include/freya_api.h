@@ -63,6 +63,21 @@
 #elif defined(FREYA_BOARD_BLACKPILL)
 #define FREYA_APP_LOAD_ADDR    0x20010000UL     /* 128 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE  (56U * 1024U)
+/* Kernel occupies sectors 0..2 (48 KiB).  Sector 3 is unused except for
+ * the 128-byte auto-start slot at its end, so an autostart erase never
+ * shares a 64 KiB sector with a program image.  Sector 4 is the program. */
+#define FREYA_AUTOSTART_ALIGN  128U
+#define FREYA_AUTOSTART_ADDR   0x0800FF80UL     /* last 128 B of sector 3 */
+#define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
+#define FREYA_LOGLEVEL_OFF     4U
+#define FREYA_RAMDUMP_OFF      8U
+#define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
+#define FREYA_APP_FLASH_SIZE   (0x08020000UL - FREYA_APP_FLASH_ADDR)
+#if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
+    (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
+    (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)
+#error "Black Pill auto-start slot and program flash must be 128-byte aligned"
+#endif
 #else
 #error "no board selected - define FREYA_BOARD_BLACKPILL or FREYA_BOARD_BLUEPILL"
 #endif

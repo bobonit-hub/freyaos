@@ -739,8 +739,9 @@ static int slot_can_program(uint32_t cur, uint32_t want)
 
 /*
  * Rewrite the auto-start slot, keeping whichever of the three words the
- * caller did not intend to change.  An erase of the 128-byte slot restores
- * the rest of the 1 KiB page (the start of a flash program image).
+ * caller did not intend to change.  flash_erase() of the 128-byte slot
+ * restores anything else that shares the same erase unit (the start of
+ * the program image on the Blue Pill; nothing on the Black Pill).
  */
 static int slot_write(uint32_t magic, uint32_t level, uint32_t ramdump)
 {

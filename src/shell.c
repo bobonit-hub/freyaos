@@ -785,12 +785,6 @@ static int cmd_install(int argc, char **argv)
 {
     if (argc < 2) {
         kprintf("usage: install <file>\r\n");
-        kprintf("  Copies a flash image - one built with app_flash.ld - from\r\n"
-                "  the card into the ");
-        kput_size(FREYA_APP_FLASH_SIZE);
-        kprintf(" program flash region, where it\r\n"
-                "  survives a power cycle.  'runflash' then runs it with no\r\n"
-                "  card in the socket at all.\r\n");
         return -1;
     }
     if (!need_fs()) return -1;
@@ -1234,36 +1228,36 @@ static const command_t s_cmds[] = {
     { "help",     cmd_help,     "help [command]",            "list commands or describe one" },
     { "sysinfo",  cmd_sysinfo,  "sysinfo",                   "show system information" },
     { "meminfo",  cmd_meminfo,  "meminfo",                   "show flash and RAM usage" },
-    { "mount",    cmd_mount,    "mount",                     "initialise the SD card and mount FAT" },
+    { "mount",    cmd_mount,    "mount",                     "mount the SD card" },
     { "ls",       cmd_ls,       "ls [-l] [path]",            "list a directory" },
-    { "ll",       cmd_ls,       "ll [path]",                 "list a directory with sizes and dates" },
-    { "cd",       cmd_cd,       "cd [path]",                 "change the working directory" },
-    { "pwd",      cmd_pwd,      "pwd",                       "print the working directory" },
+    { "ll",       cmd_ls,       "ll [path]",                 "long directory listing" },
+    { "cd",       cmd_cd,       "cd [path]",                 "change directory" },
+    { "pwd",      cmd_pwd,      "pwd",                       "print directory" },
     { "mkdir",    cmd_mkdir,    "mkdir <dir>...",            "create directories" },
-    { "rm",       cmd_rm,       "rm [-r] <path>...",         "remove files or directories" },
-    { "rename",   cmd_rename,   "rename <old> <new>",        "rename or move a file or directory" },
-    { "mv",       cmd_rename,   "mv <old> <new>",            "rename or move a file or directory" },
-    { "download", cmd_download, "download <file> [--raw]",   "receive a file over XMODEM" },
+    { "rm",       cmd_rm,       "rm [-r] <path>...",         "remove files" },
+    { "rename",   cmd_rename,   "rename <old> <new>",        "rename or move" },
+    { "mv",       cmd_rename,   "mv <old> <new>",            "rename or move" },
+    { "download", cmd_download, "download <file> [--raw]",   "XMODEM receive" },
     { "cat",      cmd_cat,      "cat <file>",                "print a file" },
-    { "write",    cmd_write,    "write <file> <text...>",    "append a line of text to a file" },
+    { "write",    cmd_write,    "write <file> <text...>",    "append a line" },
     { "hexdump",  cmd_hexdump,  "hexdump <file> [off] [len]","dump a file in hex" },
-    { "flashdump",cmd_flashdump,"flashdump [file]",          "write internal flash to /freya.flash" },
-    { "df",       cmd_df,       "df",                        "show free space on the card" },
-    { "load",     cmd_load,     "load " PROG_ARG,            "load a program image into RAM" },
-    { "run",      cmd_run,      "run [" PROG_ARG "] [args]", "run the loaded program" },
+    { "flashdump",cmd_flashdump,"flashdump [file]",          "dump flash to a file" },
+    { "df",       cmd_df,       "df",                        "show free space" },
+    { "load",     cmd_load,     "load " PROG_ARG,            "load a program" },
+    { "run",      cmd_run,      "run [" PROG_ARG "] [args]", "run a program" },
 #ifdef FREYA_APP_FLASH_ADDR
-    { "runflash", cmd_runflash, "runflash [args...]",        "run the program stored in internal flash" },
+    { "runflash", cmd_runflash, "runflash [args...]",        "run the flash program" },
 #endif
-    { "stop",     cmd_stop,     "stop",                      "stop / unload the program (Ctrl-C stops a running one)" },
+    { "stop",     cmd_stop,     "stop",                      "unload the program" },
 #ifdef FREYA_APP_FLASH_ADDR
-    { "install",  cmd_install,  "install <file>",            "copy a program image into internal flash" },
-    { "saveflash",cmd_saveflash,"saveflash [file]",          "copy the installed program to the card" },
-    { "uninstall",cmd_uninstall,"uninstall",                 "erase the program flash region" },
-    { "autostart",cmd_autostart,"autostart [on|off]",        "run the flash program automatically at boot" },
-    { "ramdump",  cmd_ramdump,  "ramdump [on|off]",          "write SRAM to /freya.ram after a BusFault" },
+    { "install",  cmd_install,  "install <file>",            "install into flash" },
+    { "saveflash",cmd_saveflash,"saveflash [file]",          "save flash program" },
+    { "uninstall",cmd_uninstall,"uninstall",                 "erase flash program" },
+    { "autostart",cmd_autostart,"autostart [on|off]",        "auto-run flash program" },
+    { "ramdump",  cmd_ramdump,  "ramdump [on|off]",          "SRAM dump on BusFault" },
 #endif
-    { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]","show or set the clock" },
-    { "loglevel", cmd_loglevel, "loglevel [level]",          "show or set the file log level" },
+    { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]","show or set clock" },
+    { "loglevel", cmd_loglevel, "loglevel [level]",          "show or set log level" },
     { "uptime",   cmd_uptime,   "uptime",                    "time since reset" },
     { "led",      cmd_led,      "led on|off|blink",          "drive the " BOARD_LED_NAME " LED" },
     { "echo",     cmd_echo,     "echo <text...>",            "echo the arguments" },

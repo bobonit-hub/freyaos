@@ -81,7 +81,7 @@ void freya_fault_handler(uint32_t *frame, uint32_t kind)
     describe(kind);
     kprintf("  uptime: %u ms\r\n", sys_uptime_ms());
 
-#ifdef FREYA_BOARD_BLUEPILL
+#ifdef FREYA_APP_FLASH_ADDR
     /* Dump from thread mode so SD timeouts still see SysTick. */
     if (kind == APP_STOP_BUSFAULT && from_thread) {
         clear_fault_status();

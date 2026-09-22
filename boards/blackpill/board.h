@@ -22,6 +22,13 @@
 #define BOARD_LED_NAME      "PC13"
 #define BOARD_FLASH_WS      3
 
+/* ------------------------------------------------------ internal flash */
+/* The F4 erases in unequal sectors (16/16/16/16/64/128/128/128 KiB) and
+ * programs 32-bit words.  BOARD_FLASH_PAGE_SIZE is the program region's
+ * erase unit (sector 4), used only for install progress; the driver walks
+ * the real sector map. */
+#define BOARD_FLASH_PAGE_SIZE   (64U * 1024U)
+
 /* ---------------------------------------------------------- SD on SPI1 */
 #define BOARD_SD_CS_PORT    GPIOA
 #define BOARD_SD_CS_PIN     4
