@@ -184,7 +184,7 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 | Command | What it does |
 |---|---|
 | `help [command]` | list commands, or describe one |
-| `sysinfo` | CPU, unique id, clocks, reset cause, uptime, card, filesystem |
+| `sysinfo` | CPU, unique id, clocks, reset cause, uptime, log level, auto-start and ram-dump flags, card, filesystem |
 | `meminfo` | flash and RAM usage: .data, .bss, heap, program region, stack |
 | `mount` | initialise the card and mount the filesystem |
 | `ls [-l] [path]` | list a directory |

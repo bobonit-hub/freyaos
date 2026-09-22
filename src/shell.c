@@ -200,6 +200,12 @@ static int cmd_sysinfo(int argc, char **argv)
             t.year, t.mon, t.day, t.hour, t.min, t.sec);
     kprintf("  log level  : %s (%d)\r\n",
             log_level_str(log_get_level()), log_get_level());
+#ifdef FREYA_APP_FLASH_ADDR
+    kprintf("  auto-start : %s\r\n",
+            app_autostart_enabled() ? "on" : "off");
+    kprintf("  ram dump   : %s\r\n",
+            app_ramdump_enabled() ? "on" : "off");
+#endif
 
     kprintf("  sd card    : %s", sd_type_str());
     if (g_sd.initialised) {
