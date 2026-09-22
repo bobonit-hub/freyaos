@@ -1545,13 +1545,13 @@ typedef struct {
 
 static const command_t s_cmds[] = {
     { "help",     cmd_help,     "help [command]" },
-    { "sysinfo",  cmd_sysinfo,  "CPU, clocks, reset, card, fs" },
-    { "meminfo",  cmd_meminfo,  "flash and RAM usage" },
-    { "mount",    cmd_mount,    "mount the SD card" },
+    { "sysinfo",  cmd_sysinfo,  "sysinfo" },
+    { "meminfo",  cmd_meminfo,  "meminfo" },
+    { "mount",    cmd_mount,    "mount" },
     { "ls",       cmd_ls,       "ls [-l] [path]" },
     { "ll",       cmd_ls,       "ll [path]" },
     { "cd",       cmd_cd,       "cd [path]" },
-    { "pwd",      cmd_pwd,      "print directory" },
+    { "pwd",      cmd_pwd,      "pwd" },
     { "mkdir",    cmd_mkdir,    "mkdir <dir>..." },
     { "rm",       cmd_rm,       "rm [-r] <path>..." },
     { "rename",   cmd_rename,   "rename <old> <new>" },
@@ -1561,31 +1561,31 @@ static const command_t s_cmds[] = {
     { "write",    cmd_write,    "write <file> <text...>" },
     { "hexdump",  cmd_hexdump,  "hexdump <file> [off] [len]" },
     { "flashdump",cmd_flashdump,"flashdump [file]" },
-    { "df",       cmd_df,       "show free space" },
+    { "df",       cmd_df,       "df" },
     { "load",     cmd_load,     "load " PROG_ARG },
     { "run",      cmd_run,      "run [" PROG_ARG "] [args]" },
 #ifdef FREYA_APP_FLASH_ADDR
     { "runflash", cmd_runflash, "runflash [args...]" },
 #endif
-    { "stop",     cmd_stop,     "unload the program" },
-    { "status",   cmd_status,   "last exit status (also $?)" },
+    { "stop",     cmd_stop,     "stop" },
+    { "status",   cmd_status,   "status" },
 #ifdef FREYA_APP_FLASH_ADDR
     { "install",  cmd_install,  "install <file>" },
     { "saveflash",cmd_saveflash,"saveflash [file]" },
-    { "uninstall",cmd_uninstall,"erase flash program" },
+    { "uninstall",cmd_uninstall,"uninstall" },
     { "autostart",cmd_autostart,"autostart [on|off]" },
     { "ramdump",  cmd_ramdump,  "ramdump [on|off]" },
 #endif
     { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]" },
     { "loglevel", cmd_loglevel, "loglevel [level]" },
-    { "uptime",   cmd_uptime,   "time since reset" },
+    { "uptime",   cmd_uptime,   "uptime" },
     { "led",      cmd_led,      "led on|off|blink" },
     { "pin",      cmd_pin,      PIN_USAGE },
     { "pwm",      cmd_pwm,      PWM_USAGE },
     { "i2c",      cmd_i2c,      I2C_USAGE },
     { "echo",     cmd_echo,     "echo <text...>" },
-    { "clear",    cmd_clear,    "clear the screen" },
-    { "reboot",   cmd_reboot,   "restart the MCU" },
+    { "clear",    cmd_clear,    "clear" },
+    { "reboot",   cmd_reboot,   "reboot" },
 };
 
 static int cmd_help(int argc, char **argv)
@@ -1593,7 +1593,11 @@ static int cmd_help(int argc, char **argv)
     if (argc > 1) {
         for (unsigned i = 0; i < ARRAY_SIZE(s_cmds); i++) {
             if (strcmp(s_cmds[i].name, argv[1]) == 0) {
-                kprintf("%s\r\n", s_cmds[i].help);
+                /* The name is what you type.  A usage line that is not
+                 * just that name follows it; the name is never omitted. */
+                kprintf("%s\r\n", s_cmds[i].name);
+                if (strcmp(s_cmds[i].help, s_cmds[i].name) != 0)
+                    kprintf("%s\r\n", s_cmds[i].help);
                 return 0;
             }
         }

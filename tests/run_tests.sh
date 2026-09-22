@@ -124,6 +124,30 @@ echo "================= exit status ================="
 $CC $CFLAGS tests/host_exit_test.c -o "$OUT/hostexit"
 "$OUT/hostexit" || status=1
 
+# The shell commands whose names are a single word, and help, which has
+# to print that name.  Registers the commands read are planted in the
+# host address space; the card and the clock are stubs.
+echo
+echo "================= shell commands ================="
+# The C library already owns __data_start and __bss_start.  Rename the
+# linker symbols shell.c subtracts so the test can plant its own.
+# shellcheck disable=SC2086
+$CC $CFLAGS -c src/shell.c -o "$OUT/shell_host.o" \
+    -D__data_start=freya_test_data_start \
+    -D__data_end=freya_test_data_end \
+    -D__bss_start=freya_test_bss_start \
+    -D__bss_end=freya_test_bss_end \
+    -D__heap_start=freya_test_heap_start \
+    -D__stack_limit=freya_test_stack_limit \
+    -D__stack_top=freya_test_stack_top \
+    -D__ram_start=freya_test_ram_start \
+    -D__ram_end=freya_test_ram_end \
+    -D__kernel_flash_end=freya_test_kernel_flash_end
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_shell_test.c "$OUT/shell_host.o" src/print.c \
+    -o "$OUT/hostshell"
+"$OUT/hostshell" || status=1
+
 # Pins, timers, PWM and I2C: the pin numbering a program uses, the two
 # timer dividers and the I2C half-period compiled for the host and asked
 # for every value they accept, and the board's pin tables.
