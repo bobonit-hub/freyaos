@@ -1,11 +1,12 @@
 # Freya
 
-A small bare metal operating system for the STM32F411CEU6 "Black Pill" and the
-STM32F103C8T6 "Blue Pill", written from scratch in C and ARM assembly. No HAL,
-no CMSIS, no third party libraries: Freya brings the chip up itself, talks to
-the hardware through its own register definitions, and lives entirely in
-internal flash. This is release 1.0, "Chupacabra". The notes are in
-[RELEASE_NOTES.md](RELEASE_NOTES.md).
+Freya is a 32-bit, single-task, single-user, text OS for STMicroelectronics
+STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
+metal on the STM32F411CEU6 "Black Pill" and the STM32F103C8T6 "Blue Pill".
+No HAL, no CMSIS, no third party libraries: Freya brings the chip up itself,
+talks to the hardware through its own register definitions, and lives
+entirely in internal flash. This is release 1.0, "Chupacabra". The notes
+are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 Freya gives you a serial console, a real FAT filesystem on an SD card, and the
 ability to download a program over the console, load it into RAM and run it —
