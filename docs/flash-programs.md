@@ -19,6 +19,13 @@ rather than 24448. Everything below describes 40/24, which is where it
 started; `include/freya_api.h` and `boards/bluepill/freya.ld` are where it is
 now, and `make test` compares the two.
 
+**Execution has since moved to RAM.** ABI 3 appends an explicit relocation
+table to each `.xip.bin`. The loader copies an installed image to the top of
+the program RAM window when it fits, leaves its `.data` and `.bss` at the
+bottom, and rebases every recorded code or constant pointer before calling it.
+Numeric values that happen to look like flash addresses are not changed.
+Larger installed programs retain the XIP behaviour described below.
+
 Today a Freya program is a RAM image: `load` copies the file from the card
 into the program region, zeroes its `.bss` and `run` branches into it. On the
 Blue Pill that region is 8 KiB, because 8 KiB is what a 20 KiB SRAM can spare

@@ -7,9 +7,10 @@
  *
  * The same source builds either kind of program.  Linked with app.ld the
  * result is a RAM image, loaded into the program region and run there.
- * Linked with app_flash.ld and compiled with -DFREYA_APP_XIP the result
- * executes in place from the program flash region, and the three .data
- * addresses tell the loader where to copy its initialised variables.
+ * Linked with app_flash.ld and compiled with -DFREYA_APP_XIP the result is
+ * stored in the program flash region.  The loader copies and relocates it
+ * into RAM when it fits, and the three .data addresses describe its
+ * initialised data.
  */
 #include "freya_api.h"
 
@@ -55,4 +56,8 @@ const freya_app_header_t freya_header = {
     .data_src    = HDR_DATA_SRC,
     .data_start  = HDR_DATA_START,
     .data_end    = HDR_DATA_END,
+    /* tools/xip_image.py fills these after collecting the linker's
+     * R_ARM_ABS32 records and appends the table to the raw image. */
+    .reloc_offset = 0,
+    .reloc_count  = 0,
 };

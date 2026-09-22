@@ -166,7 +166,9 @@ check() {   # description expected actual
 
 check "the ABI 2 fields are appended after the 48 byte ABI 1 header" \
       "$(macro hdr_v1_size)" 48
-check "the header is 64 bytes" "$(macro hdr_size)" 64
+check "the ABI 3 fields are appended after the 64 byte ABI 2 header" \
+      "$(macro hdr_v2_size)" 64
+check "the header is 72 bytes" "$(macro hdr_size)" 72
 
 CROSS=${CROSS:-arm-none-eabi-}
 if ! command -v "${CROSS}nm" >/dev/null 2>&1; then
@@ -226,6 +228,10 @@ else
           "$(sym "$elf" __data_start__)" "$(fld "$bin" 56)"
     check "data_end is in the program RAM region" \
           "$(sym "$elf" __data_end__)" "$(fld "$bin" 60)"
+    check "the relocation table follows the linked program image" \
+          "$(sym "$elf" __image_size__)" "$(fld "$bin" 64)"
+    check "the relocation table is not empty" \
+          1 "$(( $(fld "$bin" 68) > 0 ))"
     check "bss_start is in the program RAM region" \
           "$(sym "$elf" __bss_start__)" "$(fld "$bin" 20)"
     check "bss_end is in the program RAM region" \
@@ -242,6 +248,45 @@ else
     check "the RAM image is still linked for the RAM region" \
           "$(macro app_load_addr)" "$(fld "$ram" 8)"
     check "the RAM image does not set the XIP flag" 0 "$(fld "$ram" 48)"
+
+    # Simulate the loader's exact relocation pass.  flashprobe contains the
+    # program-flash base both as a pointer and as a numeric safety boundary;
+    # only the former may move.
+    probe="build/$BOARD/samples/flashprobe.xip.bin"
+    if python3 - "$probe" "$(macro app_load_addr)" "$(macro app_region_size)" <<'PY'
+import struct
+import sys
+
+path, ram_base, ram_size = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+image = bytearray(open(path, "rb").read())
+word = lambda off: struct.unpack_from("<I", image, off)[0]
+flash_base = word(8)
+reloc_offset, reloc_count = word(64), word(68)
+relocs = struct.unpack_from("<%dI" % reloc_count, image, reloc_offset)
+assert word(16) == len(image)
+assert 8 in relocs and 12 in relocs and 52 in relocs
+
+# This is probe_unit()'s scalar lower bound.  A value-based scan would
+# relocate it and make every real flash page look like kernel memory.
+scalars = [off for off in range(0, reloc_offset - 3, 4)
+           if word(off) == flash_base and off not in relocs]
+
+copy = (ram_base + ram_size - len(image)) & ~3
+assert max(word(60), word(24)) <= copy
+delta = (copy - flash_base) & 0xffffffff
+for off in relocs:
+    value = word(off)
+    assert flash_base <= (value & ~1) <= flash_base + reloc_offset
+    struct.pack_into("<I", image, off, (value + delta) & 0xffffffff)
+assert word(8) == copy
+assert copy <= (word(12) & ~1) < ram_base + ram_size
+assert all(word(off) == flash_base for off in scalars)
+PY
+    then
+        check "flashprobe pointers relocate to RAM without changing its flash boundary" 1 1
+    else
+        check "flashprobe pointers relocate to RAM without changing its flash boundary" 1 0
+    fi
 
     # The image `make flash PROGRAM=hello` writes: kernel, erased gap, then
     # the program at the region the linker reserved, erased through the end.

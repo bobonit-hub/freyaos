@@ -21,6 +21,7 @@ int main(void)
     printf("app_region_size %lu\n", (unsigned long)FREYA_APP_REGION_SIZE);
     printf("abi_version %lu\n",     (unsigned long)FREYA_ABI_VERSION);
     printf("hdr_v1_size %lu\n",     (unsigned long)FREYA_APP_HDR_V1_SIZE);
+    printf("hdr_v2_size %lu\n",     (unsigned long)FREYA_APP_HDR_V2_SIZE);
     printf("hdr_size %lu\n",        (unsigned long)sizeof(freya_app_header_t));
 #ifdef FREYA_APP_FLASH_ADDR
     printf("app_flash_addr %lu\n",  (unsigned long)FREYA_APP_FLASH_ADDR);

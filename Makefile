@@ -185,8 +185,12 @@ $(BUILD)/apps/%.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_LD)
 $(BUILD)/apps/%.xip.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_XIP_LD) | $(BUILD)
 	@echo "  APP   $@"
 	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
-	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
+	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
 	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
+
+$(BUILD)/apps/%.xip.bin: $(BUILD)/apps/%.xip.elf tools/xip_image.py
+	@python3 tools/xip_image.py --objcopy $(OBJCOPY) $< $@
+	@echo "  BIN   $@"
 
 $(BUILD)/apps/%.bin: $(BUILD)/apps/%.elf
 	@$(OBJCOPY) -O binary $< $@
@@ -206,8 +210,12 @@ $(BUILD)/samples/%.xip.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $
 	@mkdir -p $(@D)
 	@echo "  SMPL  $@"
 	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
-	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
+	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
 	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
+
+$(BUILD)/samples/%.xip.bin: $(BUILD)/samples/%.xip.elf tools/xip_image.py
+	@python3 tools/xip_image.py --objcopy $(OBJCOPY) $< $@
+	@echo "  BIN   $@"
 
 $(BUILD)/samples/%.bin: $(BUILD)/samples/%.elf
 	@$(OBJCOPY) -O binary $< $@

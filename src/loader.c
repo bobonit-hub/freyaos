@@ -391,6 +391,9 @@ void app_unload(void)
 _Static_assert(__builtin_offsetof(freya_app_header_t, flags) ==
                FREYA_APP_HDR_V1_SIZE,
                "the ABI 2 fields must be appended after the ABI 1 header");
+_Static_assert(__builtin_offsetof(freya_app_header_t, reloc_offset) ==
+               FREYA_APP_HDR_V2_SIZE,
+               "the ABI 3 fields must be appended after the ABI 2 header");
 
 /*
  * Read a header, old or new.  The ABI 1 fields come first and are a prefix
@@ -400,14 +403,21 @@ _Static_assert(__builtin_offsetof(freya_app_header_t, flags) ==
  */
 static int read_header(int fd, freya_app_header_t *hdr)
 {
-    const int tail = (int)sizeof(*hdr) - FREYA_APP_HDR_V1_SIZE;
+    const int v2_tail = FREYA_APP_HDR_V2_SIZE - FREYA_APP_HDR_V1_SIZE;
+    const int v3_tail = (int)sizeof(*hdr) - FREYA_APP_HDR_V2_SIZE;
 
     memset(hdr, 0, sizeof(*hdr));
     if (fs_fd_read(fd, hdr, FREYA_APP_HDR_V1_SIZE) != FREYA_APP_HDR_V1_SIZE)
         return -1;
     if (hdr->abi_version < 2)
         return 0;
-    if (fs_fd_read(fd, (uint8_t *)hdr + FREYA_APP_HDR_V1_SIZE, tail) != tail)
+    if (fs_fd_read(fd, (uint8_t *)hdr + FREYA_APP_HDR_V1_SIZE,
+                   v2_tail) != v2_tail)
+        return -1;
+    if (hdr->abi_version < 3)
+        return 0;
+    if (fs_fd_read(fd, (uint8_t *)hdr + FREYA_APP_HDR_V2_SIZE,
+                   v3_tail) != v3_tail)
         return -1;
     return 0;
 }
@@ -459,6 +469,7 @@ static int check_xip_header(const freya_app_header_t *hdr, uint32_t want,
                             const char *who)
 {
     uint32_t base = FREYA_APP_FLASH_ADDR;
+    const uint32_t *relocs;
 
     if (check_magic(hdr, who) != 0) return -1;
     if (hdr->abi_version < 2 || !(hdr->flags & FREYA_APP_F_XIP)) {
@@ -475,6 +486,34 @@ static int check_xip_header(const freya_app_header_t *hdr, uint32_t want,
         kput_size(FREYA_APP_FLASH_SIZE);
         kprintf(")\r\n");
         return -1;
+    }
+    if (hdr->abi_version < 3) {
+        kprintf("%s: flash image has no RAM relocation table - rebuild it\r\n",
+                who);
+        return -1;
+    }
+    if (hdr->reloc_offset < sizeof(*hdr) ||
+        hdr->reloc_offset > want ||
+        hdr->reloc_count > (want - hdr->reloc_offset) / sizeof(uint32_t)) {
+        kprintf("%s: invalid RAM relocation table\r\n", who);
+        return -1;
+    }
+    relocs = (const uint32_t *)(uintptr_t)(base + hdr->reloc_offset);
+    for (uint32_t i = 0; i < hdr->reloc_count; i++) {
+        uint32_t off = relocs[i];
+        uint32_t value;
+
+        if ((off & 3U) || off > hdr->reloc_offset - sizeof(uint32_t)) {
+            kprintf("%s: invalid RAM relocation at offset %u\r\n", who, off);
+            return -1;
+        }
+        value = *(const uint32_t *)(uintptr_t)(base + off);
+        if ((value & ~1UL) < base ||
+            (value & ~1UL) > base + hdr->reloc_offset) {
+            kprintf("%s: RAM relocation at offset %u is not a program pointer\r\n",
+                    who, off);
+            return -1;
+        }
     }
     if (hdr->entry < base || hdr->entry >= base + want) {
         kprintf("%s: entry 0x%08x is outside the image\r\n", who, hdr->entry);
@@ -515,10 +554,20 @@ const freya_app_header_t *app_flash_header(void)
     return h;
 }
 
-/* Nothing is copied: the image is already where it will execute. */
+/*
+ * Copy an installed image to the top of the program RAM window when it
+ * fits.  Its .data and .bss occupy the bottom, so keeping the two ranges
+ * disjoint preserves the flash image's existing RAM addresses.  Relative
+ * branches move with the image; the generated table identifies every
+ * absolute program pointer without mistaking numeric flash addresses for
+ * pointers.  A larger image retains the original XIP behaviour.
+ */
 static int app_load_flash(void)
 {
     const freya_app_header_t *hdr = app_flash_header();
+    const freya_app_header_t *run_hdr = hdr;
+    uint32_t ram_used_end, copy_addr, delta;
+    uint8_t *copy;
 
     if (!hdr) {
         kprintf("load: no program in flash - install one, or flash it with the kernel\r\n");
@@ -526,19 +575,46 @@ static int app_load_flash(void)
     }
     if (check_xip_header(hdr, hdr->image_size, "load") != 0) return -1;
 
+    ram_used_end = MAX(hdr->data_end, hdr->bss_end);
+    if (ram_used_end < FREYA_APP_LOAD_ADDR)
+        ram_used_end = FREYA_APP_LOAD_ADDR;
+    if (hdr->image_size <= FREYA_APP_REGION_SIZE) {
+        copy_addr = (APP_RAM_END - hdr->image_size) & ~3UL;
+        if (ram_used_end <= copy_addr) {
+            freya_app_header_t *ram_hdr;
+
+            copy = (uint8_t *)(uintptr_t)copy_addr;
+            memcpy(copy, hdr, hdr->image_size);
+            delta = copy_addr - FREYA_APP_FLASH_ADDR;
+            ram_hdr = (freya_app_header_t *)copy;
+            {
+                const uint32_t *relocs =
+                    (const uint32_t *)(copy + ram_hdr->reloc_offset);
+
+                for (uint32_t i = 0; i < ram_hdr->reloc_count; i++) {
+                    uint32_t *value = (uint32_t *)(copy + relocs[i]);
+                    *value += delta;
+                }
+            }
+            __dsb();
+            __isb();
+            run_hdr = ram_hdr;
+        }
+    }
+
     g_app.loaded     = 1;
-    g_app.entry      = hdr->entry;
-    g_app.load_addr  = hdr->load_addr;
-    g_app.image_size = hdr->image_size;
-    g_app.bss_start  = hdr->bss_start;
-    g_app.bss_size   = (hdr->bss_end > hdr->bss_start)
-                         ? hdr->bss_end - hdr->bss_start : 0;
-    g_app.flags      = hdr->flags;
-    g_app.data_src   = hdr->data_src;
-    g_app.data_start = hdr->data_start;
-    g_app.data_end   = hdr->data_end;
+    g_app.entry      = run_hdr->entry;
+    g_app.load_addr  = run_hdr->load_addr;
+    g_app.image_size = run_hdr->image_size;
+    g_app.bss_start  = run_hdr->bss_start;
+    g_app.bss_size   = (run_hdr->bss_end > run_hdr->bss_start)
+                         ? run_hdr->bss_end - run_hdr->bss_start : 0;
+    g_app.flags      = run_hdr->flags;
+    g_app.data_src   = run_hdr->data_src;
+    g_app.data_start = run_hdr->data_start;
+    g_app.data_end   = run_hdr->data_end;
     strncpy(g_app.path, APP_FLASH_PATH, sizeof(g_app.path) - 1);
-    set_app_name(hdr);
+    set_app_name(run_hdr);
     return 0;
 }
 

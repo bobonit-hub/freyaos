@@ -20,7 +20,7 @@ FLASH_BASE_DEFAULT = 0x08000000
 MAGIC = 0x41595246  # 'FRYA'
 AUTOSTART_MAGIC = 0x31415946  # first word of the auto-start slot
 XIP = 0x1
-HDR = 64  # freya_app_header_t, ABI 2
+HDR = 72  # freya_app_header_t, ABI 3
 
 
 def die(msg):
@@ -102,7 +102,7 @@ def main():
 
     if magic != MAGIC:
         die(f"{args.app}: not a Freya program (magic {magic:#x})")
-    if abi < 2 or not (flags & XIP):
+    if abi < 3 or not (flags & XIP):
         die(f"{args.app}: not a flash image - link it with app_flash.ld "
             f"(the .xip.bin, not the RAM .bin)")
     if linked != load:

@@ -7,7 +7,7 @@
  * Flash map - the kernel keeps the bottom 44 KiB, the first unused
  * 128-byte aligned slot holds the auto-start flag and reserved padding,
  * and the rest of flash holds one program image, installed from the card
- * or packed in when the module is programmed, and executed in place:
+ * or packed in when the module is programmed, then copied to RAM when it fits:
  *   0x08000000 .. 0x0800AFFF   Freya kernel                      (44 KiB)
  *   0x0800B000 .. 0x0800B07F   auto-start flag + reserved          (128 B)
  *   0x0800B080 .. 0x0800FFFF   program flash region              (20352 B)
@@ -19,8 +19,9 @@
  *   0x20001800 .. 0x200037FF   user program image region          ( 8 KiB)
  *   0x20003800 .. 0x20004FFF   main stack (kernel + user)         ( 6 KiB)
  *
- * A flash resident program spends that 8 KiB window on its .data and .bss
- * alone; the image itself never occupies RAM.
+ * A copied installed program shares that 8 KiB window between its image
+ * (at the top) and its .data and .bss (at the bottom).  Larger images
+ * execute in place and use the window only for writable state.
  */
 
 ENTRY(Reset_Handler)

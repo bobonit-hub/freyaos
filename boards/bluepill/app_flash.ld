@@ -1,11 +1,10 @@
 /*
  * Freya - linker script for flash resident user programs on the Blue Pill.
  *
- * Unlike app.ld, which lays a program out as one contiguous RAM image,
- * this is the ordinary split: .text and .rodata execute in place from the
- * program flash region, .data is copied from an initialiser in flash into
- * the program RAM region, and .bss is zeroed there.  The loader does both,
- * the same way it already zeroes .bss for a RAM image.
+ * Unlike app.ld, this is linked with .text and .rodata addresses in the
+ * program flash region and writable state in RAM.  The generated relocation
+ * table lets the loader copy the image to RAM and rebase those flash-linked
+ * program pointers before execution.
  *
  * The addresses here have to agree with FREYA_APP_FLASH_ADDR and
  * FREYA_APP_LOAD_ADDR in include/freya_api.h, and with boards/bluepill/

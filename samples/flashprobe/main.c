@@ -183,8 +183,8 @@ static const char *err_str(uint32_t bits)
  * Everything below runs with interrupts masked for the length of one
  * operation, because neither part has read-while-write: while SR.BSY is
  * set the controller stalls bus reads, and every interrupt handler Freya
- * has is in flash.  A RAM image's own code is not, which is why this
- * program refuses to run from flash at all.
+ * has is in flash.  The program itself must therefore have been loaded or
+ * copied into RAM before a controller operation starts.
  */
 static uint32_t wait_idle(void)
 {
@@ -491,9 +491,9 @@ int app_main(const freya_api_t *api, int argc, char **argv)
 
     /*
      * An erase stalls every read of flash, instruction fetch included, so
-     * the code doing it has to be somewhere else.  A RAM image already is;
-     * the flash image of this same sample is not, and would hang in its
-     * own first erase.
+     * the code doing it has to be somewhere else.  Both a card-loaded image
+     * and an installed image copied and relocated by the loader are in RAM.
+     * Keep the check so an old loader fails safely instead of hanging.
      */
     if (running_from_flash()) {
         api->puts("flashprobe: this one has to run from RAM - an erase stalls\r\n"

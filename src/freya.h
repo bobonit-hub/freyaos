@@ -261,8 +261,8 @@ typedef struct {
     uint32_t bss_size;
     uint32_t entry;
     uint32_t load_addr;
-    uint32_t flags;          /* FREYA_APP_F_XIP: runs from flash        */
-    uint32_t data_src;       /* .data initialiser, XIP only             */
+    uint32_t flags;          /* FREYA_APP_F_XIP: installed in flash     */
+    uint32_t data_src;       /* relocated .data initialiser, XIP only   */
     uint32_t data_start;
     uint32_t data_end;
     /* The last run, which outlives the image: these survive an unload so

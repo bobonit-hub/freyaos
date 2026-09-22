@@ -20,13 +20,16 @@
 #include <stdint.h>
 
 #define FREYA_APP_MAGIC        0x41595246UL   /* 'F','R','Y','A' */
-#define FREYA_ABI_VERSION      2
+#define FREYA_ABI_VERSION      3
 
 /*
  * ABI 1 described only RAM images.  ABI 2 appends four fields for a
  * program that executes from internal flash, and because the v1 header is
  * a byte for byte prefix of the v2 header the loader still accepts a v1
  * RAM image - every hello.bin already sitting on a card keeps working.
+ * ABI 3 appends the location and size of a relocation table.  An installed
+ * program is copied to RAM before it runs; each table entry names a word
+ * containing a program address that must move with it.
  */
 #define FREYA_ABI_MIN_VERSION  1
 
@@ -39,11 +42,11 @@
  *
  * A board that reserves part of its internal flash for a program image
  * also defines FREYA_APP_FLASH_ADDR and FREYA_APP_FLASH_SIZE.  Such a
- * program executes in place from flash and spends the RAM region on its
- * .data and .bss alone, which is what makes a ~25 KiB program possible on a
- * board whose whole SRAM is 20 KiB.  A 128-byte aligned slot immediately
- * before that region holds the auto-start flag (first word), the default
- * log level (second word) and the ram-dump-on-BusFault flag (third word).
+ * program is stored there and copied to RAM before it executes when code
+ * and writable state fit together; larger programs retain XIP execution.
+ * A 128-byte aligned slot immediately before that region holds the
+ * auto-start flag (first word), the default log level (second word) and
+ * the ram-dump-on-BusFault flag (third word).
  */
 #if defined(FREYA_BOARD_BLUEPILL)
 #define FREYA_APP_LOAD_ADDR    0x20001800UL     /* 20 KiB of SRAM */
@@ -83,7 +86,7 @@
 #endif
 
 /* header flags */
-#define FREYA_APP_F_XIP        0x00000001UL   /* executes from flash     */
+#define FREYA_APP_F_XIP        0x00000001UL   /* stored in program flash */
 
 /* Header located at offset 0 of the program image. */
 typedef struct {
@@ -101,12 +104,16 @@ typedef struct {
     uint32_t data_src;     /* flash address of the .data initialiser  */
     uint32_t data_start;   /* RAM destination of .data, absolute      */
     uint32_t data_end;
+    /* ------------------------------------- appended in ABI 3 ------- */
+    uint32_t reloc_offset; /* image offset of uint32_t pointer offsets */
+    uint32_t reloc_count;  /* number of entries in that table          */
 } freya_app_header_t;
 
 /* Size of the ABI 1 header, which is a prefix of the one above.  The
  * loader reads this much first so that it never mistakes the first bytes
  * of an old image's .text for the appended fields. */
 #define FREYA_APP_HDR_V1_SIZE  48
+#define FREYA_APP_HDR_V2_SIZE  64
 
 /*
  * How a run ended.  The kernel decides this, not the program: a program

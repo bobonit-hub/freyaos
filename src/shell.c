@@ -393,9 +393,18 @@ static int cmd_meminfo(int argc, char **argv)
     if (g_app.loaded && (g_app.flags & FREYA_APP_F_XIP)) {
         uint32_t data_sz2 = g_app.data_end - g_app.data_start;
 
-        kprintf("     %s (from flash): data %u B + bss %u B\r\n",
-                g_app.name[0] ? g_app.name : g_app.path, data_sz2, g_app.bss_size);
-        bar_nl(data_sz2 + g_app.bss_size, app_total);
+        if (g_app.load_addr >= FREYA_APP_LOAD_ADDR &&
+            g_app.load_addr < FREYA_APP_LOAD_ADDR + FREYA_APP_REGION_SIZE) {
+            kprintf("     %s (copied from flash): image %u B, data %u B + "
+                    "bss %u B\r\n", g_app.name[0] ? g_app.name : g_app.path,
+                    g_app.image_size, data_sz2, g_app.bss_size);
+            bar_nl(g_app.image_size + data_sz2 + g_app.bss_size, app_total);
+        } else {
+            kprintf("     %s (runs from flash): data %u B + bss %u B\r\n",
+                    g_app.name[0] ? g_app.name : g_app.path, data_sz2,
+                    g_app.bss_size);
+            bar_nl(data_sz2 + g_app.bss_size, app_total);
+        }
     } else if (g_app.loaded) {
         kprintf("     %s: image %u B + bss %u B\r\n",
                 g_app.name[0] ? g_app.name : g_app.path, g_app.image_size, g_app.bss_size);
