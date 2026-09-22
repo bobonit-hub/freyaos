@@ -76,8 +76,13 @@ APP_CFLAGS:= $(CPUFLAGS) $(BOARD_DEF) -std=gnu11 -Os -g3 -ffreestanding \
              -fno-common -fno-builtin -Wall -Wextra -Wno-unused-parameter -Iinclude
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink tetris log
-SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(SAMPLES))
+SAMPLES   := blink tetris log forth
+# A sample whose code is larger than a board's program RAM region is built
+# there as a flash image only: forth is 8 KiB of interpreter, which is the
+# whole of the Blue Pill's RAM window before its dictionary is counted.
+XIP_ONLY_bluepill := forth
+XIP_ONLY  := $(XIP_ONLY_$(BOARD))
+SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(filter-out $(XIP_ONLY),$(SAMPLES)))
 
 # A board that reserves part of its flash for a program image supplies a
 # second program linker script.  Every app and sample is then built both
@@ -87,6 +92,8 @@ APP_XIP_LD := $(wildcard $(BOARD_DIR)/app_flash.ld)
 ifneq ($(APP_XIP_LD),)
 APP_BINS   += $(patsubst %,$(BUILD)/apps/%.xip.bin,$(APPS))
 SMPL_BINS  += $(patsubst %,$(BUILD)/samples/%.xip.bin,$(SAMPLES))
+else ifneq ($(XIP_ONLY),)
+$(error $(XIP_ONLY): needs a flash image, but '$(BOARD)' keeps no program in flash)
 endif
 
 # One user program to store in the board's program flash region when the

@@ -104,6 +104,18 @@ mkfs.vfat -F 32 -n FREYA "$img" >/dev/null
 "$OUT/hostxmodem" "$img" || status=1
 fsck.vfat -n "$img" >/dev/null 2>&1 || { echo "  FAIL  image inconsistent after downloads"; status=1; }
 
+# The forth sample: its interpreter, its compiler and the machine that
+# runs what the compiler produced, driven line by line with the output
+# captured.  FREYA_APP_XIP picks the memory budget of a flash resident
+# image, which is the only one the Blue Pill builds.  -no-pie keeps the
+# test's static data inside the low 4 GiB, because Forth cells are 32
+# bits wide and the program hands out real addresses.
+echo
+echo "================= forth ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS -DFREYA_APP_XIP -no-pie tests/host_forth_test.c -o "$OUT/hostforth"
+"$OUT/hostforth" || status=1
+
 # ---------------------------------------------------------------------
 # Program image layout.
 #

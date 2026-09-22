@@ -279,9 +279,14 @@ supplies the header, and the board's `app.ld`. A program is built for one board
 — the load address is part of the header and the loader refuses an image linked
 for somewhere else. `samples/` works the same way through
 the `SAMPLES` variable and builds into `build/samples/`; `samples/blink` is a
-minimal starting point, `samples/log` writes one line at each log level, and
-`samples/tetris` is a console game (keys in `samples/tetris/README.md`). Every
-app and sample is also built as `.xip.bin` for `install`.
+minimal starting point, `samples/log` writes one line at each log level,
+`samples/tetris` is a console game (keys in `samples/tetris/README.md`), and
+`samples/forth` is an interactive Forth with a compiler and 122 words
+(`samples/forth/README.md`). Every
+app and sample is also built as `.xip.bin` for `install`, and a sample too
+large for a board's program RAM region is built there as the flash image
+alone — which on the Blue Pill is what happens to `forth`, whose
+interpreter is 8 KiB on its own.
 
 ```
 freya:/> run hello.bin
@@ -523,7 +528,7 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `tetris` |
+| `samples/` | small standalone samples: `blink`, `log`, `tetris`, `forth` |
 | `tests/` | host side tests |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
@@ -549,6 +554,15 @@ receiver's own handshake: CRC mode and checksum fallback, 128 and 1024 byte
 packets, a packet corrupted in transit and retransmitted, a duplicated packet,
 line noise before the first packet, and the padding of the final block.
 
+The `forth` sample is a program rather than kernel code, but it is the one
+sample with enough behaviour to be worth testing, so it is built for the
+host too — unchanged, against a service table that captures what it prints
+— and driven a line at a time: arithmetic and the number bases, every
+control structure, defining words, string literals, recursion, a source
+file read through `include`, and each way the interpreter can fail. The
+same binary talks to a terminal with `-i`, which is the quickest way to
+try the language without a board.
+
 The flash programming itself cannot be reached from the host, which is the main
 argument for keeping that driver small and its bounds check absolute. What can
 be checked off the board is the part most likely to be quietly wrong: a last
@@ -564,6 +578,7 @@ the kernel compares them at boot, and this compares them at build time.
 132 checks, 0 failures     FAT32
 11 checks, 0 failures     interoperability
 18 checks, 0 failures     XMODEM
+79 checks, 0 failures     forth
 35 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```
