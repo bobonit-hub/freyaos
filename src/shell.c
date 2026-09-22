@@ -675,6 +675,53 @@ static int cmd_hexdump(int argc, char **argv)
     return 0;
 }
 
+static int cmd_flashdump(int argc, char **argv)
+{
+    const uint8_t *flash = (const uint8_t *)0x08000000UL;
+    const char *name = "/freya.flash";
+    uint32_t size, off;
+    int fd, n;
+
+    if (!need_fs()) return -1;
+    if (argc > 2) { kprintf("usage: flashdump [file]\r\n"); return -1; }
+    if (argc == 2) name = argv[1];
+
+    size = (uint32_t)(*(volatile uint16_t *)FLASHSIZE_BASE) << 10;
+    fd = fs_fd_open(name, FREYA_O_WRONLY | FREYA_O_CREATE | FREYA_O_TRUNC);
+    if (fd < 0) {
+        kprintf("flashdump: %s: %s\r\n", name, fat_err_str(fd));
+        return -1;
+    }
+
+    kprintf("writing %u B to %s\r\n", size, name);
+    off = 0;
+    while (off < size) {
+        uint32_t chunk = MIN(512U, size - off);
+
+        if (uart_rx_ready() && uart_getc_timeout(0) == 0x03) {
+            uart_rx_flush();
+            fs_fd_close(fd);
+            kprintf("flashdump: cancelled\r\n");
+            return -1;
+        }
+        n = fs_fd_write(fd, flash + off, (int)chunk);
+        if (n != (int)chunk) {
+            fs_fd_close(fd);
+            kprintf("flashdump: %s\r\n", fat_err_str(n < 0 ? n : FAT_ERR_IO));
+            return -1;
+        }
+        off += chunk;
+    }
+
+    n = fs_fd_close(fd);
+    if (n != FAT_OK) {
+        kprintf("flashdump: %s\r\n", fat_err_str(n));
+        return -1;
+    }
+    kprintf("wrote %u B\r\n", size);
+    return 0;
+}
+
 static int cmd_df(int argc, char **argv)
 {
     uint32_t free_clus = 0;
@@ -1114,6 +1161,7 @@ static const command_t s_cmds[] = {
     { "cat",      cmd_cat,      "cat <file>",                "print a file" },
     { "write",    cmd_write,    "write <file> <text...>",    "append a line of text to a file" },
     { "hexdump",  cmd_hexdump,  "hexdump <file> [off] [len]","dump a file in hex" },
+    { "flashdump",cmd_flashdump,"flashdump [file]",          "write internal flash to /freya.flash" },
     { "df",       cmd_df,       "df",                        "show free space on the card" },
     { "load",     cmd_load,     "load " PROG_ARG,            "load a program image into RAM" },
     { "run",      cmd_run,      "run [" PROG_ARG "] [args]", "run the loaded program" },

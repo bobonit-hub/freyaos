@@ -197,6 +197,7 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 | `cat <file>` | print a file |
 | `write <file> <text...>` | append a line to a file |
 | `hexdump <file> [off] [len]` | dump a file in hex |
+| `flashdump [file]` | write internal flash to a file on the card (default `/freya.flash`) |
 | `df` | capacity, free and used space |
 | `load <file>` | load a program image into RAM |
 | `run [file] [args...]` | run the loaded program |
@@ -212,6 +213,11 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 
 Ctrl-C stops a running program, Ctrl-U clears the input line, and the up and
 down cursor keys walk the command history.
+
+`flashdump` copies the chip's mapped internal flash (from `0x08000000`, using
+the size the MCU reports) onto the card as a raw image. It overwrites
+`/freya.flash` unless you name another file. Ctrl-C stops the write and
+leaves whatever was written.
 
 `ls` prints names only; `ll` (or `ls -l`) adds sizes and timestamps:
 
