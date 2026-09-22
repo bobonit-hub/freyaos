@@ -24,24 +24,29 @@ static const char *fault_name(uint32_t kind)
 
 static void describe(uint32_t kind)
 {
+    static const struct { uint8_t bit; const char *s; } det[] = {
+        {  0, "instruction access violation" },
+        {  1, "data access violation" },
+        {  8, "instruction bus error" },
+        {  9, "precise data bus error" },
+        { 10, "imprecise data bus error" },
+        { 16, "undefined instruction" },
+        { 17, "invalid state (bad Thumb/EPSR)" },
+        { 18, "invalid PC load on return" },
+        { 19, "no coprocessor" },
+        { 24, "unaligned access" },
+        { 25, "divide by zero" },
+    };
     uint32_t cfsr = SCB->CFSR;
     uint32_t hfsr = SCB->HFSR;
 
-    kprintf("  cause : %s\r\n", fault_name(kind));
-    kprintf("  CFSR  : 0x%08x   HFSR: 0x%08x\r\n", cfsr, hfsr);
+    kprintf("  cause : %s\r\n  CFSR  : 0x%08x   HFSR: 0x%08x\r\n",
+            fault_name(kind), cfsr, hfsr);
     if (cfsr & (1UL << 7))  kprintf("  MMFAR : 0x%08x (data access)\r\n", SCB->MMFAR);
     if (cfsr & (1UL << 15)) kprintf("  BFAR  : 0x%08x (bus address)\r\n", SCB->BFAR);
-    if (cfsr & (1UL << 0))  kprintf("  detail: instruction access violation\r\n");
-    if (cfsr & (1UL << 1))  kprintf("  detail: data access violation\r\n");
-    if (cfsr & (1UL << 8))  kprintf("  detail: instruction bus error\r\n");
-    if (cfsr & (1UL << 9))  kprintf("  detail: precise data bus error\r\n");
-    if (cfsr & (1UL << 10)) kprintf("  detail: imprecise data bus error\r\n");
-    if (cfsr & (1UL << 16)) kprintf("  detail: undefined instruction\r\n");
-    if (cfsr & (1UL << 17)) kprintf("  detail: invalid state (bad Thumb/EPSR)\r\n");
-    if (cfsr & (1UL << 18)) kprintf("  detail: invalid PC load on return\r\n");
-    if (cfsr & (1UL << 19)) kprintf("  detail: no coprocessor\r\n");
-    if (cfsr & (1UL << 24)) kprintf("  detail: unaligned access\r\n");
-    if (cfsr & (1UL << 25)) kprintf("  detail: divide by zero\r\n");
+    for (unsigned i = 0; i < ARRAY_SIZE(det); i++)
+        if (cfsr & (1UL << det[i].bit))
+            kprintf("  detail: %s\r\n", det[i].s);
     if (hfsr & (1UL << 30)) kprintf("  detail: escalated configurable fault\r\n");
 }
 

@@ -126,35 +126,19 @@ static int rx_pop(void)
     return c;
 }
 
-int uart_getc(void)
-{
-    for (;;) {
-        int c = rx_pop();
-        if (c >= 0) return c;
-        if (g_app.running && app_should_stop()) return -1;
-        __wfi();
-    }
-}
-
-int uart_getc_timeout(uint32_t ms)
+static int uart_wait(uint32_t ms, int timed, int honor_stop)
 {
     uint32_t start = sys_ticks();
 
     for (;;) {
         int c = rx_pop();
         if (c >= 0) return c;
-        if (g_app.running && app_should_stop()) return -1;
-        if ((uint32_t)(sys_ticks() - start) >= ms) return -1;
+        if (honor_stop && g_app.running && app_should_stop()) return -1;
+        if (timed && (uint32_t)(sys_ticks() - start) >= ms) return -1;
+        if (!timed) __wfi();
     }
 }
 
-int uart_getc_raw_timeout(uint32_t ms)
-{
-    uint32_t start = sys_ticks();
-
-    for (;;) {
-        int c = rx_pop();
-        if (c >= 0) return c;
-        if ((uint32_t)(sys_ticks() - start) >= ms) return -1;
-    }
-}
+int uart_getc(void)                     { return uart_wait(0, 0, 1); }
+int uart_getc_timeout(uint32_t ms)      { return uart_wait(ms, 1, 1); }
+int uart_getc_raw_timeout(uint32_t ms)  { return uart_wait(ms, 1, 0); }

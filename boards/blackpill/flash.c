@@ -36,16 +36,10 @@ typedef struct {
     uint32_t snb;
 } flash_sector_t;
 
-/* F411CE: 512 KiB, sectors 0..7. */
+/* F411CE: only the auto-start sector (3) and program sector (4) are writable. */
 static const flash_sector_t s_sectors[] = {
-    { 0x08000000UL, 16U * 1024U,  0 },
-    { 0x08004000UL, 16U * 1024U,  1 },
-    { 0x08008000UL, 16U * 1024U,  2 },
     { 0x0800C000UL, 16U * 1024U,  3 },
     { 0x08010000UL, 64U * 1024U,  4 },
-    { 0x08020000UL, 128U * 1024U, 5 },
-    { 0x08040000UL, 128U * 1024U,  6 },
-    { 0x08060000UL, 128U * 1024U,  7 },
 };
 
 static const flash_sector_t *sector_of(uint32_t addr)
@@ -132,14 +126,6 @@ static int in_region(uint32_t addr, uint32_t len)
            in_slot(addr, len, FREYA_APP_FLASH_ADDR, FREYA_APP_FLASH_SIZE);
 }
 
-/* A sector may be erased only when every byte of it is either unused
- * padding in sector 3 or a writable Freya region.  Sectors 0..2 are the
- * kernel; 5..7 are left alone. */
-static int sector_erasable(const flash_sector_t *s)
-{
-    return s->snb == 3 || s->snb == 4;
-}
-
 /* --------------------------------------------------------------- setup */
 uint32_t flash_page_size(void)
 {
@@ -205,7 +191,7 @@ int flash_erase(uint32_t addr, uint32_t len)
         const flash_sector_t *s = sector_of(a);
         int rc;
 
-        if (!s || !sector_erasable(s)) return FLASH_ERR_RANGE;
+        if (!s) return FLASH_ERR_RANGE;
         rc = ram_erase_sector(s->snb);
         if (rc != FLASH_OK) return rc;
         a = s->base + s->size;
@@ -227,10 +213,7 @@ int flash_program(uint32_t addr, const void *src, uint32_t len)
         int rc;
 
         memcpy(&v, p, n);
-        if (!in_region(addr, 4) &&
-            !in_slot(addr, 4, FREYA_APP_FLASH_ADDR, FREYA_APP_FLASH_SIZE) &&
-            !in_slot(addr, 4, FREYA_AUTOSTART_ADDR, FREYA_AUTOSTART_SIZE))
-            return FLASH_ERR_RANGE;
+        if (!in_region(addr, 4)) return FLASH_ERR_RANGE;
         rc = ram_program_word(addr, v);
         if (rc != FLASH_OK) return rc;
 
@@ -245,7 +228,7 @@ const char *flash_err_str(int rc)
 {
     switch (rc) {
     case FLASH_OK:            return "ok";
-    case FLASH_ERR_RANGE:     return "address outside a writable flash region";
+    case FLASH_ERR_RANGE:     return "address out of range";
     case FLASH_ERR_ALIGN:     return "misaligned address";
     case FLASH_ERR_LOCKED:    return "flash is locked";
     case FLASH_ERR_BUSY:      return "a program is loaded";

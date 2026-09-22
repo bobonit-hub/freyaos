@@ -135,8 +135,8 @@ make clean
 ```
 
 Each board builds into its own directory, so the two never overwrite each
-other: the result is `build/<board>/freya.bin` (around 34 KiB on the Black Pill once
-the flash programmer is in, 34 on the Blue Pill) plus
+other: the result is `build/<board>/freya.bin` (around 36 KiB on the Black Pill once
+the flash programmer is in, 36 on the Blue Pill) plus
 `build/<board>/freya.hex`, and the example programs in `build/<board>/apps/` —
 each one built both as a `.bin` to load into RAM and as a `.xip.bin` to
 install into flash.
@@ -363,7 +363,7 @@ register dump and halts.
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-34 KiB of the 64 KiB of flash sits idle. So the board reserves 25472 bytes
+the rest of the 64 KiB of flash sits idle. So the board reserves 25472 bytes
 at the top of flash — the rest of page 39 after a 128-byte auto-start slot,
 then pages 40 to 63 — for one program image. The Black Pill does not need
 the size (it already has 56 KiB of program RAM) but it keeps the same
@@ -449,7 +449,7 @@ Black Pill:
 
 ```
 0x08000000  +--------------------------------+
-            |  Freya kernel (~34 KiB used)   |  48 KiB, sectors 0..2
+            |  Freya kernel (~36 KiB used)   |  48 KiB, sectors 0..2
 0x0800C000  +--------------------------------+
             |  unused                        |  rest of sector 3
 0x0800FF80  +--------------------------------+
@@ -477,7 +477,7 @@ leaves behind:
 
 ```
 0x08000000  +--------------------------------+
-            |  Freya kernel (~33 KiB used)   |  39 KiB, pages 0..38
+            |  Freya kernel (~36 KiB used)   |  39 KiB, pages 0..38
 0x08009C00  +--------------------------------+
             |  auto-start flag + log level  |  128 B, page 39
 0x08009C80  +--------------------------------+

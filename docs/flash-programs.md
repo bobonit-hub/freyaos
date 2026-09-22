@@ -17,7 +17,7 @@ Today a Freya program is a RAM image: `load` copies the file from the card
 into the program region, zeroes its `.bss` and `run` branches into it. On the
 Blue Pill that region is 8 KiB, because 8 KiB is what a 20 KiB SRAM can spare
 after the kernel's `.data`/`.bss`, a heap worth having and a 6 KiB stack. The
-64 KiB of flash, by contrast, is 30 KiB used and 34 KiB idle.
+64 KiB of flash, by contrast, is ~36 KiB used and the rest idle.
 
 This note describes making a program live in that idle flash instead: copied
 there once from the card, executed in place, surviving a power cycle. On the

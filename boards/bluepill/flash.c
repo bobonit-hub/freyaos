@@ -271,7 +271,7 @@ const char *flash_err_str(int rc)
 {
     switch (rc) {
     case FLASH_OK:            return "ok";
-    case FLASH_ERR_RANGE:     return "address outside a writable flash region";
+    case FLASH_ERR_RANGE:     return "address out of range";
     case FLASH_ERR_ALIGN:     return "misaligned address";
     case FLASH_ERR_LOCKED:    return "flash is locked";
     case FLASH_ERR_BUSY:      return "a program is loaded";

@@ -85,8 +85,8 @@ const char *sys_reset_cause_str(void)
     case RESET_POWER_ON: return "power-on";
     case RESET_PIN:      return "NRST pin";
     case RESET_SOFTWARE: return "software";
-    case RESET_IWDG:     return "independent watchdog";
-    case RESET_WWDG:     return "window watchdog";
+    case RESET_IWDG:     return "IWDG";
+    case RESET_WWDG:     return "WWDG";
     case RESET_LOWPOWER: return "low-power";
     case RESET_BROWNOUT: return "brown-out";
     default:             return "unknown";

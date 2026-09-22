@@ -43,6 +43,10 @@ CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) \
              -std=gnu11 -Os -g3 \
              -ffreestanding -fno-common -fno-builtin \
              -ffunction-sections -fdata-sections \
+             -fomit-frame-pointer \
+             -fno-asynchronous-unwind-tables -fno-unwind-tables \
+             -fmerge-all-constants \
+             -falign-functions=2 -falign-jumps=2 -falign-loops=2 \
              -Wall -Wextra -Wshadow -Wundef \
              -Wno-unused-parameter \
              -Iinclude -I$(SRC_DIR) -I$(BOARD_DIR)

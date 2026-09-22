@@ -84,15 +84,18 @@ int app_should_stop(void)
 
 const char *app_stop_reason_str(int reason)
 {
-    switch (reason) {
-    case APP_STOP_EXIT:       return "exited";
-    case APP_STOP_CTRLC:      return "stopped by Ctrl-C";
-    case APP_STOP_HARDFAULT:  return "killed by hard fault";
-    case APP_STOP_MEMFAULT:   return "killed by memory fault";
-    case APP_STOP_BUSFAULT:   return "killed by bus fault";
-    case APP_STOP_USAGEFAULT: return "killed by usage fault";
-    default:                  return "returned";
-    }
+    static const char *const s[] = {
+        "returned",
+        "exited",
+        "stopped by Ctrl-C",
+        "killed by hard fault",
+        "killed by memory fault",
+        "killed by bus fault",
+        "killed by usage fault"
+    };
+
+    if (reason < 0 || reason >= (int)ARRAY_SIZE(s)) return s[0];
+    return s[reason];
 }
 
 /*
@@ -115,15 +118,7 @@ void app_fault_trampoline(void)
 }
 
 /* ------------------------------------------------- service table calls */
-static void api_putc(char c)            { uart_putc(c); }
-static void api_puts(const char *s)     { uart_puts(s); }
-
-static int api_getc(void)                   { return uart_getc(); }
-static int api_getc_timeout(uint32_t ms)    { return uart_getc_timeout(ms); }
-static int api_kbhit(void)                  { return uart_rx_ready(); }
-static uint32_t api_ticks(void)             { return sys_ticks(); }
-static uint32_t api_cpu_hz(void)            { return g_clocks.hclk_hz; }
-static void api_led(int on)                 { led_set(on); }
+static uint32_t api_cpu_hz(void)             { return g_clocks.hclk_hz; }
 
 static void api_delay(uint32_t ms)
 {
@@ -174,47 +169,28 @@ static void api_exit(int code)
     freya_longjmp(s_return_ctx, 1);
 }
 
-static int api_unlink(const char *path)
+static int api_path(int (*fn)(const char *), const char *path)
 {
     char abs[FAT_MAX_PATH];
     if (fs_abspath(path, abs, sizeof(abs)) != 0) return FAT_ERR_INVAL;
-    return fat_unlink(abs);
+    return fn(abs);
 }
 
-static int api_mkdir(const char *path)
-{
-    char abs[FAT_MAX_PATH];
-    if (fs_abspath(path, abs, sizeof(abs)) != 0) return FAT_ERR_INVAL;
-    return fat_mkdir(abs);
-}
-
-static int api_rename(const char *old_path, const char *new_path)
-{
-    return fs_rename(old_path, new_path);
-}
-
-static int api_get_log_level(void)
-{
-    return log_get_level();
-}
-
-static int api_set_log_level(int level)
-{
-    return log_set_level(level);
-}
+static int api_unlink(const char *path) { return api_path(fat_unlink, path); }
+static int api_mkdir(const char *path)  { return api_path(fat_mkdir, path); }
 
 static const freya_api_t s_api = {
     .size          = sizeof(freya_api_t),
     .version       = FREYA_ABI_VERSION,
-    .putc          = api_putc,
-    .puts          = api_puts,
+    .putc          = uart_putc,
+    .puts          = uart_puts,
     .printf        = kprintf,
-    .getc          = api_getc,
-    .getc_timeout  = api_getc_timeout,
-    .kbhit         = api_kbhit,
+    .getc          = uart_getc,
+    .getc_timeout  = uart_getc_timeout,
+    .kbhit         = uart_rx_ready,
     .malloc        = api_malloc,
     .free          = api_free,
-    .ticks_ms      = api_ticks,
+    .ticks_ms      = sys_ticks,
     .delay_ms      = api_delay,
     .should_stop   = api_should_stop,
     .yield         = api_yield,
@@ -231,12 +207,12 @@ static const freya_api_t s_api = {
     .opendir       = fs_dd_open,
     .readdir       = fs_dd_read,
     .closedir      = fs_dd_close,
-    .led           = api_led,
+    .led           = led_set,
     .cpu_hz        = api_cpu_hz,
-    .rename        = api_rename,
+    .rename        = fs_rename,
     .log           = klog,
-    .get_log_level = api_get_log_level,
-    .set_log_level = api_set_log_level,
+    .get_log_level = log_get_level,
+    .set_log_level = log_set_level,
 };
 
 const freya_api_t *app_api(void)

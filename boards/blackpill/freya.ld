@@ -56,9 +56,6 @@ SECTIONS
         *(.text*)
         *(.glue_7)
         *(.glue_7t)
-        *(.eh_frame)
-        KEEP(*(.init))
-        KEEP(*(.fini))
         . = ALIGN(4);
     } > FLASH
 
@@ -68,13 +65,6 @@ SECTIONS
         *(.rodata)
         *(.rodata*)
         . = ALIGN(4);
-    } > FLASH
-
-    .ARM.extab : { *(.ARM.extab* .gnu.linkonce.armextab.*) } > FLASH
-    .ARM       : {
-        __exidx_start = .;
-        *(.ARM.exidx*)
-        __exidx_end = .;
     } > FLASH
 
     . = ALIGN(4);
@@ -135,5 +125,8 @@ SECTIONS
     ASSERT(__ramfunc_end <= __app_ram_end,
            "Freya: the RAM resident flash routines do not fit the program region")
 
-    /DISCARD/ : { *(.note.GNU-stack) *(.gnu_debuglink) *(.gnu.lto_*) }
+    /DISCARD/ : {
+        *(.note.GNU-stack) *(.gnu_debuglink) *(.gnu.lto_*) *(.comment)
+        *(.eh_frame*) *(.ARM.extab*) *(.ARM.exidx*) *(.init) *(.fini)
+    }
 }

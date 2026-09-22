@@ -127,9 +127,8 @@ static int split_args(char *line, char **argv, int max)
 
 static void print_fat_time(uint16_t date, uint16_t time)
 {
-    kprintf("%04u-%02u-%02u %02u:%02u",
-            1980 + (date >> 9), (date >> 5) & 0x0F, date & 0x1F,
-            (time >> 11) & 0x1F, (time >> 5) & 0x3F);
+    kput_hms(1980 + (date >> 9), (date >> 5) & 0x0F, date & 0x1F,
+             (time >> 11) & 0x1F, (time >> 5) & 0x3F, -1);
 }
 
 static void attr_string(uint8_t attr, char *out)
@@ -142,11 +141,68 @@ static void attr_string(uint8_t attr, char *out)
     out[5] = '\0';
 }
 
+static const char *onoff(int v) { return v ? "on" : "off"; }
+
 static int need_fs(void)
 {
     if (fat_mounted()) return 1;
     kprintf("no filesystem mounted - run 'mount'\r\n");
     return 0;
+}
+
+static int busy_running(const char *who)
+{
+    if (!g_app.running) return 0;
+    kprintf("%s: a program is running - stop it first\r\n", who);
+    return 1;
+}
+
+static int usage(const char *s)
+{
+    kprintf("usage: %s\r\n", s);
+    return -1;
+}
+
+static int fs_fail(const char *cmd, const char *path, int rc)
+{
+    if (path) kprintf("%s: %s: %s\r\n", cmd, path, fat_err_str(rc));
+    else      kprintf("%s: %s\r\n", cmd, fat_err_str(rc));
+    return -1;
+}
+
+static uint32_t ratio(uint32_t n, uint32_t d, uint32_t scale)
+{
+    if (!d) return 0;
+    if (n >= d) return scale;
+    if (n <= 0xFFFFFFFFu / scale) return n * scale / d;
+    if (d < scale) return n ? scale : 0;
+    return n / (d / scale);
+}
+
+static void print_bar(uint32_t used, uint32_t total)
+{
+    uint32_t filled = ratio(used, total, 20);
+
+    uart_putc('[');
+    for (uint32_t i = 0; i < 20; i++) uart_putc(i < filled ? '#' : '.');
+    kprintf("] %u%%", ratio(used, total, 100));
+}
+
+static void mem_at(const char *k, uint32_t n, uint32_t addr)
+{
+    kprintf("  %-14s: %6u B  at 0x%08x\r\n", k, n, addr);
+}
+
+static void bar_nl(uint32_t used, uint32_t total)
+{
+    kprintf("     ");
+    print_bar(used, total);
+    kprintf("\r\n");
+}
+
+static void inf(const char *k)
+{
+    kprintf("  %-11s: ", k);
 }
 
 /* The installed flash image is named by a pseudo-path rather than a file,
@@ -182,32 +238,30 @@ static int cmd_sysinfo(int argc, char **argv)
     rtc_get(&t);
 
     kprintf("Freya %s  (built %s)\r\n", FREYA_VERSION, FREYA_BUILD_ID);
-    kprintf("  board      : %s\r\n", BOARD_NAME);
-    kprintf("  core       : %s, CPUID 0x%08x\r\n", BOARD_CORE, SCB->CPUID);
-    kprintf("  device id  : 0x%03x  rev 0x%04x\r\n",
+    inf("board");      kprintf("%s\r\n", BOARD_NAME);
+    inf("core");       kprintf("%s, CPUID 0x%08x\r\n", BOARD_CORE, SCB->CPUID);
+    inf("device id");  kprintf("0x%03x  rev 0x%04x\r\n",
             idcode & 0xFFF, (idcode >> 16) & 0xFFFF);
-    kprintf("  unique id  : %08x-%08x-%08x\r\n", uid[0], uid[1], uid[2]);
-    kprintf("  flash      : %u KiB internal\r\n", fl_kb);
-    kprintf("  clock src  : %s -> PLL\r\n",
+    inf("unique id");  kprintf("%08x-%08x-%08x\r\n", uid[0], uid[1], uid[2]);
+    inf("flash");      kprintf("%u KiB internal\r\n", fl_kb);
+    inf("clock src");  kprintf("%s -> PLL\r\n",
             g_clocks.clock_source ? BOARD_HSE_NAME
                                   : BOARD_HSI_NAME " (crystal not found)");
-    kprintf("  sysclk     : %u Hz   AHB %u Hz\r\n", g_clocks.sysclk_hz, g_clocks.hclk_hz);
-    kprintf("  apb1/apb2  : %u Hz / %u Hz\r\n", g_clocks.pclk1_hz, g_clocks.pclk2_hz);
-    kprintf("  console    : %s\r\n", BOARD_CONSOLE_NAME);
-    kprintf("  reset by   : %s\r\n", sys_reset_cause_str());
-    kprintf("  uptime     : %u.%03u s\r\n", up / 1000, up % 1000);
-    kprintf("  date/time  : %04u-%02u-%02u %02u:%02u:%02u\r\n",
-            t.year, t.mon, t.day, t.hour, t.min, t.sec);
-    kprintf("  log level  : %s (%d)\r\n",
+    inf("sysclk");     kprintf("%u Hz   AHB %u Hz\r\n", g_clocks.sysclk_hz, g_clocks.hclk_hz);
+    inf("apb1/apb2");  kprintf("%u Hz / %u Hz\r\n", g_clocks.pclk1_hz, g_clocks.pclk2_hz);
+    inf("console");    kprintf("%s\r\n", BOARD_CONSOLE_NAME);
+    inf("reset by");   kprintf("%s\r\n", sys_reset_cause_str());
+    inf("uptime");     kprintf("%u.%03u s\r\n", up / 1000, up % 1000);
+    inf("date/time");  kput_hms(t.year, t.mon, t.day, t.hour, t.min, t.sec);
+    kprintf("\r\n");
+    inf("log level");  kprintf("%s (%d)\r\n",
             log_level_str(log_get_level()), log_get_level());
 #ifdef FREYA_APP_FLASH_ADDR
-    kprintf("  auto-start : %s\r\n",
-            app_autostart_enabled() ? "on" : "off");
-    kprintf("  ram dump   : %s\r\n",
-            app_ramdump_enabled() ? "on" : "off");
+    inf("auto-start"); kprintf("%s\r\n", onoff(app_autostart_enabled()));
+    inf("ram dump");   kprintf("%s\r\n", onoff(app_ramdump_enabled()));
 #endif
 
-    kprintf("  sd card    : %s", sd_type_str());
+    inf("sd card");    kprintf("%s", sd_type_str());
     if (g_sd.initialised) {
         kprintf(", ");
         kput_size((uint64_t)g_sd.blocks * 512ULL);
@@ -232,15 +286,6 @@ static int cmd_sysinfo(int argc, char **argv)
         kprintf("  program    : none loaded\r\n");
     }
     return 0;
-}
-
-static void print_bar(uint32_t used, uint32_t total)
-{
-    int filled = total ? (int)((uint64_t)used * 20 / total) : 0;
-
-    uart_putc('[');
-    for (int i = 0; i < 20; i++) uart_putc(i < filled ? '#' : '.');
-    kprintf("] %u%%", total ? (uint32_t)((uint64_t)used * 100 / total) : 0);
 }
 
 static int cmd_meminfo(int argc, char **argv)
@@ -285,14 +330,14 @@ static int cmd_meminfo(int argc, char **argv)
             kprintf("     empty - 'install <file>', or flash one in with the kernel\r\n");
         }
         kprintf("  auto-start     : %s  at 0x%08x  (%u B)\r\n",
-                app_autostart_enabled() ? "on" : "off",
+                onoff(app_autostart_enabled()),
                 (unsigned)FREYA_AUTOSTART_ADDR,
                 (unsigned)FREYA_AUTOSTART_SIZE);
         kprintf("  log level      : %s (%d)  stored at 0x%08x\r\n",
                 log_level_str(log_get_level()), log_get_level(),
                 (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_LOGLEVEL_OFF));
         kprintf("  ram dump       : %s  stored at 0x%08x\r\n",
-                app_ramdump_enabled() ? "on" : "off",
+                onoff(app_ramdump_enabled()),
                 (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_RAMDUMP_OFF));
     }
 #endif
@@ -300,40 +345,31 @@ static int cmd_meminfo(int argc, char **argv)
     kprintf("SRAM  0x%08x .. 0x%08x  (%u KiB)\r\n",
             (uint32_t)(uintptr_t)__ram_start, (uint32_t)(uintptr_t)__ram_end,
             (uint32_t)(__ram_end - __ram_start) / 1024U);
-    kprintf("  .data          : %6u B  at 0x%08x\r\n", data_sz, (uint32_t)(uintptr_t)__data_start);
-    kprintf("  .bss           : %6u B  at 0x%08x\r\n", bss_sz, (uint32_t)(uintptr_t)__bss_start);
-    kprintf("  system heap    : %6u B  at 0x%08x\r\n", heap_total, (uint32_t)(uintptr_t)__heap_start);
+    mem_at(".data", data_sz, (uint32_t)(uintptr_t)__data_start);
+    mem_at(".bss", bss_sz, (uint32_t)(uintptr_t)__bss_start);
+    mem_at("system heap", heap_total, (uint32_t)(uintptr_t)__heap_start);
     kprintf("     used %u B, free %u B, largest free block %u B, %u blocks\r\n",
             heap_used, heap_free, heap_big, heap_blocks);
-    kprintf("     ");
-    print_bar(heap_used, heap_total);
-    kprintf("\r\n");
+    bar_nl(heap_used, heap_total);
 
-    kprintf("  program region : %6u B  at 0x%08x\r\n", app_total, (uint32_t)FREYA_APP_LOAD_ADDR);
+    mem_at("program region", app_total, (uint32_t)FREYA_APP_LOAD_ADDR);
     if (g_app.loaded && (g_app.flags & FREYA_APP_F_XIP)) {
-        /* The image is in flash; only its variables are here. */
         uint32_t data_sz2 = g_app.data_end - g_app.data_start;
 
         kprintf("     %s (from flash): data %u B + bss %u B\r\n",
                 g_app.name[0] ? g_app.name : g_app.path, data_sz2, g_app.bss_size);
-        kprintf("     ");
-        print_bar(data_sz2 + g_app.bss_size, app_total);
-        kprintf("\r\n");
+        bar_nl(data_sz2 + g_app.bss_size, app_total);
     } else if (g_app.loaded) {
         kprintf("     %s: image %u B + bss %u B\r\n",
                 g_app.name[0] ? g_app.name : g_app.path, g_app.image_size, g_app.bss_size);
-        kprintf("     ");
-        print_bar(g_app.image_size + g_app.bss_size, app_total);
-        kprintf("\r\n");
+        bar_nl(g_app.image_size + g_app.bss_size, app_total);
     } else {
         kprintf("     empty\r\n");
     }
 
-    kprintf("  main stack     : %6u B  at 0x%08x\r\n", stack_total, (uint32_t)(uintptr_t)__stack_limit);
+    mem_at("main stack", stack_total, (uint32_t)(uintptr_t)__stack_limit);
     kprintf("     in use now %u B, peak since boot %u B\r\n", stack_used(), stack_peak());
-    kprintf("     ");
-    print_bar(stack_peak(), stack_total);
-    kprintf("\r\n");
+    bar_nl(stack_peak(), stack_total);
     return 0;
 }
 
@@ -351,10 +387,7 @@ static int cmd_mount(int argc, char **argv)
     kprintf("%s\r\n", sd_type_str());
 
     rc = fat_mount();
-    if (rc != FAT_OK) {
-        kprintf("mount: %s\r\n", fat_err_str(rc));
-        return -1;
-    }
+    if (rc != FAT_OK) return fs_fail("mount", NULL, rc);
     kprintf("mounted %s", fat_type_str());
     if (g_fs.label[0]) kprintf(" \"%s\"", g_fs.label);
     kprintf(" on /\r\n");
@@ -377,23 +410,17 @@ static int cmd_ls(int argc, char **argv)
         if (strcmp(argv[i], "-l") == 0) long_fmt = 1;
         else target = argv[i];
     }
-    if (fs_abspath(target ? target : ".", path, sizeof(path)) != 0) {
-        kprintf("ls: path too long\r\n");
-        return -1;
-    }
-
+    if (fs_abspath(target ? target : ".", path, sizeof(path)) != 0)
+        return fs_fail("ls", target ? target : ".", FAT_ERR_INVAL);
     rc = fat_opendir(&dir, path);
-    if (rc != FAT_OK) {
-        kprintf("ls: %s: %s\r\n", path, fat_err_str(rc));
-        return -1;
-    }
+    if (rc != FAT_OK) return fs_fail("ls", path, rc);
 
     if (long_fmt) kprintf("%s:\r\n", path);
 
     for (;;) {
         rc = fat_readdir(&dir, &e);
         if (rc == 1) break;
-        if (rc < 0) { kprintf("ls: %s\r\n", fat_err_str(rc)); break; }
+        if (rc < 0) { fs_fail("ls", NULL, rc); break; }
         if (strcmp(e.name, ".") == 0 || strcmp(e.name, "..") == 0) continue;
 
         if (e.attr & FAT_ATTR_DIR) dirs++;
@@ -432,10 +459,7 @@ static int cmd_cd(int argc, char **argv)
 
     if (!need_fs()) return -1;
     rc = fs_chdir(argc > 1 ? argv[1] : "/");
-    if (rc != FAT_OK) {
-        kprintf("cd: %s: %s\r\n", argc > 1 ? argv[1] : "/", fat_err_str(rc));
-        return -1;
-    }
+    if (rc != FAT_OK) return fs_fail("cd", argc > 1 ? argv[1] : "/", rc);
     return 0;
 }
 
@@ -452,18 +476,13 @@ static int cmd_mkdir(int argc, char **argv)
     int rc;
 
     if (!need_fs()) return -1;
-    if (argc < 2) { kprintf("usage: mkdir <directory>\r\n"); return -1; }
+    if (argc < 2) return usage("mkdir <directory>");
 
     for (int i = 1; i < argc; i++) {
-        if (fs_abspath(argv[i], path, sizeof(path)) != 0) {
-            kprintf("mkdir: path too long\r\n");
-            return -1;
-        }
+        if (fs_abspath(argv[i], path, sizeof(path)) != 0)
+            return fs_fail("mkdir", argv[i], FAT_ERR_INVAL);
         rc = fat_mkdir(path);
-        if (rc != FAT_OK) {
-            kprintf("mkdir: %s: %s\r\n", argv[i], fat_err_str(rc));
-            return -1;
-        }
+        if (rc != FAT_OK) return fs_fail("mkdir", argv[i], rc);
         kprintf("created %s\r\n", path);
     }
     return 0;
@@ -521,10 +540,8 @@ static int cmd_rm(int argc, char **argv)
             recursive = 1;
             continue;
         }
-        if (fs_abspath(argv[i], path, sizeof(path)) != 0) {
-            kprintf("rm: path too long\r\n");
-            return -1;
-        }
+        if (fs_abspath(argv[i], path, sizeof(path)) != 0)
+            return fs_fail("rm", argv[i], FAT_ERR_INVAL);
         if (strcmp(path, "/") == 0) {
             kprintf("rm: refusing to remove the root directory\r\n");
             return -1;
@@ -538,7 +555,7 @@ static int cmd_rm(int argc, char **argv)
         kprintf("removed %s\r\n", path);
         count++;
     }
-    if (!count) kprintf("usage: rm [-r] <file|directory>\r\n");
+    if (!count) return usage("rm [-r] <file|directory>");
     return 0;
 }
 
@@ -547,16 +564,10 @@ static int cmd_rename(int argc, char **argv)
     int rc;
 
     if (!need_fs()) return -1;
-    if (argc != 3) {
-        kprintf("usage: %s <old> <new>\r\n", argv[0]);
-        return -1;
-    }
+    if (argc != 3) return usage("rename <old> <new>");
 
     rc = fs_rename(argv[1], argv[2]);
-    if (rc != FAT_OK) {
-        kprintf("%s: %s\r\n", argv[0], fat_err_str(rc));
-        return -1;
-    }
+    if (rc != FAT_OK) return fs_fail(argv[0], NULL, rc);
     kprintf("renamed %s -> %s\r\n", argv[1], argv[2]);
     return 0;
 }
@@ -575,13 +586,13 @@ static int cmd_download(int argc, char **argv)
         else name = argv[i];
     }
     if (!name) {
-        kprintf("usage: download <file> [--raw]\r\n");
         kprintf("  receives an XMODEM / XMODEM-1K stream, e.g. 'sx -k file'\r\n");
-        return -1;
+        return usage("download <file> [--raw]");
     }
 
-    kprintf("Ready to receive '%s' over XMODEM.\r\n", name);
-    kprintf("Start the transfer on the host now (Ctrl-X twice on the host to abort).\r\n");
+    kprintf("Ready to receive '%s' over XMODEM.\r\n"
+            "Start the transfer on the host now (Ctrl-X twice on the host to abort).\r\n",
+            name);
 
     rc = xmodem_receive_to_file(name, &got, strip);
     if (rc == 0) {
@@ -593,11 +604,11 @@ static int cmd_download(int argc, char **argv)
 
     kprintf("\r\ndownload failed: ");
     switch (rc) {
-    case -2: kprintf("timed out waiting for the sender\r\n"); break;
-    case -3: kprintf("cancelled by the sender\r\n"); break;
-    case -4: kprintf("too many bad packets\r\n"); break;
-    case -5: kprintf("packet sequence error\r\n"); break;
-    case -6: kprintf("cannot write to the card\r\n"); break;
+    case -2: uart_puts("timed out waiting for the sender\r\n"); break;
+    case -3: uart_puts("cancelled by the sender\r\n"); break;
+    case -4: uart_puts("too many bad packets\r\n"); break;
+    case -5: uart_puts("packet sequence error\r\n"); break;
+    case -6: uart_puts("cannot write to the card\r\n"); break;
     default: kprintf("error %d\r\n", rc); break;
     }
     return -1;
@@ -609,10 +620,10 @@ static int cmd_cat(int argc, char **argv)
     int fd, n;
 
     if (!need_fs()) return -1;
-    if (argc < 2) { kprintf("usage: cat <file>\r\n"); return -1; }
+    if (argc < 2) return usage("cat <file>");
 
     fd = fs_fd_open(argv[1], FREYA_O_RDONLY);
-    if (fd < 0) { kprintf("cat: %s: %s\r\n", argv[1], fat_err_str(fd)); return -1; }
+    if (fd < 0) return fs_fail("cat", argv[1], fd);
 
     while ((n = fs_fd_read(fd, buf, sizeof(buf))) > 0) {
         for (int i = 0; i < n; i++) {
@@ -630,10 +641,10 @@ static int cmd_write(int argc, char **argv)
     int fd, rc = 0;
 
     if (!need_fs()) return -1;
-    if (argc < 3) { kprintf("usage: write <file> <text...>\r\n"); return -1; }
+    if (argc < 3) return usage("write <file> <text...>");
 
     fd = fs_fd_open(argv[1], FREYA_O_WRONLY | FREYA_O_CREATE | FREYA_O_APPEND);
-    if (fd < 0) { kprintf("write: %s: %s\r\n", argv[1], fat_err_str(fd)); return -1; }
+    if (fd < 0) return fs_fail("write", argv[1], fd);
 
     for (int i = 2; i < argc; i++) {
         int len = (int)strlen(argv[i]);
@@ -655,12 +666,12 @@ static int cmd_hexdump(int argc, char **argv)
     int fd, n;
 
     if (!need_fs()) return -1;
-    if (argc < 2) { kprintf("usage: hexdump <file> [offset] [length]\r\n"); return -1; }
+    if (argc < 2) return usage("hexdump <file> [offset] [length]");
     if (argc > 2) str_to_u32(argv[2], &off);
     if (argc > 3) str_to_u32(argv[3], &limit);
 
     fd = fs_fd_open(argv[1], FREYA_O_RDONLY);
-    if (fd < 0) { kprintf("hexdump: %s: %s\r\n", argv[1], fat_err_str(fd)); return -1; }
+    if (fd < 0) return fs_fail("hexdump", argv[1], fd);
     fs_fd_seek(fd, (int32_t)off, FREYA_SEEK_SET);
 
     while (limit > 0 && (n = fs_fd_read(fd, buf, (int)MIN(16U, limit))) > 0) {
@@ -681,23 +692,14 @@ static int cmd_hexdump(int argc, char **argv)
     return 0;
 }
 
-static int cmd_flashdump(int argc, char **argv)
+static int write_mem_file(const char *who, const char *name,
+                          const uint8_t *src, uint32_t size)
 {
-    const uint8_t *flash = (const uint8_t *)0x08000000UL;
-    const char *name = "/freya.flash";
-    uint32_t size, off;
+    uint32_t off;
     int fd, n;
 
-    if (!need_fs()) return -1;
-    if (argc > 2) { kprintf("usage: flashdump [file]\r\n"); return -1; }
-    if (argc == 2) name = argv[1];
-
-    size = (uint32_t)(*(volatile uint16_t *)FLASHSIZE_BASE) << 10;
     fd = fs_fd_open(name, FREYA_O_WRONLY | FREYA_O_CREATE | FREYA_O_TRUNC);
-    if (fd < 0) {
-        kprintf("flashdump: %s: %s\r\n", name, fat_err_str(fd));
-        return -1;
-    }
+    if (fd < 0) return fs_fail(who, name, fd);
 
     kprintf("writing %u B to %s\r\n", size, name);
     off = 0;
@@ -707,25 +709,34 @@ static int cmd_flashdump(int argc, char **argv)
         if (uart_rx_ready() && uart_getc_timeout(0) == 0x03) {
             uart_rx_flush();
             fs_fd_close(fd);
-            kprintf("flashdump: cancelled\r\n");
+            kprintf("%s: cancelled\r\n", who);
             return -1;
         }
-        n = fs_fd_write(fd, flash + off, (int)chunk);
+        n = fs_fd_write(fd, src + off, (int)chunk);
         if (n != (int)chunk) {
             fs_fd_close(fd);
-            kprintf("flashdump: %s\r\n", fat_err_str(n < 0 ? n : FAT_ERR_IO));
-            return -1;
+            return fs_fail(who, NULL, n < 0 ? n : FAT_ERR_IO);
         }
         off += chunk;
     }
 
     n = fs_fd_close(fd);
-    if (n != FAT_OK) {
-        kprintf("flashdump: %s\r\n", fat_err_str(n));
-        return -1;
-    }
+    if (n != FAT_OK) return fs_fail(who, NULL, n);
     kprintf("wrote %u B\r\n", size);
     return 0;
+}
+
+static int cmd_flashdump(int argc, char **argv)
+{
+    const char *name = "/freya.flash";
+    uint32_t size;
+
+    if (!need_fs()) return -1;
+    if (argc > 2) return usage("flashdump [file]");
+    if (argc == 2) name = argv[1];
+
+    size = (uint32_t)(*(volatile uint16_t *)FLASHSIZE_BASE) << 10;
+    return write_mem_file("flashdump", name, (const uint8_t *)0x08000000UL, size);
 }
 
 static int cmd_df(int argc, char **argv)
@@ -765,7 +776,7 @@ static int cmd_df(int argc, char **argv)
 
 static int cmd_load(int argc, char **argv)
 {
-    if (argc < 2) { kprintf("usage: load " PROG_ARG "\r\n"); return -1; }
+    if (argc < 2) return usage("load " PROG_ARG);
     if (!is_flash_path(argv[1]) && !need_fs()) return -1;
     if (g_app.loaded) app_unload();
 
@@ -783,10 +794,7 @@ static int cmd_load(int argc, char **argv)
 #ifdef FREYA_APP_FLASH_ADDR
 static int cmd_install(int argc, char **argv)
 {
-    if (argc < 2) {
-        kprintf("usage: install <file>\r\n");
-        return -1;
-    }
+    if (argc < 2) return usage("install <file>");
     if (!need_fs()) return -1;
     return app_install(argv[1]);
 }
@@ -807,13 +815,10 @@ static int cmd_uninstall(int argc, char **argv)
 static int cmd_saveflash(int argc, char **argv)
 {
     const freya_app_header_t *h;
-    const uint8_t *flash;
     char def[32];
     const char *name;
-    uint32_t size, off;
-    int fd, n;
 
-    if (argc > 2) { kprintf("usage: saveflash [file]\r\n"); return -1; }
+    if (argc > 2) return usage("saveflash [file]");
     if (!need_fs()) return -1;
 
     h = app_flash_header();
@@ -845,41 +850,9 @@ static int cmd_saveflash(int argc, char **argv)
         name = def;
     }
 
-    size = h->image_size;
-    flash = (const uint8_t *)(uintptr_t)FREYA_APP_FLASH_ADDR;
-    fd = fs_fd_open(name, FREYA_O_WRONLY | FREYA_O_CREATE | FREYA_O_TRUNC);
-    if (fd < 0) {
-        kprintf("saveflash: %s: %s\r\n", name, fat_err_str(fd));
-        return -1;
-    }
-
-    kprintf("writing %u B to %s\r\n", size, name);
-    off = 0;
-    while (off < size) {
-        uint32_t chunk = MIN(512U, size - off);
-
-        if (uart_rx_ready() && uart_getc_timeout(0) == 0x03) {
-            uart_rx_flush();
-            fs_fd_close(fd);
-            kprintf("saveflash: cancelled\r\n");
-            return -1;
-        }
-        n = fs_fd_write(fd, flash + off, (int)chunk);
-        if (n != (int)chunk) {
-            fs_fd_close(fd);
-            kprintf("saveflash: %s\r\n", fat_err_str(n < 0 ? n : FAT_ERR_IO));
-            return -1;
-        }
-        off += chunk;
-    }
-
-    n = fs_fd_close(fd);
-    if (n != FAT_OK) {
-        kprintf("saveflash: %s\r\n", fat_err_str(n));
-        return -1;
-    }
-    kprintf("wrote %u B\r\n", size);
-    return 0;
+    return write_mem_file("saveflash", name,
+                          (const uint8_t *)(uintptr_t)FREYA_APP_FLASH_ADDR,
+                          h->image_size);
 }
 #endif
 
@@ -951,86 +924,58 @@ static int cmd_runflash(int argc, char **argv)
     return cmd_run(argc + 1, run_argv);
 }
 
-static int cmd_autostart(int argc, char **argv)
+static int parse_onoff(const char *s, int *out)
+{
+    if (strcmp(s, "on") == 0) { *out = 1; return 0; }
+    if (strcmp(s, "off") == 0) { *out = 0; return 0; }
+    return -1;
+}
+
+static int cmd_slot_flag(int argc, char **argv, const char *label, uint32_t addr,
+                         int (*get)(void), int (*set)(int), int warn_empty)
 {
     int rc, enable;
 
     if (argc < 2) {
-        kprintf("auto-start is %s (flag at 0x%08x)\r\n",
-                app_autostart_enabled() ? "on" : "off",
-                (unsigned)FREYA_AUTOSTART_ADDR);
-        kprintf("usage: autostart on|off\r\n");
+        kprintf("%s is %s (flag at 0x%08x)\r\n", label, onoff(get()), (unsigned)addr);
+        kprintf("usage: %s on|off\r\n", argv[0]);
         return 0;
     }
-    if (strcmp(argv[1], "on") == 0) enable = 1;
-    else if (strcmp(argv[1], "off") == 0) enable = 0;
-    else {
-        kprintf("usage: autostart on|off\r\n");
+    if (parse_onoff(argv[1], &enable) != 0) {
+        kprintf("usage: %s on|off\r\n", argv[0]);
         return -1;
     }
-
-    if (g_app.running) {
-        kprintf("autostart: a program is running - stop it first\r\n");
-        return -1;
-    }
-
-    if (enable == app_autostart_enabled()) {
-        kprintf("auto-start is already %s\r\n", enable ? "on" : "off");
+    if (busy_running(argv[0])) return -1;
+    if (enable == get()) {
+        kprintf("%s is already %s\r\n", label, onoff(enable));
         return 0;
     }
 
-    kprintf("autostart: console input is dropped while flash is busy\r\n");
+    kprintf("%s: console input is dropped while flash is busy\r\n", argv[0]);
     uart_drain_tx();
-    rc = app_autostart_set(enable);
+    rc = set(enable);
     uart_rx_flush();
     if (rc != FLASH_OK) {
-        kprintf("autostart: %s\r\n", flash_err_str(rc));
+        kprintf("%s: %s\r\n", argv[0], flash_err_str(rc));
         return -1;
     }
-    kprintf("auto-start %s\r\n", enable ? "on" : "off");
-    if (enable && !app_flash_header())
+    kprintf("%s %s\r\n", label, onoff(enable));
+    if (warn_empty && enable && !app_flash_header())
         kprintf("(no program is installed in flash yet - 'install <file>')\r\n");
     return 0;
 }
 
+static int cmd_autostart(int argc, char **argv)
+{
+    return cmd_slot_flag(argc, argv, "auto-start", FREYA_AUTOSTART_ADDR,
+                         app_autostart_enabled, app_autostart_set, 1);
+}
+
 static int cmd_ramdump(int argc, char **argv)
 {
-    int rc, enable;
-
-    if (argc < 2) {
-        kprintf("ram dump is %s (flag at 0x%08x)\r\n",
-                app_ramdump_enabled() ? "on" : "off",
-                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_RAMDUMP_OFF));
-        kprintf("usage: ramdump on|off\r\n");
-        return 0;
-    }
-    if (strcmp(argv[1], "on") == 0) enable = 1;
-    else if (strcmp(argv[1], "off") == 0) enable = 0;
-    else {
-        kprintf("usage: ramdump on|off\r\n");
-        return -1;
-    }
-
-    if (g_app.running) {
-        kprintf("ramdump: a program is running - stop it first\r\n");
-        return -1;
-    }
-
-    if (enable == app_ramdump_enabled()) {
-        kprintf("ram dump is already %s\r\n", enable ? "on" : "off");
-        return 0;
-    }
-
-    kprintf("ramdump: console input is dropped while flash is busy\r\n");
-    uart_drain_tx();
-    rc = app_ramdump_set(enable);
-    uart_rx_flush();
-    if (rc != FLASH_OK) {
-        kprintf("ramdump: %s\r\n", flash_err_str(rc));
-        return -1;
-    }
-    kprintf("ram dump %s\r\n", enable ? "on" : "off");
-    return 0;
+    return cmd_slot_flag(argc, argv, "ram dump",
+                         FREYA_AUTOSTART_ADDR + FREYA_RAMDUMP_OFF,
+                         app_ramdump_enabled, app_ramdump_set, 0);
 }
 #endif
 
@@ -1070,14 +1015,9 @@ static int cmd_loglevel(int argc, char **argv)
         kprintf("usage: loglevel off|error|warn|info|debug | 0..4\r\n");
         return 0;
     }
-    if (parse_log_level(argv[1], &level) != 0) {
-        kprintf("usage: loglevel off|error|warn|info|debug | 0..4\r\n");
-        return -1;
-    }
-    if (g_app.running) {
-        kprintf("loglevel: a program is running - stop it first\r\n");
-        return -1;
-    }
+    if (parse_log_level(argv[1], &level) != 0)
+        return usage("loglevel off|error|warn|info|debug | 0..4");
+    if (busy_running("loglevel")) return -1;
 #ifdef FREYA_APP_FLASH_ADDR
     kprintf("loglevel: console input is dropped while flash is busy\r\n");
     uart_drain_tx();
@@ -1163,8 +1103,8 @@ static int cmd_date(int argc, char **argv)
     }
 
     rtc_get(&t);
-    kprintf("%04u-%02u-%02u %02u:%02u:%02u\r\n",
-            t.year, t.mon, t.day, t.hour, t.min, t.sec);
+    kput_hms(t.year, t.mon, t.day, t.hour, t.min, t.sec);
+    kprintf("\r\n");
     if (argc < 3) kprintf("(set it with: date YYYY-MM-DD HH:MM:SS)\r\n");
     return 0;
 }
@@ -1206,13 +1146,13 @@ static int cmd_echo(int argc, char **argv)
 
 static int cmd_led(int argc, char **argv)
 {
-    if (argc < 2) { kprintf("usage: led on|off|blink\r\n"); return -1; }
+    if (argc < 2) return usage("led on|off|blink");
     if (strcmp(argv[1], "on") == 0) led_set(1);
     else if (strcmp(argv[1], "off") == 0) led_set(0);
     else if (strcmp(argv[1], "blink") == 0) {
         for (int i = 0; i < 10; i++) { led_toggle(); sys_delay_ms(100); }
         led_set(0);
-    } else { kprintf("usage: led on|off|blink\r\n"); return -1; }
+    } else return usage("led on|off|blink");
     return 0;
 }
 
@@ -1220,49 +1160,48 @@ static int cmd_led(int argc, char **argv)
 typedef struct {
     const char *name;
     int (*fn)(int, char **);
-    const char *usage;
     const char *help;
 } command_t;
 
 static const command_t s_cmds[] = {
-    { "help",     cmd_help,     "help [command]",            "list commands or describe one" },
-    { "sysinfo",  cmd_sysinfo,  "sysinfo",                   "show system information" },
-    { "meminfo",  cmd_meminfo,  "meminfo",                   "show flash and RAM usage" },
-    { "mount",    cmd_mount,    "mount",                     "mount the SD card" },
-    { "ls",       cmd_ls,       "ls [-l] [path]",            "list a directory" },
-    { "ll",       cmd_ls,       "ll [path]",                 "long directory listing" },
-    { "cd",       cmd_cd,       "cd [path]",                 "change directory" },
-    { "pwd",      cmd_pwd,      "pwd",                       "print directory" },
-    { "mkdir",    cmd_mkdir,    "mkdir <dir>...",            "create directories" },
-    { "rm",       cmd_rm,       "rm [-r] <path>...",         "remove files" },
-    { "rename",   cmd_rename,   "rename <old> <new>",        "rename or move" },
-    { "mv",       cmd_rename,   "mv <old> <new>",            "rename or move" },
-    { "download", cmd_download, "download <file> [--raw]",   "XMODEM receive" },
-    { "cat",      cmd_cat,      "cat <file>",                "print a file" },
-    { "write",    cmd_write,    "write <file> <text...>",    "append a line" },
-    { "hexdump",  cmd_hexdump,  "hexdump <file> [off] [len]","dump a file in hex" },
-    { "flashdump",cmd_flashdump,"flashdump [file]",          "dump flash to a file" },
-    { "df",       cmd_df,       "df",                        "show free space" },
-    { "load",     cmd_load,     "load " PROG_ARG,            "load a program" },
-    { "run",      cmd_run,      "run [" PROG_ARG "] [args]", "run a program" },
+    { "help",     cmd_help,     "help [command]" },
+    { "sysinfo",  cmd_sysinfo,  "CPU, clocks, reset, card, fs" },
+    { "meminfo",  cmd_meminfo,  "flash and RAM usage" },
+    { "mount",    cmd_mount,    "mount the SD card" },
+    { "ls",       cmd_ls,       "ls [-l] [path]" },
+    { "ll",       cmd_ls,       "ll [path]" },
+    { "cd",       cmd_cd,       "cd [path]" },
+    { "pwd",      cmd_pwd,      "print directory" },
+    { "mkdir",    cmd_mkdir,    "mkdir <dir>..." },
+    { "rm",       cmd_rm,       "rm [-r] <path>..." },
+    { "rename",   cmd_rename,   "rename <old> <new>" },
+    { "mv",       cmd_rename,   "mv <old> <new>" },
+    { "download", cmd_download, "download <file> [--raw]" },
+    { "cat",      cmd_cat,      "cat <file>" },
+    { "write",    cmd_write,    "write <file> <text...>" },
+    { "hexdump",  cmd_hexdump,  "hexdump <file> [off] [len]" },
+    { "flashdump",cmd_flashdump,"flashdump [file]" },
+    { "df",       cmd_df,       "show free space" },
+    { "load",     cmd_load,     "load " PROG_ARG },
+    { "run",      cmd_run,      "run [" PROG_ARG "] [args]" },
 #ifdef FREYA_APP_FLASH_ADDR
-    { "runflash", cmd_runflash, "runflash [args...]",        "run the flash program" },
+    { "runflash", cmd_runflash, "runflash [args...]" },
 #endif
-    { "stop",     cmd_stop,     "stop",                      "unload the program" },
+    { "stop",     cmd_stop,     "unload the program" },
 #ifdef FREYA_APP_FLASH_ADDR
-    { "install",  cmd_install,  "install <file>",            "install into flash" },
-    { "saveflash",cmd_saveflash,"saveflash [file]",          "save flash program" },
-    { "uninstall",cmd_uninstall,"uninstall",                 "erase flash program" },
-    { "autostart",cmd_autostart,"autostart [on|off]",        "auto-run flash program" },
-    { "ramdump",  cmd_ramdump,  "ramdump [on|off]",          "SRAM dump on BusFault" },
+    { "install",  cmd_install,  "install <file>" },
+    { "saveflash",cmd_saveflash,"saveflash [file]" },
+    { "uninstall",cmd_uninstall,"erase flash program" },
+    { "autostart",cmd_autostart,"autostart [on|off]" },
+    { "ramdump",  cmd_ramdump,  "ramdump [on|off]" },
 #endif
-    { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]","show or set clock" },
-    { "loglevel", cmd_loglevel, "loglevel [level]",          "show or set log level" },
-    { "uptime",   cmd_uptime,   "uptime",                    "time since reset" },
-    { "led",      cmd_led,      "led on|off|blink",          "drive the " BOARD_LED_NAME " LED" },
-    { "echo",     cmd_echo,     "echo <text...>",            "echo the arguments" },
-    { "clear",    cmd_clear,    "clear",                     "clear the screen" },
-    { "reboot",   cmd_reboot,   "reboot",                    "restart the MCU" },
+    { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]" },
+    { "loglevel", cmd_loglevel, "loglevel [level]" },
+    { "uptime",   cmd_uptime,   "time since reset" },
+    { "led",      cmd_led,      "led on|off|blink" },
+    { "echo",     cmd_echo,     "echo <text...>" },
+    { "clear",    cmd_clear,    "clear the screen" },
+    { "reboot",   cmd_reboot,   "restart the MCU" },
 };
 
 static int cmd_help(int argc, char **argv)
@@ -1270,7 +1209,7 @@ static int cmd_help(int argc, char **argv)
     if (argc > 1) {
         for (unsigned i = 0; i < ARRAY_SIZE(s_cmds); i++) {
             if (strcmp(s_cmds[i].name, argv[1]) == 0) {
-                kprintf("%s\r\n  %s\r\n", s_cmds[i].usage, s_cmds[i].help);
+                kprintf("%s\r\n", s_cmds[i].help);
                 return 0;
             }
         }
@@ -1280,9 +1219,9 @@ static int cmd_help(int argc, char **argv)
 
     kprintf("Freya commands:\r\n");
     for (unsigned i = 0; i < ARRAY_SIZE(s_cmds); i++)
-        kprintf("  %-26s %s\r\n", s_cmds[i].usage, s_cmds[i].help);
-    kprintf("\r\nCtrl-C stops a running program, Ctrl-U clears the line, "
-            "the cursor keys walk the history.\r\n");
+        kprintf("  %s\r\n", s_cmds[i].help);
+    kprintf("Ctrl-C stops a program, Ctrl-U clears the line, "
+            "cursor keys walk history.\r\n");
     return 0;
 }
 
@@ -1304,15 +1243,18 @@ int shell_exec(char *line)
 
 void console_banner(void)
 {
-    kprintf("\r\n");
-    kprintf("  ______                    \r\n");
-    kprintf(" |  ____|                   \r\n");
-    kprintf(" | |__ _ __ ___ _   _  __ _ \r\n");
-    kprintf(" |  __| '__/ _ \\ | | |/ _` |\r\n");
-    kprintf(" | |  | | |  __/ |_| | (_| |\r\n");
-    kprintf(" |_|  |_|  \\___|\\__, |\\__,_|\r\n");
-    kprintf("                 __/ |      \r\n");
-    kprintf("                |___/       \r\n");
+    static const char art[] =
+        "  ______\r\n"
+        " |  ____|\r\n"
+        " | |__ _ __ ___ _   _  __ _\r\n"
+        " |  __| '__/ _ \\ | | |/ _` |\r\n"
+        " | |  | | |  __/ |_| | (_| |\r\n"
+        " |_|  |_|  \\___|\\__, |\\__,_|\r\n"
+        "                 __/ |\r\n"
+        "                |___/\r\n";
+
+    uart_puts("\r\n");
+    uart_puts(art);
     kprintf("Freya %s for %s - built %s\r\n", FREYA_VERSION, BOARD_MCU, FREYA_BUILD_ID);
     kprintf("%u MHz, %s reset. Type 'help'.\r\n\r\n",
             g_clocks.hclk_hz / 1000000UL, sys_reset_cause_str());

@@ -60,7 +60,7 @@ static void boot_autorun(void)
         path = APP_FLASH_PATH;
         what = "auto-start enabled, program in flash";
     } else if (app_autostart_enabled() && !app_flash_header()) {
-        kprintf("[boot] auto-start is on, but no program is installed in flash\r\n");
+        kprintf("[boot] auto-start on, but no flash program\r\n");
     }
 #endif
     if (!path) return;

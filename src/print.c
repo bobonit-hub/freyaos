@@ -26,14 +26,13 @@ static void out_pad(out_t *o, char pad, int n)
 
 static int u32_to_str(char *buf, uint32_t v, uint32_t base, int upper)
 {
-    static const char lo[] = "0123456789abcdef";
-    static const char up[] = "0123456789ABCDEF";
-    const char *digits = upper ? up : lo;
-    char tmp[32];
+    static const char digits[] = "0123456789abcdef0123456789ABCDEF";
+    const char *d = upper ? digits + 16 : digits;
+    char tmp[10];
     int n = 0, i;
 
     do {
-        tmp[n++] = digits[v % base];
+        tmp[n++] = d[v % base];
         v /= base;
     } while (v);
 
@@ -99,7 +98,7 @@ int kvfprintf(void (*emit)(void *, char), void *arg, const char *fmt, va_list ap
         case 'd':
         case 'i': {
             int32_t v = lng ? (int32_t)va_arg(ap, long) : va_arg(ap, int);
-            uint32_t mag = (v < 0) ? (uint32_t)(-(int64_t)v) : (uint32_t)v;
+            uint32_t mag = (v < 0) ? (uint32_t)(0u - (uint32_t)v) : (uint32_t)v;
             int n = u32_to_str(buf, mag, 10, 0);
             int sign = (v < 0) ? 1 : (plus ? 1 : 0);
             if (!left && !zero) out_pad(&o, ' ', width - n - sign);
@@ -177,19 +176,26 @@ int ksnprintf(char *out, int size, const char *fmt, ...)
     return s.pos;
 }
 
-/* Prints a byte count as "123 B", "45.6 KiB", "1.2 MiB" ... */
+/* Prints a byte count as "123 B", "45.6 KiB", "1.2 MiB" ...
+ * Scaled with shifts so the kernel never pulls in 64-bit division. */
 void kput_size(uint64_t bytes)
 {
-    static const char *unit[] = { "B", "KiB", "MiB", "GiB", "TiB" };
-    uint64_t v = bytes;
+    static const char *const unit[] = { "B", "KiB", "MiB", "GiB", "TiB" };
     uint32_t frac = 0;
     int u = 0;
 
-    while (v >= 1024 && u < 4) {
-        frac = (uint32_t)(((v % 1024) * 10) / 1024);
-        v /= 1024;
+    while (bytes >= 1024 && u < 4) {
+        frac = ((uint32_t)bytes & 1023u) * 10u / 1024u;
+        bytes >>= 10;
         u++;
     }
-    if (u == 0) kprintf("%u B", (uint32_t)v);
-    else        kprintf("%u.%u %s", (uint32_t)v, frac, unit[u]);
+    if (u == 0) kprintf("%u B", (uint32_t)bytes);
+    else        kprintf("%u.%u %s", (uint32_t)bytes, frac, unit[u]);
+}
+
+void kput_hms(uint32_t y, uint32_t mo, uint32_t d,
+              uint32_t h, uint32_t mi, int sec)
+{
+    kprintf("%04u-%02u-%02u %02u:%02u", y, mo, d, h, mi);
+    if (sec >= 0) kprintf(":%02u", (uint32_t)sec);
 }

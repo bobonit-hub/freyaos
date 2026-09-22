@@ -436,11 +436,11 @@ const char *fat_err_str(int err)
 {
     switch (err) {
     case FAT_OK:           return "ok";
-    case FAT_ERR_IO:       return "card I/O error";
+    case FAT_ERR_IO:       return "I/O error";
     case FAT_ERR_NOFS:     return "no FAT filesystem";
     case FAT_ERR_NOENT:    return "no such file or directory";
     case FAT_ERR_EXIST:    return "already exists";
-    case FAT_ERR_NOSPC:    return "no space left on device";
+    case FAT_ERR_NOSPC:    return "no space left";
     case FAT_ERR_INVAL:    return "invalid argument";
     case FAT_ERR_NOTDIR:   return "not a directory";
     case FAT_ERR_ISDIR:    return "is a directory";

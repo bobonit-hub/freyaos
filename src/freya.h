@@ -81,6 +81,8 @@ int  kprintf(const char *fmt, ...);
 int  ksnprintf(char *out, int size, const char *fmt, ...);
 int  kvfprintf(void (*emit)(void *, char), void *arg, const char *fmt, va_list ap);
 void kput_size(uint64_t bytes);        /* "12.3 KiB" style              */
+void kput_hms(uint32_t y, uint32_t mo, uint32_t d,
+              uint32_t h, uint32_t mi, int sec);  /* sec < 0 omits seconds */
 
 /* ------------------------------------------------------------ strings */
 void   *memcpy(void *dst, const void *src, size_t n);

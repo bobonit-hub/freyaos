@@ -152,8 +152,7 @@ void klog(int level, const char *fmt, ...)
 
     s_busy = 1;
     rtc_get(&t);
-    n = ksnprintf(buf, (int)sizeof(buf),
-                  "%04u-%02u-%02u %02u:%02u:%02u %s ",
+    n = ksnprintf(buf, (int)sizeof(buf), "%04u-%02u-%02u %02u:%02u:%02u %s ",
                   t.year, t.mon, t.day, t.hour, t.min, t.sec,
                   log_level_str(level));
     if (n < 0)
