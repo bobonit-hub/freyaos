@@ -36,7 +36,7 @@ make BOARD=bluepill
 Images:
 
 - `build/bluepill/samples/tetris.bin` — load into the 8 KiB RAM region
-- `build/bluepill/samples/tetris.xip.bin` — install into the 25472-byte flash region
+- `build/bluepill/samples/tetris.xip.bin` — install into the 24448-byte flash region
 
 The flash image is the better fit on the Blue Pill: code stays in flash and
 the RAM window is only `.data` / `.bss`.

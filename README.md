@@ -41,7 +41,7 @@ freya:/>
 | Crystal | 25 MHz | 8 MHz |
 | Flash | 512 KiB | 64 KiB |
 | SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 25472 B flash |
+| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 24448 B flash |
 | Build | `make` | `make BOARD=bluepill` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -79,9 +79,13 @@ Freya 1.0 for STM32F103C8T6
   keeping one previous file when the log reaches 1 MiB.
 * Loads a program from the card into a RAM region and executes it as machine
   code, with a service table for console, memory, timing and file access.
+* Gives a program the board's spare pins, an interrupt on any edge of one of
+  them, and three hardware timers that interrupt it from ten microseconds to
+  forty seconds apart — with a handler that faults, or never returns, killed
+  the same way a program is ([docs/interrupts.md](docs/interrupts.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
-  size from 8 KiB to 25472 bytes; on the Black Pill the flash region is 64 KiB
+  size from 8 KiB to 24448 bytes; on the Black Pill the flash region is 64 KiB
   (sector 4) and is there so the same console commands work with no card in
   the socket. The program can be copied from the card, or packed into the
   module when Freya itself is flashed.
@@ -106,6 +110,10 @@ that exist, and mean the same thing, on the F103 and the F411 alike.
 | SD chip select | PA4 | CS |
 | Power | 3V3, GND | the card's 3.3 V and ground |
 | Status LED | PC13 | on board, active low |
+
+Those six pins are the only ones Freya keeps: PA2 and PA3 for the console,
+PA4 to PA7 for the card. Every other pin of ports A, B and C is a program's
+to drive or take interrupts on.
 
 The console runs at 921600 baud, the fastest rate every common adapter agrees
 on: a CP2101, a CP2102 and an FT232 all list it, where 1 Mbaud is already the
@@ -138,8 +146,8 @@ make clean
 ```
 
 Each board builds into its own directory, so the two never overwrite each
-other: the result is `build/<board>/freya.bin` (around 36 KiB on the Black Pill once
-the flash programmer is in, 36 on the Blue Pill) plus
+other: the result is `build/<board>/freya.bin` (around 40 KiB on the Black Pill
+once the flash programmer is in, 39.5 on the Blue Pill) plus
 `build/<board>/freya.hex`, and the example programs in `build/<board>/apps/` —
 each one built both as a `.bin` to load into RAM and as a `.xip.bin` to
 install into flash.
@@ -284,7 +292,8 @@ supplies the header, and the board's `app.ld`. A program is built for one board
 for somewhere else. `samples/` works the same way through
 the `SAMPLES` variable and builds into `build/samples/`; `samples/blink` is a
 minimal starting point, `samples/log` writes one line at each log level,
-`samples/tetris` is a console game (keys in `samples/tetris/README.md`), and
+`samples/irq` blinks from a timer interrupt and counts button presses from a
+pin one, `samples/tetris` is a console game (keys in `samples/tetris/README.md`), and
 `samples/forth` is an interactive Forth with a compiler and 122 words
 (`samples/forth/README.md`). Every
 app and sample is also built as `.xip.bin` for `install`, and a sample too
@@ -296,7 +305,7 @@ interpreter is 8 KiB on its own.
 freya:/> run hello.bin
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program RAM region
-  api version 2, table size 140 bytes
+  api version 2, table size 200 bytes
   code at 0x20001840, data at 0x20001c7c
   initialised data survived the load: .data ok, .bss clear
 ...
@@ -311,7 +320,8 @@ The service table (`include/freya_api.h`) gives a program console I/O and
 `printf`, `malloc`/`free`, milliseconds and delays, the LED, the filesystem:
 `open`, `read`, `write`, `seek`, `close`, `unlink`, `mkdir`, `rename`,
 `opendir`, `readdir`, `closedir`, the exit status of the run before it:
-`exit`, `last_exit`, `exit_reason_str`, and a file log: `log`, `get_log_level`,
+`exit`, `last_exit`, `exit_reason_str`, the pins, the timers and the
+interrupts on both, and a file log: `log`, `get_log_level`,
 `set_log_level`. Log lines are `YYYY-MM-DD HH:MM:SS LEVEL message` in
 `/freya.log` at the root of the card. The file is capped at 1 MiB; when it
 fills, it is renamed to `/freya.log.old` (replacing any previous copy) and a
@@ -320,6 +330,35 @@ console instead, and the SD driver is not touched. The default level is
 `info` (3). That number is stored in the second word of the auto-start flash
 slot, so it survives a reset; `loglevel` writes it, and toggling `autostart`
 or `ramdump` leaves it alone.
+
+### Pins, timers and interrupts
+
+A program can drive any pin the kernel does not keep, take an interrupt on
+its edges, and have one of the three general purpose timers interrupt it
+every so many microseconds:
+
+```c
+api->pin_mode(FREYA_PB(0), FREYA_PIN_IN_PULLUP);
+api->pin_irq_attach(FREYA_PB(0), FREYA_EDGE_FALLING | FREYA_EDGE_DEBOUNCE,
+                    on_press, &presses);
+
+int t = api->timer_open(250000, 0, on_tick, (void *)api);   /* 250 ms */
+api->timer_start(t);
+```
+
+The handler is the program's own code running in interrupt context, so it may
+print, drive pins and read the clock, but not allocate or touch the card —
+the kernel refuses those rather than let a program corrupt the heap or the
+filesystem from underneath itself. A handler that faults is reported as a
+program fault, a handler that never returns still answers Ctrl-C, and every
+line and timer is given back when the run ends, however it ended. A program
+that would rather not have a handler at all attaches none and sleeps in
+`api->irq_wait()` instead, where it may do anything.
+
+`samples/irq` is the worked example, and
+[docs/interrupts.md](docs/interrupts.md) is the reference: the pin numbering,
+the sixteen shared interrupt lines, the period range and what a handler may
+call.
 
 ### Stopping a program
 
@@ -428,9 +467,9 @@ built against this ABI can check before calling:
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-the rest of the 64 KiB of flash sits idle. So the board reserves 25472 bytes
-at the top of flash — the rest of page 39 after a 128-byte auto-start slot,
-then pages 40 to 63 — for one program image. The Black Pill does not need
+the rest of the 64 KiB of flash sits idle. So the board reserves 24448 bytes
+at the top of flash — the rest of page 40 after a 128-byte auto-start slot,
+then pages 41 to 63 — for one program image. The Black Pill does not need
 the size (it already has 56 KiB of program RAM) but it keeps the same
 commands: a 128-byte slot at the end of sector 3, then the whole of sector
 4 (64 KiB) for the image. `install` writes an
@@ -441,13 +480,13 @@ kind of image into the module together with the kernel:
 freya:/> install hello.xip.bin
 install: console input is dropped while flash is busy
   erasing 2 pages ... writing ... ok
-installed /hello.xip.bin at 0x08009c80: 1.2 KiB in 2 pages
+installed /hello.xip.bin at 0x0800a080: 1.2 KiB in 2 pages
 
 freya:/> run @flash
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program flash region
-  api version 2, table size 140 bytes
-  code at 0x08009cc0, data at 0x20001800
+  api version 2, table size 200 bytes
+  code at 0x0800a0c0, data at 0x20001800
   initialised data survived the load: .data ok, .bss clear
 ```
 
@@ -477,7 +516,7 @@ flash into the RAM region before `app_main` is called. That is what the second
 linker script (`boards/<board>/app_flash.ld`) describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
-spends the 8 KiB RAM window entirely on its variables, and gets 25472 bytes
+spends the 8 KiB RAM window entirely on its variables, and gets 24448 bytes
 for code instead of 8. On the Black Pill the RAM window is still 56 KiB and
 the flash image may be up to 64 KiB.
 
@@ -514,7 +553,7 @@ Black Pill:
 
 ```
 0x08000000  +--------------------------------+
-            |  Freya kernel (~36 KiB used)   |  48 KiB, sectors 0..2
+            |  Freya kernel (~40 KiB used)   |  48 KiB, sectors 0..2
 0x0800C000  +--------------------------------+
             |  unused                        |  rest of sector 3
 0x0800FF80  +--------------------------------+
@@ -542,12 +581,12 @@ leaves behind:
 
 ```
 0x08000000  +--------------------------------+
-            |  Freya kernel (~36 KiB used)   |  39 KiB, pages 0..38
-0x08009C00  +--------------------------------+
-            |  auto-start flag + log level  |  128 B, page 39
-0x08009C80  +--------------------------------+
-            |  program flash region          |  25472 B, rest of page 39
-            |                                |  and pages 40..63, installed
+            |  Freya kernel (~39.5 KiB used) |  40 KiB, pages 0..39
+0x0800A000  +--------------------------------+
+            |  auto-start flag + log level  |  128 B, page 40
+0x0800A080  +--------------------------------+
+            |  program flash region          |  24448 B, rest of page 40
+            |                                |  and pages 41..63, installed
 0x08010000  +--------------------------------+  from the card
 
 0x20000000  +--------------------------------+
@@ -577,6 +616,8 @@ is measured rather than guessed).
 | `src/system.c` | SysTick, reset cause, delays, software clock |
 | `src/uart.c` | USART2 console, interrupt driven receive |
 | `src/spi.c`, `src/sd.c` | SPI1 and the SD / SDHC card protocol |
+| `src/gpio.c` | pins a program may drive, and the sixteen EXTI interrupt lines |
+| `src/timer.c` | the general purpose timers and their interrupts |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
 | `src/fs.c` | paths, working directory, descriptor table |
 | `src/xmodem.c` | the `download` receiver |
@@ -588,9 +629,10 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `tetris`, `forth` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `tetris`, `forth` |
 | `tests/` | host side tests |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
+| `docs/interrupts.md` | the pin, timer and interrupt API, and what a handler may do |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
 
@@ -631,6 +673,15 @@ the truncation to a byte, the `128 + reason` statuses Freya synthesises for
 Ctrl-C and the four faults, and the `FREYA_API_HAS` test a program uses on a
 service table older than itself.
 
+Neither a pin nor a timer exists on the host either, but the arithmetic behind
+them does not need one, and it is the part that would be quietly wrong: a
+period off by a factor of two looks like working code on the bench. So
+`src/timer.c` is compiled unchanged and its divider driven over the whole
+range it accepts — every period at every clock either board can run at,
+checked against what the prescaler and the reload it chose will actually do,
+which comes out inside 0.04% everywhere and exact on the round numbers. The
+pin encoding is checked beside it.
+
 The flash programming itself cannot be reached from the host, which is the main
 argument for keeping that driver small and its bounds check absolute. What can
 be checked off the board is the part most likely to be quietly wrong: a last
@@ -648,6 +699,7 @@ the kernel compares them at boot, and this compares them at build time.
 18 checks, 0 failures     XMODEM
 79 checks, 0 failures     forth
 26 checks, 0 failures     exit status
+36 checks, 0 failures     pins and timers
 35 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```
@@ -661,10 +713,15 @@ ALL TESTS PASSED
   software clock that starts at 2026-01-01 and is set with `date`.
 * One program at a time, sharing the main stack with the kernel — no
   multitasking and no MPU isolation, which is what a system this size should be.
+* A pin interrupt is one of sixteen hardware lines, and line *n* serves pin
+  *n* of one port at a time, so PA0 and PB0 cannot both have one. Three
+  timers exist; nothing yet drives PWM, input capture or the ADC from them.
+  Handlers all run at one priority and never nest, and only the console sits
+  above them — which is what makes Ctrl-C work against a handler that loops.
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 64 KiB of
   flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
   KiB instead of sixty. Installing a program into flash is the answer to the
-  first half of that, not the second — such a program gets 25472 bytes of code, but
+  first half of that, not the second — such a program gets 24448 bytes of code, but
   the heap is still small and the stack is still shared.
 * The Black Pill keeps a program in flash for the same console commands, not
   because 56 KiB of program RAM is too small. Its erase unit at the program

@@ -49,7 +49,7 @@
 #define FREYA_APP_LOAD_ADDR    0x20001800UL     /* 20 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE  (8U * 1024U)
 #define FREYA_AUTOSTART_ALIGN  128U
-#define FREYA_AUTOSTART_ADDR   0x08009C00UL     /* page 39, 128-byte aligned */
+#define FREYA_AUTOSTART_ADDR   0x0800A000UL     /* page 40, 128-byte aligned */
 #define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
@@ -193,6 +193,76 @@ typedef struct {
 #define FREYA_LOG_OLD_PATH  "/freya.log.old"
 #define FREYA_LOG_MAX_SIZE  (1024U * 1024U)     /* rotate at 1 MiB */
 
+/* ------------------------------------------------- pins and interrupts */
+/*
+ * A pin is its port and its number in one integer, so that a program can
+ * write FREYA_PB(0) and the kernel can hand the same number back to a
+ * handler as the source of the interrupt.
+ */
+#define FREYA_PIN(port, n)   ((((port) & 0x0F) << 4) | ((n) & 0x0F))
+#define FREYA_PIN_PORT(pin)  (((pin) >> 4) & 0x0F)
+#define FREYA_PIN_NUM(pin)   ((pin) & 0x0F)
+
+#define FREYA_PA(n)          FREYA_PIN(0, n)
+#define FREYA_PB(n)          FREYA_PIN(1, n)
+#define FREYA_PC(n)          FREYA_PIN(2, n)
+
+/* pin_mode() */
+#define FREYA_PIN_IN         0    /* input, floating                     */
+#define FREYA_PIN_IN_PULLUP  1
+#define FREYA_PIN_IN_PULLDOWN 2
+#define FREYA_PIN_OUT        3    /* push-pull output                    */
+#define FREYA_PIN_OUT_OD     4    /* open drain output                   */
+#define FREYA_PIN_ANALOG     5    /* input buffer off                    */
+
+/* pin_irq_attach() edges.  A switch bounces for a few milliseconds, which
+ * is a few dozen edges; FREYA_EDGE_DEBOUNCE takes the first of them and
+ * ignores the rest for FREYA_DEBOUNCE_MS.  A program that wants another
+ * interval leaves the flag off and times the edges itself. */
+#define FREYA_EDGE_RISING    1
+#define FREYA_EDGE_FALLING   2
+#define FREYA_EDGE_BOTH      (FREYA_EDGE_RISING | FREYA_EDGE_FALLING)
+#define FREYA_EDGE_DEBOUNCE  4
+#define FREYA_DEBOUNCE_MS    20
+
+/* timer_open() flags */
+#define FREYA_TIMER_ONESHOT  0x01   /* fire once, then stop itself       */
+
+/* What a timer period may be: below the floor the kernel would spend the
+ * run inside its own dispatch, and above the ceiling a 16-bit prescaler
+ * and a 16-bit reload cannot reach. */
+#define FREYA_TIMER_MIN_US   10UL
+#define FREYA_TIMER_MAX_US   40000000UL
+
+/*
+ * What the pin, timer and interrupt calls return.  Anything else they
+ * hand back is the value asked for: a pin level, a timer handle, a count.
+ */
+#define FREYA_ERR_PIN        -1   /* no such pin, or one the kernel owns */
+#define FREYA_ERR_BUSY       -2   /* that line, or every timer, is taken */
+#define FREYA_ERR_ARG        -3   /* mode, edge or period out of range   */
+#define FREYA_ERR_HANDLER    -4   /* not allowed from a handler          */
+
+/*
+ * A pin or timer handler.  It runs in interrupt context, on the same
+ * stack as everything else, with 'source' set to the pin or the timer
+ * that called it and 'arg' to whatever was registered beside it.
+ *
+ * What a handler may do is decided by what it can preempt.  Console
+ * output, the LED, ticks_ms(), the pin calls and the timer calls are all
+ * safe.  malloc(), free() and the filesystem are not - they can be
+ * interrupted halfway through their own bookkeeping - so the kernel
+ * refuses them from a handler instead of letting a program corrupt the
+ * heap or the card.  A handler that faults, or one that never returns,
+ * is killed and ends the run the way a fault in the program would; it
+ * does not take Freya down with it.
+ *
+ * A handler is optional.  Attached as NULL, the interrupt is still
+ * counted, and the program reads pin_irq_count() / timer_count() or
+ * sleeps in irq_wait() from thread mode, where it may do anything.
+ */
+typedef void (*freya_irq_fn)(int source, void *arg);
+
 /*
  * Service table handed to the program.  Fields are only ever appended,
  * and 'size' lets a program check what the running kernel provides.
@@ -251,6 +321,32 @@ typedef struct freya_api {
     /* appended: the exit status of the run before this one */
     int         (*last_exit)(freya_exit_t *st);   /* -1 if nothing ran   */
     const char *(*exit_reason_str)(int reason);
+
+    /* appended: pins.  The console and the card own PA2..PA7; those are
+     * refused with FREYA_ERR_PIN and everything else is the program's. */
+    int      (*pin_mode)(int pin, int mode);      /* FREYA_PIN_*         */
+    int      (*pin_read)(int pin);                /* 0 or 1              */
+    int      (*pin_write)(int pin, int value);
+    int      (*pin_toggle)(int pin);
+
+    /* appended: pin interrupts.  One handler per pin number across the
+     * ports, because the hardware gives PA0, PB0 and PC0 one line. */
+    int      (*pin_irq_attach)(int pin, int edge, freya_irq_fn fn, void *arg);
+    int      (*pin_irq_detach)(int pin);
+    uint32_t (*pin_irq_count)(int pin);           /* edges since attach  */
+
+    /* appended: hardware timers, microseconds, one interrupt per period */
+    int      (*timer_open)(uint32_t period_us, int flags,
+                           freya_irq_fn fn, void *arg);   /* -> a handle */
+    int      (*timer_close)(int timer);
+    int      (*timer_start)(int timer);
+    int      (*timer_stop)(int timer);
+    int      (*timer_period)(int timer, uint32_t period_us);
+    uint32_t (*timer_count)(int timer);           /* expiries so far     */
+
+    /* appended: what both of them did, and how to wait for the next one */
+    uint32_t (*irq_count)(void);        /* pin and timer events this run */
+    int      (*irq_wait)(uint32_t ms);  /* 0 when one arrived, -1 if not */
 } freya_api_t;
 
 /*

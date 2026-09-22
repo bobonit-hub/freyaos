@@ -18,6 +18,17 @@
 #define MIN(a, b)       ((a) < (b) ? (a) : (b))
 #define MAX(a, b)       ((a) > (b) ? (a) : (b))
 
+/*
+ * Interrupt priorities, in the four bits these parts implement (the
+ * NVIC helpers shift them up).  The console is highest so that no
+ * character is lost and Ctrl-C always arrives; a program's pin and timer
+ * handlers share one level below it, which keeps them from preempting
+ * each other; SysTick and PendSV keep the bottom, so a program abort
+ * always runs with the thread's exception frame on top of the stack.
+ */
+#define IRQ_PRIO_CONSOLE   2
+#define IRQ_PRIO_HANDLER   14
+
 /* Symbols provided by the linker script (addresses, not objects). */
 extern char __data_start[], __data_end[], __bss_start[], __bss_end[];
 extern char __heap_start[], __heap_end[], __etext[], __kernel_flash_end[];
@@ -110,6 +121,38 @@ void     heap_stats(uint32_t *total, uint32_t *used, uint32_t *free_bytes,
                     uint32_t *largest, uint32_t *blocks);
 uint32_t stack_used(void);
 uint32_t stack_peak(void);
+
+/* ------------------------------------------------- pins and interrupts */
+/*
+ * Pins a program may drive, and interrupts it may take on them.  The
+ * register layout belongs to the chip, so boards/<board>/board.c does the
+ * configuring and src/gpio.c owns the sixteen EXTI lines, which are the
+ * same on every STM32: line n is pin n of one port at a time.
+ */
+int      gpio_pin_mode(int pin, int mode);       /* FREYA_PIN_*          */
+int      gpio_pin_read(int pin);
+int      gpio_pin_write(int pin, int value);
+int      gpio_pin_toggle(int pin);
+int      gpio_irq_attach(int pin, int edge, freya_irq_fn fn, void *arg);
+int      gpio_irq_detach(int pin);
+uint32_t gpio_irq_count(int pin);
+void     gpio_irq_release(void);          /* drop whatever a run left     */
+
+/* ------------------------------------------------------------- timers */
+/*
+ * The general purpose timers a program may claim, one periodic (or one
+ * shot) interrupt each.  The hardware is the board's list; everything
+ * about turning a period in microseconds into a prescaler and a reload
+ * is the same on both.
+ */
+int      timer_open(uint32_t period_us, int flags, freya_irq_fn fn, void *arg);
+int      timer_close(int timer);
+int      timer_start(int timer);
+int      timer_stop(int timer);
+int      timer_period(int timer, uint32_t period_us);
+uint32_t timer_count(int timer);
+void     timer_release(void);             /* drop whatever a run left     */
+uint32_t timer_clock_hz(void);
 
 /* ---------------------------------------------------------------- SPI */
 void     spi_init(void);
@@ -224,6 +267,19 @@ void app_request_stop(void);
 void app_guard_enter(void);
 void app_guard_leave(void);
 int  app_should_stop(void);
+
+/*
+ * A pin or timer handler is the program's code running in interrupt
+ * context, so it is contained the same way the program itself is:
+ * app_handler_call() runs it inside a jump buffer, and app_handler_kill()
+ * - used by the console when Ctrl-C finds one that is not finishing, and
+ * by the fault handler when one crashes - makes it resume in a trampoline
+ * that unwinds back into the interrupt that called it.
+ */
+extern volatile uint32_t g_irq_events;    /* handler events this run      */
+int  app_handler_call(freya_irq_fn fn, int source, void *arg);
+int  app_in_handler(void);                /* interrupt context, not thread */
+int  app_handler_kill(uint32_t *frame);   /* 1 if this frame was redirected */
 const char *app_stop_reason_str(int reason);
 int  app_last_exit(freya_exit_t *st);         /* -1 if nothing ran      */
 const freya_api_t *app_api(void);

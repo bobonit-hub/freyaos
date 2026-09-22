@@ -39,10 +39,33 @@
 #define BOARD_SPI_BR_SLOW   7           /* /256 = 375 kHz                */
 #define BOARD_SPI_BR_FAST   2           /* /8   =  12 MHz                */
 
+/* ------------------------------------------------- pins and interrupts */
+/* The ports a program may name, and within them the pins Freya keeps for
+ * itself: the console on PA2/PA3 and the card on PA4..PA7.  PC13 is the
+ * LED, which a program may drive as a pin or through api->led(). */
+#define BOARD_PIN_PORTS     3                       /* GPIOA, GPIOB, GPIOC */
+#define BOARD_PIN_RESERVED  { 0x00FCU, 0x0000U, 0x0000U }
+
+/* ------------------------------------------- timers a program may open */
+/* TIM2..TIM4, all on APB1 and all clocked at twice PCLK1 because the
+ * prescaler is not 1.  Each entry is { registers, IRQ, APB1ENR bit } in
+ * the order src/timer.c hands them out and names their handlers.  TIM1,
+ * TIM5 and TIM9..TIM11 are left alone. */
+#define BOARD_TIMER_LIST \
+    { { TIM2, TIM2_IRQn, RCC_APB1ENR_TIM2EN }, \
+      { TIM3, TIM3_IRQn, RCC_APB1ENR_TIM3EN }, \
+      { TIM4, TIM4_IRQn, RCC_APB1ENR_TIM4EN } }
+
 /* --------------------------------------------------------------- hooks */
 void board_clock_init(void);            /* clock tree, fills g_clocks    */
 void board_uart_pins(void);             /* console pins and USART clock  */
 void board_spi_pins(void);              /* SD card pins, SPI and CS      */
+
+/* Pins for programs: the register layout is the chip's, so the generic
+ * driver in src/gpio.c asks the board to configure and to route. */
+GPIO_TypeDef *board_gpio_port(int port);          /* NULL: no such port  */
+void          board_pin_mode(GPIO_TypeDef *port, int pin, int mode);
+void          board_exti_select(int port, int pin);
 
 /* led_init(), led_set() and led_toggle() are declared in freya.h and
  * implemented per board. */

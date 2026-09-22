@@ -62,18 +62,38 @@ static void clear_fault_status(void)
  */
 void freya_fault_handler(uint32_t *frame, uint32_t kind)
 {
+    uint32_t pc = frame[6], lr = frame[5];
     int from_thread = ((frame[7] & 0x1FFUL) == 0);
     int in_app = g_app.running && from_thread;
+    /*
+     * A fault in the program's own pin or timer handler is the program's
+     * fault too, even though it happened in interrupt context: the
+     * handler is unwound out of the interrupt that called it, and the run
+     * then ends in thread mode as though the fault had happened there.
+     *
+     * app_handler_kill() is what decides that, because only it knows
+     * whether this frame belongs to the interrupt the handler runs in -
+     * a kernel fault in something that preempted the handler is still a
+     * panic - and it rewrites the frame in the same breath, which is why
+     * the faulting pc and lr are taken above rather than read below.
+     */
+    int in_handler = g_app.running && !from_thread && app_in_handler() &&
+                     app_handler_kill(frame);
 
-    if (in_app) {
-        kprintf("\r\n[freya] program fault at pc=0x%08x lr=0x%08x\r\n",
-                frame[6], frame[5]);
+    if (in_app || in_handler) {
+        kprintf("\r\n[freya] program fault at pc=0x%08x lr=0x%08x%s\r\n",
+                pc, lr, in_app ? "" : " (interrupt handler)");
         describe(kind);
         clear_fault_status();
         g_app_stop_reason = (int)kind;
-        /* Resume the thread in the trampoline; it unwinds into the shell. */
-        frame[6] = (uint32_t)(uintptr_t)app_fault_trampoline;
-        frame[7] = (frame[7] & ~0x0600FC00UL) | (1UL << 24);
+        if (in_app) {
+            /* Resume the thread in the trampoline, which unwinds into
+             * the shell; a handler resumes in its own already. */
+            frame[6] = (uint32_t)(uintptr_t)app_fault_trampoline;
+            frame[7] = (frame[7] & ~0x0600FC00UL) | (1UL << 24);
+        } else {
+            app_request_stop();
+        }
         return;
     }
 
@@ -82,7 +102,7 @@ void freya_fault_handler(uint32_t *frame, uint32_t kind)
     kprintf("  r0=0x%08x r1=0x%08x r2=0x%08x r3=0x%08x\r\n",
             frame[0], frame[1], frame[2], frame[3]);
     kprintf("  r12=0x%08x lr=0x%08x pc=0x%08x xpsr=0x%08x\r\n",
-            frame[4], frame[5], frame[6], frame[7]);
+            frame[4], lr, pc, frame[7]);
     describe(kind);
     kprintf("  uptime: %u ms\r\n", sys_uptime_ms());
 

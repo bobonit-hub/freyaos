@@ -117,6 +117,59 @@ void board_spi_pins(void)
     BOARD_SD_CS_PORT->BSRR = (1UL << BOARD_SD_CS_PIN);
 }
 
+/* ---------------------------------------------------------- pins for programs */
+/*
+ * The F4 describes a pin in four registers, two bits each: MODER picks
+ * input, output or alternate function, OTYPER push-pull or open drain,
+ * PUPDR the pull.  A port's clock is turned on the first time a program
+ * asks for one of its pins, which is also why this returns the base
+ * address rather than letting src/gpio.c index a table of its own.
+ */
+GPIO_TypeDef *board_gpio_port(int port)
+{
+    static const uint32_t en[] = { RCC_AHB1ENR_GPIOAEN, RCC_AHB1ENR_GPIOBEN,
+                                   RCC_AHB1ENR_GPIOCEN };
+    GPIO_TypeDef *const base[] = { GPIOA, GPIOB, GPIOC };
+
+    if (port < 0 || port >= (int)ARRAY_SIZE(base)) return NULL;
+    RCC->AHB1ENR |= en[port];
+    (void)RCC->AHB1ENR;
+    return base[port];
+}
+
+void board_pin_mode(GPIO_TypeDef *port, int pin, int mode)
+{
+    uint32_t pair = (uint32_t)(pin * 2);
+    uint32_t moder = 0, pupdr = 0;
+
+    switch (mode) {
+    case FREYA_PIN_IN_PULLUP:   pupdr = 1; break;
+    case FREYA_PIN_IN_PULLDOWN: pupdr = 2; break;
+    case FREYA_PIN_OUT:
+    case FREYA_PIN_OUT_OD:      moder = 1; break;
+    case FREYA_PIN_ANALOG:      moder = 3; break;
+    default:                    break;          /* floating input */
+    }
+
+    port->MODER   = (port->MODER   & ~(3UL << pair)) | (moder << pair);
+    port->PUPDR   = (port->PUPDR   & ~(3UL << pair)) | (pupdr << pair);
+    port->OSPEEDR = (port->OSPEEDR & ~(3UL << pair)) | (1UL << pair);  /* medium */
+    if (mode == FREYA_PIN_OUT_OD) port->OTYPER |=  (1UL << pin);
+    else                          port->OTYPER &= ~(1UL << pin);
+}
+
+/* Route EXTI line 'pin' to this port.  Four lines per EXTICR word. */
+void board_exti_select(int port, int pin)
+{
+    uint32_t idx = (uint32_t)pin >> 2;
+    uint32_t sh  = ((uint32_t)pin & 3U) * 4U;
+
+    RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+    (void)RCC->APB2ENR;
+    SYSCFG->EXTICR[idx] = (SYSCFG->EXTICR[idx] & ~(0xFUL << sh)) |
+                          ((uint32_t)port << sh);
+}
+
 /* ----------------------------------------------------------------- LED */
 void led_init(void)
 {

@@ -71,10 +71,15 @@ void app_pendsv_handler(uint32_t *frame)
     if (s_guard) return;                      /* retried when the guard lifts */
     if ((frame[7] & 0x1FFUL) != 0) return;    /* not a thread mode frame     */
 
+    /* A fault unwinds through the trampoline that dumps SRAM; a Ctrl-C
+     * through the plain one.  Which it is has already been decided by
+     * whoever asked for the stop. */
+    frame[6] = (uint32_t)(uintptr_t)(g_app_stop_reason >= FREYA_STOP_HARDFAULT
+                                     ? app_fault_trampoline
+                                     : app_abort_trampoline);
     /* Bit 24 keeps the core in Thumb state, the IT bits are cleared so the
      * first instructions cannot be skipped, bit 9 (stack realignment) and
      * the rest of the frame are left alone. */
-    frame[6] = (uint32_t)(uintptr_t)app_abort_trampoline;
     frame[7] = (frame[7] & ~0x0600FC00UL) | (1UL << 24);
 }
 
@@ -119,6 +124,80 @@ void app_fault_trampoline(void)
     freya_longjmp(s_return_ctx, 1);
 }
 
+/* -------------------------------------------------- interrupt handlers */
+/*
+ * A pin or timer handler is the program's own code running in interrupt
+ * context, which is the one place from which a program could take the
+ * system down with it: a fault there is not a thread fault, and a loop
+ * there is not something the shell can interrupt.  Both are contained.
+ *
+ * The handler runs inside a jump buffer.  A fault in it - or a Ctrl-C
+ * that finds it looping - redirects the interrupt that called it into
+ * app_handler_abort(), which unwinds back to just after the call, still
+ * inside the same interrupt and on the same stack, so that interrupt
+ * returns the way it would have anyway.  The run then ends in thread
+ * mode through the stop that was requested along the way, which is where
+ * the loader can report it.
+ *
+ * Handlers never nest: they all share one interrupt priority, so one
+ * cannot preempt another and one jump buffer serves all of them.
+ */
+volatile uint32_t g_irq_events;
+
+static freya_jmpbuf      s_handler_ctx;
+static volatile int      s_in_handler;
+static volatile uint32_t s_handler_ipsr;    /* the interrupt it runs in */
+
+int app_in_handler(void)
+{
+    return s_in_handler;
+}
+
+static void app_handler_abort(void) __attribute__((noreturn));
+static void app_handler_abort(void)
+{
+    freya_longjmp(s_handler_ctx, 1);
+}
+
+int app_handler_call(freya_irq_fn fn, int source, void *arg)
+{
+    volatile int aborted;
+    uint32_t ipsr;
+
+    if (!g_app.running || s_in_handler || s_stop_requested) return -1;
+
+    __asm volatile ("mrs %0, ipsr" : "=r"(ipsr));
+    s_handler_ipsr = ipsr;
+
+    /* Nothing may be redirected into a jump buffer that has not been
+     * filled in yet, so the flag that invites that is set after the
+     * setjmp rather than before it. */
+    aborted = freya_setjmp(s_handler_ctx);
+    if (!aborted) {
+        s_in_handler = 1;
+        fn(source, arg);
+    }
+
+    s_in_handler = 0;
+    return aborted ? -1 : 0;
+}
+
+/*
+ * Redirect a handler that is not going to finish by itself.  'frame' is
+ * the exception frame of whatever was interrupted, and it belongs to the
+ * handler only when the interrupt that was interrupted is the one the
+ * handler runs in - which is what the IPSR of the stacked xPSR says.
+ */
+int app_handler_kill(uint32_t *frame)
+{
+    if (!s_in_handler) return 0;
+    if ((frame[7] & 0x1FFUL) != s_handler_ipsr) return 0;
+
+    frame[6] = (uint32_t)(uintptr_t)app_handler_abort;
+    frame[7] = (frame[7] & ~0x0600FC00UL) | (1UL << 24);
+    return 1;
+}
+
 /* ------------------------------------------------- service table calls */
 static uint32_t api_cpu_hz(void)             { return g_clocks.hclk_hz; }
 
@@ -131,9 +210,14 @@ static void api_delay(uint32_t ms)
     }
 }
 
+/* The heap is not reentrant, so a handler that preempted the thread
+ * inside it is refused rather than allowed to corrupt the free list. */
 static void *api_malloc(uint32_t size)
 {
-    void *p = kmalloc(size);
+    void *p;
+
+    if (s_in_handler) return NULL;
+    p = kmalloc(size);
 
     if (p) {
         for (int i = 0; i < APP_MAX_ALLOCS; i++) {
@@ -148,6 +232,7 @@ static void *api_malloc(uint32_t size)
 
 static void api_free(void *p)
 {
+    if (s_in_handler) return;
     for (int i = 0; i < APP_MAX_ALLOCS; i++) {
         if (s_app_allocs[i] == p) { s_app_allocs[i] = NULL; break; }
     }
@@ -193,12 +278,35 @@ int app_last_exit(freya_exit_t *st)
 static int api_path(int (*fn)(const char *), const char *path)
 {
     char abs[FAT_MAX_PATH];
+    if (s_in_handler) return FAT_ERR_INVAL;     /* the card is not reentrant */
     if (fs_abspath(path, abs, sizeof(abs)) != 0) return FAT_ERR_INVAL;
     return fn(abs);
 }
 
 static int api_unlink(const char *path) { return api_path(fat_unlink, path); }
 static int api_mkdir(const char *path)  { return api_path(fat_mkdir, path); }
+
+static uint32_t api_irq_count(void) { return g_irq_events; }
+
+/*
+ * Wait in thread mode for the next pin or timer event.  This is the half
+ * of the interrupt API that needs no handler at all: the program sleeps
+ * here, where it may do anything, and reads the counters when it wakes.
+ * Zero milliseconds waits indefinitely; a stop ends the wait like any
+ * other blocking call.
+ */
+static int api_irq_wait(uint32_t ms)
+{
+    uint32_t start = sys_ticks();
+    uint32_t seen = g_irq_events;
+
+    while (g_irq_events == seen) {
+        if (s_stop_requested) return -1;
+        if (ms && (uint32_t)(sys_ticks() - start) >= ms) return -1;
+        __wfi();
+    }
+    return 0;
+}
 
 static const freya_api_t s_api = {
     .size            = sizeof(freya_api_t),
@@ -236,6 +344,21 @@ static const freya_api_t s_api = {
     .set_log_level   = log_set_level,
     .last_exit       = app_last_exit,
     .exit_reason_str = app_stop_reason_str,
+    .pin_mode        = gpio_pin_mode,
+    .pin_read        = gpio_pin_read,
+    .pin_write       = gpio_pin_write,
+    .pin_toggle      = gpio_pin_toggle,
+    .pin_irq_attach  = gpio_irq_attach,
+    .pin_irq_detach  = gpio_irq_detach,
+    .pin_irq_count   = gpio_irq_count,
+    .timer_open      = timer_open,
+    .timer_close     = timer_close,
+    .timer_start     = timer_start,
+    .timer_stop      = timer_stop,
+    .timer_period    = timer_period,
+    .timer_count     = timer_count,
+    .irq_count       = api_irq_count,
+    .irq_wait        = api_irq_wait,
 };
 
 const freya_api_t *app_api(void)
@@ -848,6 +971,8 @@ int app_run(int argc, char **argv)
     s_stop_requested  = 0;
     g_app_stop_reason = FREYA_STOP_NONE;
     s_exit_code       = 0;
+    s_in_handler      = 0;
+    g_irq_events      = 0;
 
 #ifdef FREYA_APP_FLASH_ADDR
     /*
@@ -886,6 +1011,11 @@ int app_run(int argc, char **argv)
     status = freya_exit_status(g_app_stop_reason, ret);
 
     g_app.running = 0;
+    /* Nothing belonging to the program may still be able to run: its pin
+     * and timer interrupts are dropped before the memory their handlers
+     * were using is handed back. */
+    gpio_irq_release();
+    timer_release();
     g_app.last_run_ms = sys_ticks() - t0;
     g_app.last_status = status;
     g_app.last_stop_reason = g_app_stop_reason;

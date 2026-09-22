@@ -71,6 +71,9 @@ typedef struct {
 #define RCC_AHB1ENR_GPIOAEN (1UL << 0)
 #define RCC_AHB1ENR_GPIOBEN (1UL << 1)
 #define RCC_AHB1ENR_GPIOCEN (1UL << 2)
+#define RCC_APB1ENR_TIM2EN  (1UL << 0)
+#define RCC_APB1ENR_TIM3EN  (1UL << 1)
+#define RCC_APB1ENR_TIM4EN  (1UL << 2)
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB1ENR_PWREN   (1UL << 28)
 #define RCC_APB2ENR_SPI1EN  (1UL << 12)
@@ -148,6 +151,31 @@ typedef struct {
 #define GPIOB               ((GPIO_TypeDef *)0x40020400UL)
 #define GPIOC               ((GPIO_TypeDef *)0x40020800UL)
 
+/* ------------------------------------------------------- SYSCFG / EXTI */
+/* Sixteen external interrupt lines, one per pin number; SYSCFG->EXTICR
+ * decides which port's pin n drives line n (the F1 does the same job in
+ * AFIO, which is the only difference between the two EXTI drivers). */
+typedef struct {
+    __IO uint32_t MEMRMP;
+    __IO uint32_t PMC;
+    __IO uint32_t EXTICR[4];
+    uint32_t      RES0[2];
+    __IO uint32_t CMPCR;
+} SYSCFG_TypeDef;
+
+#define SYSCFG              ((SYSCFG_TypeDef *)0x40013800UL)
+
+typedef struct {
+    __IO uint32_t IMR;
+    __IO uint32_t EMR;
+    __IO uint32_t RTSR;
+    __IO uint32_t FTSR;
+    __IO uint32_t SWIER;
+    __IO uint32_t PR;          /* write 1 to clear */
+} EXTI_TypeDef;
+
+#define EXTI                ((EXTI_TypeDef *)0x40013C00UL)
+
 /* -------------------------------------------------------------- USART */
 typedef struct {
     __IO uint32_t SR;
@@ -202,6 +230,38 @@ typedef struct {
 #define SPI_SR_TXE          (1UL << 1)
 #define SPI_SR_BSY          (1UL << 7)
 
+/* -------------------------------------------------- general purpose timers */
+/* Only the fields a periodic interrupt needs are described.  TIM2..TIM4
+ * live at the same addresses, with the same layout, on the F1 and the F4
+ * alike, which is why src/timer.c is board independent. */
+typedef struct {
+    __IO uint32_t CR1;
+    __IO uint32_t CR2;
+    __IO uint32_t SMCR;
+    __IO uint32_t DIER;
+    __IO uint32_t SR;
+    __IO uint32_t EGR;
+    __IO uint32_t CCMR1;
+    __IO uint32_t CCMR2;
+    __IO uint32_t CCER;
+    __IO uint32_t CNT;
+    __IO uint32_t PSC;
+    __IO uint32_t ARR;
+} TIM_TypeDef;
+
+#define TIM2                ((TIM_TypeDef *)0x40000000UL)
+#define TIM3                ((TIM_TypeDef *)0x40000400UL)
+#define TIM4                ((TIM_TypeDef *)0x40000800UL)
+
+#define TIM_CR1_CEN         (1UL << 0)
+#define TIM_CR1_UDIS        (1UL << 1)
+#define TIM_CR1_URS         (1UL << 2)   /* only an overflow interrupts */
+#define TIM_CR1_OPM         (1UL << 3)   /* one pulse: stop after it    */
+#define TIM_CR1_ARPE        (1UL << 7)
+#define TIM_DIER_UIE        (1UL << 0)
+#define TIM_SR_UIF          (1UL << 0)
+#define TIM_EGR_UG          (1UL << 0)   /* load PSC and ARR now        */
+
 /* ------------------------------------------------------- Cortex-M core */
 typedef struct {
     __IO uint32_t CPUID;
@@ -255,7 +315,17 @@ typedef struct {
 } NVIC_TypeDef;
 
 #define NVIC                ((NVIC_TypeDef *)0xE000E100UL)
+#define EXTI0_IRQn          6
+#define EXTI1_IRQn          7
+#define EXTI2_IRQn          8
+#define EXTI3_IRQn          9
+#define EXTI4_IRQn          10
+#define EXTI9_5_IRQn        23
+#define TIM2_IRQn           28
+#define TIM3_IRQn           29
+#define TIM4_IRQn           30
 #define USART2_IRQn         38
+#define EXTI15_10_IRQn      40
 
 #define DBGMCU_IDCODE       (*(__IO uint32_t *)0xE0042000UL)
 #define UID_BASE            0x1FFF7A10UL
@@ -264,6 +334,12 @@ typedef struct {
 static inline void nvic_enable(int irq)
 {
     NVIC->ISER[irq >> 5] = 1UL << (irq & 0x1F);
+}
+
+static inline void nvic_disable(int irq)
+{
+    NVIC->ICER[irq >> 5] = 1UL << (irq & 0x1F);
+    NVIC->ICPR[irq >> 5] = 1UL << (irq & 0x1F);
 }
 
 static inline void nvic_set_priority(int irq, uint8_t prio)

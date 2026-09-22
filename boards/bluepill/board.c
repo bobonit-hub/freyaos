@@ -119,6 +119,64 @@ void board_spi_pins(void)
     gpio_config(BOARD_SD_CS_PORT, BOARD_SD_CS_PIN, GPIO_OUT_PP_50M);
 }
 
+/* ---------------------------------------------------------- pins for programs */
+/*
+ * The F1 describes a pin in one four-bit field of CRL or CRH, and a
+ * pulled input takes its direction from ODR: one is a pull-up, zero a
+ * pull-down.  A port's clock is turned on the first time a program asks
+ * for one of its pins, which is also why this returns the base address
+ * rather than letting src/gpio.c index a table of its own.
+ */
+GPIO_TypeDef *board_gpio_port(int port)
+{
+    static const uint32_t en[] = { RCC_APB2ENR_IOPAEN, RCC_APB2ENR_IOPBEN,
+                                   RCC_APB2ENR_IOPCEN };
+    GPIO_TypeDef *const base[] = { GPIOA, GPIOB, GPIOC };
+
+    if (port < 0 || port >= (int)ARRAY_SIZE(base)) return NULL;
+    RCC->APB2ENR |= en[port];
+    (void)RCC->APB2ENR;
+    return base[port];
+}
+
+void board_pin_mode(GPIO_TypeDef *port, int pin, int mode)
+{
+    uint32_t cfg;
+
+    switch (mode) {
+    case FREYA_PIN_IN_PULLUP:
+        port->BSRR = 1UL << pin;                    /* pull before input */
+        cfg = GPIO_IN_PULL;
+        break;
+    case FREYA_PIN_IN_PULLDOWN:
+        port->BSRR = 1UL << (pin + 16);
+        cfg = GPIO_IN_PULL;
+        break;
+    /* PC13..PC15 hang off the backup domain pad and may only be driven
+     * at 2 MHz with a couple of milliamps, which is the LED's corner of
+     * the chip; every other pin gets the fast driver. */
+    case FREYA_PIN_OUT:
+        cfg = (port == GPIOC && pin >= 13) ? GPIO_OUT_PP_2M : GPIO_OUT_PP_50M;
+        break;
+    case FREYA_PIN_OUT_OD: cfg = GPIO_OUT_OD_50M; break;
+    case FREYA_PIN_ANALOG: cfg = GPIO_IN_ANALOG;  break;
+    default:               cfg = GPIO_IN_FLOATING; break;
+    }
+    gpio_config(port, pin, cfg);
+}
+
+/* Route EXTI line 'pin' to this port.  Four lines per EXTICR word. */
+void board_exti_select(int port, int pin)
+{
+    uint32_t idx = (uint32_t)pin >> 2;
+    uint32_t sh  = ((uint32_t)pin & 3U) * 4U;
+
+    RCC->APB2ENR |= RCC_APB2ENR_AFIOEN;
+    (void)RCC->APB2ENR;
+    AFIO->EXTICR[idx] = (AFIO->EXTICR[idx] & ~(0xFUL << sh)) |
+                        ((uint32_t)port << sh);
+}
+
 /* ----------------------------------------------------------------- LED */
 void led_init(void)
 {

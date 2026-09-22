@@ -76,7 +76,7 @@ APP_CFLAGS:= $(CPUFLAGS) $(BOARD_DEF) -std=gnu11 -Os -g3 -ffreestanding \
              -fno-common -fno-builtin -Wall -Wextra -Wno-unused-parameter -Iinclude
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink tetris log forth
+SAMPLES   := blink tetris log forth irq
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
 # whole of the Blue Pill's RAM window before its dictionary is counted.

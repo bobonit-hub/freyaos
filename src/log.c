@@ -116,6 +116,13 @@ static int append_line(const char *line, int len)
 
     if (len <= 0)
         return 0;
+#ifndef FREYA_HOST
+    /* From a program's interrupt handler the card is out of reach - the
+     * thread may be inside FAT already - so the line goes to the console
+     * rather than being dropped. */
+    if (app_in_handler())
+        return append_stub(line, len);
+#endif
     if (!fat_mounted())
         return append_stub(line, len);
 

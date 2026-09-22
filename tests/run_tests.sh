@@ -124,6 +124,14 @@ echo "================= exit status ================="
 $CC $CFLAGS tests/host_exit_test.c -o "$OUT/hostexit"
 "$OUT/hostexit" || status=1
 
+# Pins and timers: the pin numbering a program uses, and the timer driver
+# itself, compiled for the host and asked for every period it accepts.
+echo
+echo "================= pins and timers ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_irq_test.c -o "$OUT/hostirq"
+"$OUT/hostirq" || status=1
+
 # ---------------------------------------------------------------------
 # Program image layout.
 #

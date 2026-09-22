@@ -39,11 +39,26 @@ void uart_init(uint32_t baud)
     s_overruns = 0;
     s_raw_mode = 0;
 
-    nvic_set_priority(USART2_IRQn, 2);
+    nvic_set_priority(USART2_IRQn, IRQ_PRIO_CONSOLE);
     nvic_enable(USART2_IRQn);
 }
 
-void USART2_IRQHandler(void)
+void usart2_interrupt(uint32_t *frame);
+
+/*
+ * The console runs above every other interrupt, which makes it the only
+ * place from which a program's own pin or timer handler can be stopped
+ * once it stops finishing.  Doing that needs the exception frame of
+ * whatever was interrupted, so the entry point is a shim that captures
+ * MSP before the compiler's prologue has moved it.
+ */
+__attribute__((naked)) void USART2_IRQHandler(void)
+{
+    __asm volatile ("mrs r0, msp\n\t"
+                    "b   usart2_interrupt");
+}
+
+void usart2_interrupt(uint32_t *frame)
 {
     uint32_t sr = USART2->SR;
 
@@ -62,8 +77,15 @@ void USART2_IRQHandler(void)
              * PendSV runs at the lowest priority, so it is guaranteed to
              * execute with the thread's exception frame on top of the
              * stack even if this interrupt preempted another handler.
+             *
+             * PendSV cannot preempt a pin or timer handler, though - it
+             * is below them - so a handler that is looping is redirected
+             * here, where its frame is the one that was interrupted.  It
+             * unwinds into its own interrupt, that interrupt returns, and
+             * PendSV then ends the run as usual.
              */
             app_request_stop();
+            app_handler_kill(frame);
             continue;
         }
 

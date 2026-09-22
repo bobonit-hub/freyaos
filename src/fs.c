@@ -13,6 +13,21 @@ static fat_file_t s_files[MAX_FILES];
 static fat_dir_t  s_dirs[MAX_DIRS];
 static char       s_cwd[FAT_MAX_PATH] = "/";
 
+/*
+ * A program's pin or timer handler runs in interrupt context and can
+ * preempt the thread anywhere, including halfway through a FAT update.
+ * None of this is reentrant, so a call from a handler is refused rather
+ * than allowed to leave the card inconsistent.
+ */
+static int from_handler(void)
+{
+#ifdef FREYA_HOST
+    return 0;
+#else
+    return app_in_handler();
+#endif
+}
+
 const char *fs_cwd(void)
 {
     return s_cwd;
@@ -93,6 +108,7 @@ int fs_fd_open(const char *path, int flags)
     char abs[FAT_MAX_PATH];
     int rc;
 
+    if (from_handler()) return FAT_ERR_INVAL;
     if (fs_abspath(path, abs, sizeof(abs)) != 0) return FAT_ERR_INVAL;
 
     for (int i = 0; i < MAX_FILES; i++) {
@@ -106,6 +122,7 @@ int fs_fd_open(const char *path, int flags)
 
 static fat_file_t *fd_get(int fd)
 {
+    if (from_handler()) return NULL;
     if (fd < 0 || fd >= MAX_FILES || !s_files[fd].open) return NULL;
     return &s_files[fd];
 }
@@ -181,6 +198,7 @@ int fs_dd_open(const char *path)
     char abs[FAT_MAX_PATH];
     int rc;
 
+    if (from_handler()) return FAT_ERR_INVAL;
     if (fs_abspath(path, abs, sizeof(abs)) != 0) return FAT_ERR_INVAL;
 
     for (int i = 0; i < MAX_DIRS; i++) {
@@ -197,6 +215,7 @@ int fs_dd_read(int dd, freya_stat_t *st)
     fat_dirent_t e;
     int rc;
 
+    if (from_handler()) return FAT_ERR_INVAL;
     if (dd < 0 || dd >= MAX_DIRS || !s_dirs[dd].open) return FAT_ERR_INVAL;
 
     rc = fat_readdir(&s_dirs[dd], &e);
@@ -221,6 +240,7 @@ int fs_rename(const char *old_path, const char *new_path)
     char src[FAT_MAX_PATH], dst[FAT_MAX_PATH];
     int rc, n;
 
+    if (from_handler()) return FAT_ERR_INVAL;
     if (fs_abspath(old_path, src, sizeof(src)) != 0) return FAT_ERR_INVAL;
     if (fs_abspath(new_path, dst, sizeof(dst)) != 0) return FAT_ERR_INVAL;
 
