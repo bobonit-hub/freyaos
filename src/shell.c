@@ -807,6 +807,86 @@ static int cmd_uninstall(int argc, char **argv)
     }
     return app_flash_erase();
 }
+
+/* The reverse of 'install': write the installed image back to the card
+ * so it can be copied, archived, or installed onto another board. */
+static int cmd_saveflash(int argc, char **argv)
+{
+    const freya_app_header_t *h;
+    const uint8_t *flash;
+    char def[32];
+    const char *name;
+    uint32_t size, off;
+    int fd, n;
+
+    if (argc > 2) { kprintf("usage: saveflash [file]\r\n"); return -1; }
+    if (!need_fs()) return -1;
+
+    h = app_flash_header();
+    if (!h) {
+        kprintf("saveflash: no program is installed in flash\r\n");
+        return -1;
+    }
+
+    if (argc == 2) {
+        name = argv[1];
+    } else {
+        char nm[sizeof(h->name) + 1];
+        int i, j = 0;
+
+        memcpy(nm, h->name, sizeof(h->name));
+        nm[sizeof(h->name)] = '\0';
+        def[0] = '/';
+        for (i = 0; nm[i] && j < (int)sizeof(def) - 12; i++) {
+            char c = nm[i];
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') || c == '_' || c == '-')
+                def[++j] = c;
+        }
+        if (j == 0) {
+            memcpy(def + 1, "program", 7);
+            j = 7;
+        }
+        memcpy(def + 1 + j, ".xip.bin", 9);
+        name = def;
+    }
+
+    size = h->image_size;
+    flash = (const uint8_t *)(uintptr_t)FREYA_APP_FLASH_ADDR;
+    fd = fs_fd_open(name, FREYA_O_WRONLY | FREYA_O_CREATE | FREYA_O_TRUNC);
+    if (fd < 0) {
+        kprintf("saveflash: %s: %s\r\n", name, fat_err_str(fd));
+        return -1;
+    }
+
+    kprintf("writing %u B to %s\r\n", size, name);
+    off = 0;
+    while (off < size) {
+        uint32_t chunk = MIN(512U, size - off);
+
+        if (uart_rx_ready() && uart_getc_timeout(0) == 0x03) {
+            uart_rx_flush();
+            fs_fd_close(fd);
+            kprintf("saveflash: cancelled\r\n");
+            return -1;
+        }
+        n = fs_fd_write(fd, flash + off, (int)chunk);
+        if (n != (int)chunk) {
+            fs_fd_close(fd);
+            kprintf("saveflash: %s\r\n", fat_err_str(n < 0 ? n : FAT_ERR_IO));
+            return -1;
+        }
+        off += chunk;
+    }
+
+    n = fs_fd_close(fd);
+    if (n != FAT_OK) {
+        kprintf("saveflash: %s\r\n", fat_err_str(n));
+        return -1;
+    }
+    kprintf("wrote %u B\r\n", size);
+    return 0;
+}
 #endif
 
 static int cmd_run(int argc, char **argv)
@@ -1177,6 +1257,7 @@ static const command_t s_cmds[] = {
     { "stop",     cmd_stop,     "stop",                      "stop / unload the program (Ctrl-C stops a running one)" },
 #ifdef FREYA_APP_FLASH_ADDR
     { "install",  cmd_install,  "install <file>",            "copy a program image into internal flash" },
+    { "saveflash",cmd_saveflash,"saveflash [file]",          "copy the installed program to the card" },
     { "uninstall",cmd_uninstall,"uninstall",                 "erase the program flash region" },
     { "autostart",cmd_autostart,"autostart [on|off]",        "run the flash program automatically at boot" },
     { "ramdump",  cmd_ramdump,  "ramdump [on|off]",          "write SRAM to /freya.ram after a BusFault" },

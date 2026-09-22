@@ -204,6 +204,7 @@ picocom -b 921600 /dev/ttyUSB0      # or minicom, screen, putty ...
 | `runflash [args...]` | run the program stored in internal flash (Blue Pill) |
 | `stop` | stop, or unload, the program |
 | `install <file>` | write a program into internal flash (Blue Pill) |
+| `saveflash [file]` | copy the installed program from flash onto the card (Blue Pill; default `/<name>.xip.bin`) |
 | `uninstall` | erase the program flash region (Blue Pill) |
 | `autostart [on\|off]` | run the flash program automatically at boot (Blue Pill) |
 | `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (Blue Pill; default off) |
@@ -217,7 +218,9 @@ down cursor keys walk the command history.
 `flashdump` copies the chip's mapped internal flash (from `0x08000000`, using
 the size the MCU reports) onto the card as a raw image. It overwrites
 `/freya.flash` unless you name another file. Ctrl-C stops the write and
-leaves whatever was written.
+leaves whatever was written. On the Blue Pill, `saveflash` copies only the
+installed program image (not the kernel) to `/<name>.xip.bin`, or to a
+path you give.
 
 `ls` prints names only; `ll` (or `ls -l`) adds sizes and timestamps:
 
@@ -381,7 +384,10 @@ and `stop` need no special case for it and none of them need a mounted card.
 `runflash` is that same run with the path filled in: it starts whatever the
 region holds, whether it was packed in at program time or installed from the
 card.
-`uninstall` erases the region. Nothing is written if the region already holds
+`uninstall` erases the region. `saveflash` copies the installed image back
+onto the card (the header's `image_size` bytes), defaulting to
+`/<name>.xip.bin` from the program header; Ctrl-C stops the write the same
+way as `flashdump`. `install` writes nothing if the region already holds
 the same image — flash endurance is 10k cycles, and there is no reason to
 spend one per `run`. `autostart on` writes a flag into the first word of the
 128-byte slot immediately before the program region so the next boot runs that
