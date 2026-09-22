@@ -1,0 +1,90 @@
+SD card slot
+============
+
+Freya talks to the card in SPI mode on SPI1. The six wires are the same
+pins on the Blue Pill and the Black Pill. The headers are not, so each
+board has its own drawing below. Power the slot from the board's 3.3 V
+pin and join the two grounds. The card runs at 3.3 V on that pin.
+
+    Signal     Pin    microSD     full-size SD
+    ---------  -----  ----------  ------------
+    CS         PA4    2  DAT3     1  CD/DAT3
+    DI / MOSI  PA7    3  CMD      2  CMD
+    VDD        3.3 V  4  VDD      4  VDD
+    CLK / SCK  PA5    5  CLK      5  CLK
+    GND        GND    6  VSS      3  VSS1 and 6 VSS2
+    DO / MISO  PA6    7  DAT0     7  DAT0
+
+DAT1 and DAT2 stay unused. Pull each up to 3.3 V with 10 kΩ: microSD
+pins 8 and 1, or full-size pins 8 and 9. Freya pulls DO up inside the
+chip. CS is driven and sits high while the card is idle. A card-detect
+switch on the socket is left open.
+
+A module that already labels CS, CLK, DO, DI, 3.3 V and GND takes the
+same six wires. Its VCC goes to 3.3 V.
+
+
+Blue Pill
+---------
+
+STM32F103C8T6, component side, USB connector at the top. The slot uses
+the left header. Pin 1 of that header is VB, next to the USB socket.
+
+                         micro USB
+                    left
+               VB  o
+              C13  o
+              C14  o
+              C15  o
+               A0  o
+               A1  o
+               A2  o
+               A3  o
+               A4  o-------- CS    DAT3
+               A5  o-------- CLK
+               A6  o-------- DO    DAT0
+               A7  o-------- DI    CMD
+               B0  o
+               B1  o
+              B10  o
+              B11  o
+                R  o
+              3.3  o-------- VDD
+                G  o-------- VSS
+                G  o-------- VSS   (full-size pin 6; either ground)
+
+
+Black Pill
+----------
+
+WeAct STM32F411CEU6, component side, USB-C connector at the top. The
+slot uses the left header. Pin 1 of that header is 5V, next to the
+USB-C socket. The 5V pin is not part of this wiring.
+
+                         USB-C
+                    left
+               5V  o
+                G  o-------- VSS
+              3.3  o-------- VDD
+              B10  o
+               B2  o
+               B1  o
+               B0  o
+               A7  o-------- DI    CMD
+               A6  o-------- DO    DAT0
+               A5  o-------- CLK
+               A4  o-------- CS    DAT3
+               A3  o
+               A2  o
+               A1  o
+               A0  o
+                R  o
+              C15  o
+              C14  o
+              C13  o
+               VB  o
+
+The SOP-8 footprint on the back is on this same SPI bus: CS, CLK and
+DI are PA4, PA5 and PA7, and DO is PA6 or PB4 depending on the board
+revision. Leave that footprint empty so the card is the only device
+on PA4.

@@ -106,22 +106,20 @@ Freya 1.0 "Chupacabra" for STM32F103C8T6
 
 ## Hardware
 
-The wiring is the same on both boards — the console and the card sit on pins
-that exist, and mean the same thing, on the F103 and the F411 alike.
+The console is wired the same way on both boards.
 
 | Function | Pin | Connect to |
 |---|---|---|
 | Console TX | PA2 | RX of a 3.3 V USB-serial adapter |
 | Console RX | PA3 | TX of the adapter |
-| SD clock | PA5 | CLK / SCK |
-| SD data out | PA6 | DO / MISO |
-| SD data in | PA7 | DI / MOSI |
-| SD chip select | PA4 | CS |
-| Power | 3V3, GND | the card's 3.3 V and ground |
 | Status LED | PC13 | on board, active low |
 
-Those six pins are the only ones Freya keeps: PA2 and PA3 for the console,
-PA4 to PA7 for the card. Every other pin of ports A, B and C is a program's
+The card is SPI1 on PA4 to PA7 on both boards. Those pins sit in different
+places on the two headers; the slot drawings are in
+[docs/sd-slot.txt](docs/sd-slot.txt).
+
+Freya keeps six pins: PA2 and PA3 for the console, PA4 to PA7 for the card.
+Every other pin of ports A, B and C is a program's
 to drive or take interrupts on, and eight of them — PA0, PA1, PB0, PB1 and
 PB6 to PB9 — have a timer channel behind them and can be driven as PWM.
 
@@ -143,12 +141,11 @@ what 8N1 tolerates. A Blue Pill whose crystal did not start runs its APB1 at
 would reach 3 Mbaud on the Black Pill and 2.25 on the Blue Pill, so if the
 adapter is a faster one, the rate is `uart_init()` in `src/main.c` and the
 `BOARD_CONSOLE_NAME` string. Nothing drives RTS or CTS, so leave hardware flow
-control off on the host.
+control off on the host, and ground the adapter with the board.
 
-SD cards are 3.3 V devices, so no level shifting is needed. Card identification
-runs inside the 100–400 kHz window the spec demands (375 kHz on the Black Pill,
-281 kHz on the Blue Pill) and the bus then switches to 12 MHz, or 9 MHz on the
-Blue Pill. Ground the adapter and the board together.
+Card identification runs inside the 100–400 kHz window the spec demands
+(375 kHz on the Black Pill, 281 kHz on the Blue Pill) and the bus then
+switches to 12 MHz, or 9 MHz on the Blue Pill.
 
 ## Building
 
@@ -683,6 +680,7 @@ is measured rather than guessed).
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
 | `docs/i2c.md` | the I2C master API, the pins, and the `i2c` command |
+| `docs/sd-slot.txt` | SD slot wiring for the Blue Pill and the Black Pill |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
 
