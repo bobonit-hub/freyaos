@@ -293,9 +293,9 @@ for somewhere else. `samples/` works the same way through
 the `SAMPLES` variable and builds into `build/samples/`; `samples/blink` is a
 minimal starting point, `samples/log` writes one line at each log level,
 `samples/irq` blinks from a timer interrupt and counts button presses from a
-pin one, `samples/tetris` is a console game (keys in `samples/tetris/README.md`), and
-`samples/forth` is an interactive Forth with a compiler and 122 words
-(`samples/forth/README.md`). Every
+pin one (`samples/irq/README.md`), `samples/tetris` is a console game (keys
+in `samples/tetris/README.md`), and `samples/forth` is an interactive Forth
+with a compiler and 122 words (`samples/forth/README.md`). Every
 app and sample is also built as `.xip.bin` for `install`, and a sample too
 large for a board's program RAM region is built there as the flash image
 alone — which on the Blue Pill is what happens to `forth`, whose
