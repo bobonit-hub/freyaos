@@ -300,7 +300,9 @@ the `SAMPLES` variable and builds into `build/samples/`; `samples/blink` is a
 minimal starting point, `samples/log` writes one line at each log level,
 `samples/irq` blinks from a timer interrupt and counts button presses from a
 pin one (`samples/irq/README.md`), `samples/pwm` fades an LED and sweeps a
-servo (`samples/pwm/README.md`), `samples/tetris` is a console game (keys
+servo (`samples/pwm/README.md`), `samples/flashprobe` finds out how much
+internal flash the chip really has (`samples/flashprobe/README.md`),
+`samples/tetris` is a console game (keys
 in `samples/tetris/README.md`), and `samples/forth` is an interactive Forth
 with a compiler and 122 words (`samples/forth/README.md`). Every
 app and sample is also built as `.xip.bin` for `install`, and a sample too
@@ -655,7 +657,7 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `tetris`, `forth` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `flashprobe`, `tetris`, `forth` |
 | `tests/` | host side tests |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
@@ -752,6 +754,12 @@ ALL TESTS PASSED
   capture or the ADC. Handlers all run at one priority and never nest, and
   only the console sits above them — which is what makes Ctrl-C work against
   a handler that loops.
+* The 64 KiB the Blue Pill reports is the size ST specifies, and Freya stays
+  inside it. Most of those dies are the 128 KiB part with the top half
+  untested rather than absent; `samples/flashprobe` programs and reads back a
+  block in each erase unit above the declared end to find out whether one
+  particular chip has it, and erases each unit again afterwards. Nothing in
+  the kernel uses what it finds.
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 64 KiB of
   flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
   KiB instead of sixty. Installing a program into flash is the answer to the

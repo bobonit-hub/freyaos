@@ -103,6 +103,14 @@ the region stays inside the specified half. A probe that tests for the extra
 pages and extends the region would be a separate, optional change, and not one
 to make while the erase path is still new.
 
+That probe now exists as a program rather than as part of the kernel:
+`samples/flashprobe` walks the erase units above the declared end, programs a
+256-byte block into each one, reads it back and erases it again, and prints
+where the flash actually stops. It only ever writes to a unit that reads blank,
+so a die where the top half really is missing loses nothing, and nothing in the
+kernel acts on the answer — the region bounds are still build-time constants
+the kernel checks against the linker script at boot.
+
 ## ABI changes
 
 A flash-resident program cannot be one contiguous image the way a RAM program
