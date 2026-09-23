@@ -73,7 +73,19 @@ APPS      := hello spin
 APP_BINS  := $(patsubst %,$(BUILD)/apps/%.bin,$(APPS))
 APP_LD    := $(BOARD_DIR)/app.ld
 APP_CFLAGS:= $(CPUFLAGS) $(BOARD_DEF) -std=gnu11 -Os -g3 -ffreestanding \
-             -fno-common -fno-builtin -Wall -Wextra -Wno-unused-parameter -Iinclude
+             -fno-common -fno-builtin -ffunction-sections -fdata-sections \
+             -Wall -Wextra -Wno-unused-parameter -Iinclude
+
+# Cortex-M3 has no FPU.  A program that uses float calls the helpers in
+# src/softfp.c; --gc-sections leaves them out of a program that does not.
+# The header section is KEEP'd, so it survives that collection.
+ifneq ($(filter -mfloat-abi=soft,$(CPUFLAGS)),)
+APP_SOFTFP := $(SRC_DIR)/softfp.c
+APP_GC     := -Wl,--gc-sections
+else
+APP_SOFTFP :=
+APP_GC     :=
+endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
 SAMPLES   := blink tetris log forth irq pwm i2c w1 flashprobe
@@ -179,14 +191,14 @@ apps: $(APP_BINS)
 $(BUILD)/apps/%.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_LD) | $(BUILD)
 	@echo "  APP   $@"
 	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_LD) \
-	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
-	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
+	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments $(APP_GC) \
+	       $(APP_DIR)/common/app_start.c $< $(APP_SOFTFP) -lgcc -o $@
 
 $(BUILD)/apps/%.xip.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_XIP_LD) | $(BUILD)
 	@echo "  APP   $@"
 	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
-	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
-	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
+	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments $(APP_GC) \
+	       $(APP_DIR)/common/app_start.c $< $(APP_SOFTFP) -lgcc -o $@
 
 $(BUILD)/apps/%.xip.bin: $(BUILD)/apps/%.xip.elf tools/xip_image.py
 	@python3 tools/xip_image.py --objcopy $(OBJCOPY) $< $@
@@ -203,15 +215,15 @@ $(BUILD)/samples/%.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP
 	@mkdir -p $(@D)
 	@echo "  SMPL  $@"
 	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_LD) \
-	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
-	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
+	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments $(APP_GC) \
+	       $(APP_DIR)/common/app_start.c $< $(APP_SOFTFP) -lgcc -o $@
 
 $(BUILD)/samples/%.xip.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_XIP_LD) | $(BUILD)
 	@mkdir -p $(@D)
 	@echo "  SMPL  $@"
 	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
-	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments \
-	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
+	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments $(APP_GC) \
+	       $(APP_DIR)/common/app_start.c $< $(APP_SOFTFP) -lgcc -o $@
 
 $(BUILD)/samples/%.xip.bin: $(BUILD)/samples/%.xip.elf tools/xip_image.py
 	@python3 tools/xip_image.py --objcopy $(OBJCOPY) $< $@

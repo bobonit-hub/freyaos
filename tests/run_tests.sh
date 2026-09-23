@@ -155,6 +155,29 @@ $CC $CFLAGS tests/host_shell_test.c "$OUT/shell_host.o" src/print.c \
     -o "$OUT/hostshell"
 "$OUT/hostshell" || status=1
 
+# Single precision on the Cortex-M3: the helpers in src/softfp.c against
+# the host FPU, then a soft-float link that must not need libgcc for them.
+echo
+echo "================= single precision ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_softfp_test.c src/softfp.c -o "$OUT/hostsoftfp"
+"$OUT/hostsoftfp" || status=1
+
+CROSS_FP=${CROSS:-arm-none-eabi-}
+if command -v "${CROSS_FP}gcc" >/dev/null 2>&1; then
+    if "${CROSS_FP}gcc" -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os \
+            -ffreestanding -fno-builtin -ffunction-sections -fdata-sections \
+            -nostdlib -Wl,--gc-sections -Wl,-e,softfp_link \
+            tests/softfp_link.c src/softfp.c -o "$OUT/softfp_link.elf"; then
+        echo "  ok    Cortex-M3 float code links against src/softfp.c"
+    else
+        echo "  FAIL  Cortex-M3 float code did not link against src/softfp.c"
+        status=1
+    fi
+else
+    echo "  --    ${CROSS_FP}gcc not found, skipping the soft-float link"
+fi
+
 # Pins, timers, PWM, I2C and 1-Wire: the pin numbering a program uses,
 # the two timer dividers and the I2C half-period compiled for the host
 # and asked for every value they accept, the board's pin tables, and

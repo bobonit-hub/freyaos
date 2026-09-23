@@ -338,6 +338,12 @@ large for a board's program RAM region is built there as the flash image
 alone — which on the Blue Pill is what happens to `forth`, whose
 interpreter is 8 KiB on its own.
 
+Single-precision `float` compiles for both boards. The Black Pill uses its
+FPU. The Blue Pill has none, so the program is linked with `src/softfp.c`,
+the add, subtract, multiply, divide, compare and integer-conversion helpers
+the compiler emits. They round to nearest, ties to even, and they keep
+subnormals. A program that never uses `float` does not carry that code.
+
 ```
 freya:/> run hello.bin
 --- hello starting (Ctrl-C stops it) ---
