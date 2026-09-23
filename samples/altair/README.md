@@ -208,6 +208,36 @@ altair> save /altair/xbasic.bin 0 4000
 The saved image is started at 0000h and asks the questions again. For
 4K and 8K BASIC the lengths are 1000h and 2000h.
 
+### From the terminal
+
+The menu receives an image over the console, the same XMODEM transfer
+as `download`. Ctrl-] and:
+
+```
+altair> upload
+Ready for XMODEM.
+Start the sender now (sx file, or sx -k).  Ctrl-X twice aborts.
+```
+
+```sh
+sx -k xbasic.bin < /dev/ttyUSB0 > /dev/ttyUSB0
+python3 tools/send.py /dev/ttyUSB0 xbasic.bin
+```
+
+`upload` with no address loads at 0000h. `upload 100` loads at 0100h.
+`upload hex` reads an Intel HEX file and uses the addresses in its
+records. The CPU stays where it was; `go ADDR` starts what arrived.
+
+Padding on the last packet is stripped. `upload 0 raw` keeps it. A 1K
+packet borrows a buffer from the heap; when the board has none to
+spare the menu says so, and the sender uses 128-byte packets (`sx
+file`, or `python3 tools/send.py --block 128`).
+
+minicom, Tera Term and ExtraPuTTY send XMODEM from their own menus.
+The console has to be raw, which it is whenever this kernel provides
+`console_raw`; without that, Ctrl-C in the stream would stop the
+emulator, so `upload` refuses.
+
 ## The menu
 
 Ctrl-] stops the 8080 and opens the menu, which stands in for the front
@@ -227,6 +257,8 @@ the startup line says so.
 | `go ADDR` | jump there and continue |
 | `reset` | reset to the start address and continue |
 | `load FILE [ADDR]` | load an image (default 0000) or an Intel HEX file |
+| `upload [ADDR] [raw]` | receive an image over XMODEM (default 0000); `raw` keeps the padding |
+| `upload hex` | receive an Intel HEX file over XMODEM |
 | `save FILE ADDR LEN` | save memory as an image |
 | `prom FILE [ADDR]` | fill a PROM socket (default FD00) |
 | `boot FILE [TYPE]` | read a BASIC tape and run it |
@@ -251,8 +283,8 @@ Freya every 20000 states.
 `mem.c` maps the 64 KiB in 1 KiB pages. Each page has a read pointer and
 a write pointer, so RAM, PROM, the Turnkey SRAM and empty space cost the
 same single lookup. `io.c` is the ports, `term.c` the console side and
-`load.c` the card side. The Makefile builds a sample from `main.c`
-alone, so `main.c` includes the rest.
+`load.c` the card side and the XMODEM upload. The Makefile builds a
+sample from `main.c` alone, so `main.c` includes the rest.
 
 ## Testing it without a board
 

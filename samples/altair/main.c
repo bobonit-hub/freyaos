@@ -20,7 +20,8 @@
  * when TURMON is there, which is what the Turnkey's auto-start does.
  *
  * Ctrl-] opens the menu that stands in for the front panel the 8800b
- * Turnkey never had.
+ * Turnkey never had.  'upload' there receives an image, or an Intel
+ * HEX file, over XMODEM on this same console.
  *
  * The 8080 is in i8080.c, memory in mem.c, the ports in io.c, the
  * console side in term.c and the card side in load.c.  The Makefile
@@ -262,6 +263,8 @@ static const char k_help[] =
     "  go ADDR           jump there and continue\r\n"
     "  reset             reset to the start address and continue\r\n"
     "  load FILE [ADDR]  load an image (default 0000) or an Intel HEX file\r\n"
+    "  upload [ADDR] [raw]  receive an image over XMODEM (default 0000)\r\n"
+    "  upload hex        receive an Intel HEX file over XMODEM\r\n"
     "  save FILE ADDR LEN  save memory as an image\r\n"
     "  prom FILE [ADDR]  fill a PROM socket (default FD00)\r\n"
     "  boot FILE [TYPE]  read a BASIC tape and run it; TYPE is 4k32, 4k40,\r\n"
@@ -324,6 +327,46 @@ static int on_off(const char *s, uint8_t *flag)
     return 0;
 }
 
+static void upload_error(int32_t rc)
+{
+    const char *s;
+
+    if (rc == -2)
+        s = "timed out waiting for the sender";
+    else if (rc == -3)
+        s = "cancelled by the sender";
+    else if (rc == -4)
+        s = "too many bad packets";
+    else if (rc == -5)
+        s = "packet sequence error";
+    else if (rc == -7)
+        s = "no room for a 1K packet; send 128-byte XMODEM";
+    else
+        s = "transfer failed";
+    g->printf("%s\r\n", s);
+}
+
+/* Receives one image.  The CPU is left where it is; 'go' starts it.
+ * A binary is stripped of its XMODEM padding unless raw is set. */
+static void upload_cmd(int hex, uint16_t at, int raw)
+{
+    int32_t n;
+
+    g->puts("Ready for XMODEM.\r\n"
+            "Start the sender now (sx file, or sx -k).  "
+            "Ctrl-X twice aborts.\r\n");
+    s_hex_line = 0;
+    n = hex ? upload_hex() : upload_bin(at, !raw);
+    if (s_hex_line)
+        g->printf("bad HEX record on line %d\r\n", s_hex_line);
+    else if (n < 0)
+        upload_error(n);
+    else if (hex)
+        g->printf("%d bytes\r\n", (int)n);
+    else
+        g->printf("%d bytes at %04X\r\n", (int)n, at);
+}
+
 /* One menu command.  Returns 1 when the machine should run again. */
 static int menu_command(int argc, char **argv)
 {
@@ -372,6 +415,34 @@ static int menu_command(int argc, char **argv)
             g->puts("load FILE [ADDR]\r\n");
         else
             load_report(argv[1], a);
+    } else if (streq(cmd, "upload")) {
+        int hex = 0, raw = 0, bad = 0;
+
+        a = 0;
+        if (argc >= 2 && streq(argv[1], "hex")) {
+            hex = 1;
+            bad = argc > 2;
+        } else {
+            int i = 1;
+
+            if (argc >= 2 && !streq(argv[1], "raw")) {
+                if (parse_addr(argv[1], &a))
+                    bad = 1;
+                i = 2;
+            }
+            if (!bad && i < argc) {
+                if (i + 1 == argc && streq(argv[i], "raw"))
+                    raw = 1;
+                else
+                    bad = 1;
+            }
+        }
+        if (bad)
+            g->puts("upload [ADDR] [raw] | upload hex\r\n");
+        else if (!s_raw)
+            g->puts("upload needs a raw console\r\n");
+        else
+            upload_cmd(hex, a, raw);
     } else if (streq(cmd, "save")) {
         if (argc < 4 || parse_addr(argv[2], &a) || parse_hex(argv[3], &v) ||
             v == 0 || v > 0x10000u) {

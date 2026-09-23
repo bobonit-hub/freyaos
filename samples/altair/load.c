@@ -8,6 +8,9 @@
  * same way a program goes into RAM.
  *
  * 'save' is the other direction: a range of memory, as a raw image.
+ * 'upload' is the same load with the console as the file: an XMODEM
+ * stream, 128-byte packets from the static buffer below and 1K packets
+ * from a block borrowed off the heap for the transfer.
  */
 #define LOAD_BUF  256
 
@@ -234,4 +237,345 @@ static int32_t save_bin(const char *path, uint16_t at, uint32_t len)
     }
     g->close(fd);
     return (int32_t)done;
+}
+
+/*
+ * XMODEM / XMODEM-1K / checksum, the same stream 'download' receives
+ * onto the card.  The last packet is padded with SUB because the
+ * protocol has no length; those bytes are held back and dropped unless
+ * the caller asks for the raw stream.  A 1K packet is 1024 bytes and
+ * the static buffer is 256, so that packet borrows its buffer from the
+ * heap and a board with no room left says so instead of overflowing.
+ *
+ * Returns the number of bytes handed to the sink, or -2 on a timeout,
+ * -3 when the sender cancels, -4 after too many bad packets, -5 on a
+ * broken sequence, -6 when the sink refuses a byte, -7 when a 1K
+ * packet arrives and the heap cannot hold it.
+ */
+#define XM_SOH  0x01
+#define XM_STX  0x02
+#define XM_EOT  0x04
+#define XM_ACK  0x06
+#define XM_NAK  0x15
+#define XM_CAN  0x18
+#define XM_SUB  0x1A
+
+static int s_hex_line;              /* bad uploaded HEX record, else 0 */
+
+typedef int (*xm_sink_fn)(const uint8_t *p, int n, void *ctx);
+
+static uint16_t crc16_xmodem(const uint8_t *p, int len)
+{
+    uint16_t crc = 0;
+
+    while (len--) {
+        crc ^= (uint16_t)(*p++) << 8;
+        for (int i = 0; i < 8; i++)
+            crc = (crc & 0x8000) ? (uint16_t)((crc << 1) ^ 0x1021)
+                                 : (uint16_t)(crc << 1);
+    }
+    return crc;
+}
+
+static void xm_cancel(void)
+{
+    for (int i = 0; i < 8; i++)
+        g->putc((char)XM_CAN);
+    for (int i = 0; i < 8; i++)
+        g->putc('\b');
+}
+
+/* Drains whatever the sender still has in flight. */
+static void xm_flush(void)
+{
+    while (g->getc_timeout(300) >= 0) { }
+}
+
+static int xm_emit_subs(xm_sink_fn sink, void *ctx, int n)
+{
+    uint8_t b = XM_SUB;
+
+    while (n--) {
+        if (sink(&b, 1, ctx))
+            return -1;
+    }
+    return 0;
+}
+
+/* Hands packet bytes to the sink.  A run of SUB at the end of a packet
+ * is remembered in *held: the next real byte means it was data, and
+ * end of stream means it was padding. */
+static int xm_feed(xm_sink_fn sink, void *ctx, const uint8_t *pkt, int len,
+                   int strip, int *held, int32_t *total)
+{
+    int i = 0;
+
+    while (i < len) {
+        int start, run;
+
+        if (strip && pkt[i] == XM_SUB) {
+            run = 0;
+            while (i < len && pkt[i] == XM_SUB) {
+                run++;
+                i++;
+            }
+            if (i == len) {
+                *held += run;
+                break;
+            }
+            if (xm_emit_subs(sink, ctx, *held + run))
+                return -1;
+            *total += *held + run;
+            *held = 0;
+            continue;
+        }
+        if (*held) {
+            if (xm_emit_subs(sink, ctx, *held))
+                return -1;
+            *total += *held;
+            *held = 0;
+        }
+        start = i;
+        while (i < len && !(strip && pkt[i] == XM_SUB))
+            i++;
+        if (sink(pkt + start, i - start, ctx))
+            return -1;
+        *total += i - start;
+    }
+    return 0;
+}
+
+static int32_t xmodem_receive(xm_sink_fn sink, void *ctx, int strip)
+{
+    uint8_t *big = NULL;
+    uint8_t expect = 1;
+    int crc_mode = 1, handshakes = 0, retries = 0, held = 0;
+    int32_t total = 0;
+    int rc = 0;
+
+    while (rc == 0) {
+        int c = g->getc_timeout(1000);
+
+        if (c < 0) {
+            if (++handshakes > 60) {
+                rc = -2;
+                break;
+            }
+            if (crc_mode && handshakes <= 20)
+                g->putc('C');
+            else {
+                crc_mode = 0;
+                g->putc((char)XM_NAK);
+            }
+            continue;
+        }
+        if (c == XM_CAN) {
+            c = g->getc_timeout(1000);
+            if (c == XM_CAN)
+                rc = -3;
+            continue;
+        }
+        if (c == XM_EOT) {
+            if (!strip && held) {
+                if (xm_emit_subs(sink, ctx, held))
+                    rc = -6;
+                else
+                    total += held;
+            }
+            if (rc == 0)
+                g->putc((char)XM_ACK);
+            break;
+        }
+        if (c != XM_SOH && c != XM_STX)
+            continue;
+
+        {
+            uint8_t *pkt = s_io_buf;
+            int len = 128;
+            int blk, nblk, bad = 0, short_read = 0;
+            int b1 = 0, b2 = 0;
+            int need;
+
+            if (c == XM_STX) {
+                if (!big) {
+                    big = g->malloc(1024);
+                    if (!big) {
+                        rc = -7;
+                        break;
+                    }
+                }
+                pkt = big;
+                len = 1024;
+            }
+            need = len + (crc_mode ? 2 : 1);
+            blk = g->getc_timeout(1000);
+            nblk = g->getc_timeout(1000);
+            if (blk < 0 || nblk < 0 || ((blk + nblk) & 0xFF) != 0xFF)
+                bad = 1;
+            for (int i = 0; i < need; i++) {
+                int d = g->getc_timeout(1000);
+
+                if (d < 0) {
+                    bad = 1;
+                    short_read = 1;
+                    break;
+                }
+                if (i < len)
+                    pkt[i] = (uint8_t)d;
+                else if (i == len)
+                    b1 = d;
+                else
+                    b2 = d;
+            }
+            if (!bad) {
+                if (crc_mode) {
+                    uint16_t want = (uint16_t)((b1 << 8) | b2);
+
+                    if (crc16_xmodem(pkt, len) != want)
+                        bad = 1;
+                } else {
+                    uint8_t sum = 0;
+
+                    for (int i = 0; i < len; i++)
+                        sum = (uint8_t)(sum + pkt[i]);
+                    if (sum != (uint8_t)b1)
+                        bad = 1;
+                }
+            }
+            if (bad) {
+                if (++retries > 10) {
+                    rc = -4;
+                    break;
+                }
+                if (short_read)
+                    xm_flush();
+                g->putc((char)XM_NAK);
+                continue;
+            }
+            if ((uint8_t)blk == (uint8_t)(expect - 1)) {
+                g->putc((char)XM_ACK);
+                continue;
+            }
+            if ((uint8_t)blk != expect) {
+                rc = -5;
+                break;
+            }
+            if (xm_feed(sink, ctx, pkt, len, strip, &held, &total)) {
+                rc = -6;
+                break;
+            }
+            expect++;
+            retries = 0;
+            handshakes = 0;
+            g->putc((char)XM_ACK);
+        }
+    }
+
+    if (big)
+        g->free(big);
+    if (rc != 0)
+        xm_cancel();
+    xm_flush();
+    return rc != 0 ? rc : total;
+}
+
+struct bin_up {
+    uint32_t addr;
+    int32_t  n;
+};
+
+static int bin_sink(const uint8_t *p, int n, void *ctx)
+{
+    struct bin_up *b = ctx;
+
+    for (int i = 0; i < n && b->addr <= 0xFFFFu; i++, b->addr++) {
+        mem_poke((uint16_t)b->addr, p[i]);
+        b->n++;
+    }
+    return 0;
+}
+
+/* Returns the bytes stored, cut off at FFFFh, or an xmodem_receive()
+ * error.  strip drops the SUB padding; raw keeps it. */
+static int32_t upload_bin(uint16_t at, int strip)
+{
+    struct bin_up b;
+
+    b.addr = at;
+    b.n = 0;
+    {
+        int32_t rc = xmodem_receive(bin_sink, &b, strip);
+
+        return rc < 0 ? rc : b.n;
+    }
+}
+
+struct hex_up {
+    char    line[4 + 2 * (4 + 255 + 1)];
+    int     len;
+    int     in_rec;
+    int     lineno;
+    int32_t loaded;
+    int     eof;
+};
+
+static int hex_byte(struct hex_up *h, char c)
+{
+    if (h->eof)
+        return 0;
+    if (c == ':') {
+        h->in_rec = 1;
+        h->len = 0;
+    } else if (c == '\n' || c == '\r') {
+        if (h->in_rec) {
+            int t = hex_record(h->line, h->len, &h->loaded);
+
+            if (t < 0) {
+                s_hex_line = h->lineno;
+                return -1;
+            }
+            if (t == 1)
+                h->eof = 1;
+        }
+        h->in_rec = 0;
+        if (c == '\n')
+            h->lineno++;
+    } else if (h->in_rec && h->len < (int)sizeof h->line) {
+        h->line[h->len++] = c;
+    }
+    return 0;
+}
+
+static int hex_sink(const uint8_t *p, int n, void *ctx)
+{
+    struct hex_up *h = ctx;
+
+    for (int i = 0; i < n; i++) {
+        if (hex_byte(h, (char)p[i]))
+            return -1;
+    }
+    return 0;
+}
+
+/* Returns the data bytes loaded, an xmodem_receive() error, or -6 with
+ * s_hex_line set to the bad record. */
+static int32_t upload_hex(void)
+{
+    struct hex_up h;
+    int32_t rc;
+
+    s_hex_line = 0;
+    h.len = 0;
+    h.in_rec = 0;
+    h.lineno = 1;
+    h.loaded = 0;
+    h.eof = 0;
+    rc = xmodem_receive(hex_sink, &h, 1);
+    if (rc < 0)
+        return rc;
+    if (h.in_rec && !h.eof && hex_record(h.line, h.len, &h.loaded) < 0) {
+        s_hex_line = h.lineno;
+        return -6;
+    }
+    return h.loaded;
 }

@@ -8,6 +8,11 @@ first, then point this script at the same serial port:
     freya:/> download hello.bin
     $ python3 tools/send.py /dev/ttyUSB0 build/apps/hello.bin
 
+The Altair menu receives the same stream into the 8080's memory.
+`upload` takes a raw image, `upload hex` an Intel HEX file, and then
+the same command.  `--block 128` is the fallback when the board cannot
+spare a buffer for a 1K packet.
+
 Requires pyserial (pip install pyserial).
 """
 import argparse

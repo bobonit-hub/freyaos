@@ -372,7 +372,8 @@ in `samples/tetris/README.md`), `samples/edit` is a terminal text editor
 (`samples/edit/README.md`), `samples/forth` is an interactive Forth
 with a compiler and 122 words (`samples/forth/README.md`), and
 `samples/altair` is an Altair 8800b Turnkey that runs Altair BASIC and
-other original 8080 software from the card (`samples/altair/README.md`;
+other original 8080 software from the card, or from an XMODEM upload
+in its menu (`samples/altair/README.md`;
 Black Pill only, from flash). `samples/altair16` is that machine with
 16 KiB of RAM. On the Black Pill it fits the program region and runs
 from RAM as well; on the Blue Pill, whose SRAM is 20 KiB, that RAM is

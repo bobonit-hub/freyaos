@@ -40,6 +40,7 @@ static int         s_live;
 static const char *s_in;            /* what the terminal will type */
 static int         s_in_len, s_in_pos;
 static int         s_raw_calls;
+static int         s_hold;          /* scripted reads that time out first */
 
 static void h_putc(char c)
 {
@@ -87,6 +88,8 @@ static int h_kbhit(void)
 
     if (s_live)
         return poll(&p, 1, 0) > 0;
+    if (s_hold > 0)
+        return 0;
     return s_in_pos < s_in_len;
 }
 
@@ -94,6 +97,10 @@ static int h_getc_timeout(uint32_t ms)
 {
     if (s_live)
         return live_key((int)ms);
+    if (s_hold > 0) {
+        s_hold--;
+        return -1;
+    }
     return s_in_pos < s_in_len ? (unsigned char)s_in[s_in_pos++] : -1;
 }
 
@@ -200,6 +207,7 @@ static void check(const char *what, long want, long got)
 
 static void type(const char *keys, int len)
 {
+    s_hold = 0;
     s_in = keys;
     s_in_len = len;
     s_in_pos = 0;
@@ -786,6 +794,203 @@ static void test_mbl(const char *mbl, const char *tape, uint8_t sw,
     basic_checks();
 }
 
+/* ---------------------------------------------------- XMODEM upload */
+/* One XMODEM packet plus the EOT, padded with SUB the way a sender
+ * pads.  stx selects a 1K packet. */
+static int xm_frame(uint8_t *dst, int stx, uint8_t blk,
+                    const uint8_t *data, int dlen, int crc_mode)
+{
+    int len = stx ? 1024 : 128;
+    uint8_t pkt[1024];
+    int n = 0;
+
+    memset(pkt, XM_SUB, (size_t)len);
+    if (dlen > len)
+        dlen = len;
+    if (dlen > 0)
+        memcpy(pkt, data, (size_t)dlen);
+    dst[n++] = (uint8_t)(stx ? XM_STX : XM_SOH);
+    dst[n++] = blk;
+    dst[n++] = (uint8_t)~blk;
+    memcpy(dst + n, pkt, (size_t)len);
+    n += len;
+    if (crc_mode) {
+        uint16_t c = crc16_xmodem(pkt, len);
+
+        dst[n++] = (uint8_t)(c >> 8);
+        dst[n++] = (uint8_t)c;
+    } else {
+        unsigned sum = 0;
+
+        for (int i = 0; i < len; i++)
+            sum += pkt[i];
+        dst[n++] = (uint8_t)sum;
+    }
+    return n;
+}
+
+static int xm_stream(uint8_t *dst, int stx, const uint8_t *data, int dlen,
+                     int crc_mode)
+{
+    int n = xm_frame(dst, stx, 1, data, dlen, crc_mode);
+
+    dst[n++] = XM_EOT;
+    return n;
+}
+
+static void test_upload(void)
+{
+    uint8_t frame[2048];
+    uint8_t data[16];
+    int n;
+    char *argv[4];
+
+    printf("\n--- upload over XMODEM ---\n");
+    mem_init(48);
+
+    memcpy(data, "HELLO", 5);
+    mem_poke(0x2005, 0xA5);
+    n = xm_stream(frame, 0, data, 5, 1);
+    type((char *)frame, n);
+    check("a 128-byte image lands at the address given", 5, upload_bin(0x2000, 1));
+    check("byte for byte", 'H', mem_rd(0x2000));
+    check("through the last real byte", 'O', mem_rd(0x2004));
+    check("and the SUB padding is not stored", 0xA5, mem_rd(0x2005));
+
+    mem_poke(0x2105, 0xA5);
+    n = xm_stream(frame, 0, data, 5, 1);
+    type((char *)frame, n);
+    check("raw keeps the padded packet", 128, upload_bin(0x2100, 0));
+    check("including its SUB bytes", XM_SUB, mem_rd(0x2105));
+
+    {
+        uint8_t blk[128];
+
+        memset(blk, 0x11, sizeof blk);
+        n = xm_frame(frame, 0, 1, blk, 128, 1);
+        memset(blk, 0x22, 10);
+        n += xm_frame(frame + n, 0, 2, blk, 10, 1);
+        frame[n++] = XM_EOT;
+        mem_poke(0x008A, 0xA5);
+        type((char *)frame, n);
+        check("a second packet continues where the first ended",
+              138, upload_bin(0, 1));
+        check("the first packet filled its 128 bytes", 0x11, mem_rd(0x007F));
+        check("and the second starts after it", 0x22, mem_rd(0x0080));
+        check("with its own padding stripped", 0xA5, mem_rd(0x008A));
+    }
+
+    n = xm_frame(frame, 0, 1, data, 4, 1);
+    n += xm_frame(frame + n, 0, 1, data, 4, 1);
+    frame[n++] = XM_EOT;
+    mem_poke(0x3004, 0xA5);
+    type((char *)frame, n);
+    check("a retransmitted packet is stored once", 4, upload_bin(0x3000, 1));
+    check("and does not grow the image", 0xA5, mem_rd(0x3004));
+
+    memcpy(data, "ABCD", 4);
+    n = xm_stream(frame, 0, data, 4, 0);
+    type((char *)frame, n);
+    s_hold = 21;                        /* 'C' twenty times, then NAK */
+    check("checksum mode works once CRC has been given up",
+          4, upload_bin(0x3100, 1));
+    check("still the bytes that were sent", 'D', mem_rd(0x3103));
+
+    n = xm_stream(frame, 1, data, 4, 1);
+    type((char *)frame, n);
+    mem_poke(0x3204, 0xA5);
+    check("a 1K packet is accepted", 4, upload_bin(0x3200, 1));
+    check("and padded out past the image, not into it", 0xA5, mem_rd(0x3204));
+
+    n = xm_stream(frame, 0, data, 5, 1);
+    type((char *)frame, n);
+    check("an image is cut off at FFFFh", 2, upload_bin(0xFFFE, 1));
+    check("the last two bytes are stored", 0x41, mem_rd(0xFFFE));
+    check("and FFFF holds the second byte", 'B', mem_rd(0xFFFF));
+
+    n = xm_frame(frame, 0, 2, data, 4, 1);
+    frame[n++] = XM_EOT;
+    mem_poke(0x3300, 0xA5);
+    type((char *)frame, n);
+    check("a packet out of sequence is refused", -5, upload_bin(0x3300, 1));
+    check("and stores nothing", 0xA5, mem_rd(0x3300));
+
+    frame[0] = XM_CAN;
+    frame[1] = XM_CAN;
+    type((char *)frame, 2);
+    check("two CANs cancel the transfer", -3, upload_bin(0, 1));
+
+    type("", 0);
+    check("silence is a timeout", -2, upload_bin(0, 1));
+
+    {
+        static const char hex[] =
+            ":03010000010203F6\r\n:00000001FF\r\n";
+
+        n = xm_stream(frame, 0, (const uint8_t *)hex, (int)strlen(hex), 1);
+        type((char *)frame, n);
+        check("an Intel HEX upload loads its data bytes", 3, upload_hex());
+        check("at the address the record names", 0x03, mem_rd(0x0102));
+        check("and reports no bad line", 0, s_hex_line);
+    }
+    {
+        static const char hex[] = ":0301000001020300\r\n";
+
+        n = xm_stream(frame, 0, (const uint8_t *)hex, (int)strlen(hex), 1);
+        type((char *)frame, n);
+        check("a bad HEX record fails the upload", -6, upload_hex());
+        check("and names the line", 1, s_hex_line);
+    }
+    {
+        static const char hex[] = ":030200000A0B0CDA";
+
+        n = xm_stream(frame, 0, (const uint8_t *)hex, (int)strlen(hex), 1);
+        type((char *)frame, n);
+        check("a HEX record with no newline still loads", 3, upload_hex());
+        check("into the address it carried", 0x0C, mem_rd(0x0202));
+    }
+
+    s_outn = 0;
+    s_raw = 0;
+    argv[0] = "upload";
+    argv[1] = "0";
+    argv[2] = NULL;
+    menu_command(2, argv);
+    s_out[s_outn] = '\0';
+    check("upload without a raw console is refused", 1,
+          strstr(s_out, "needs a raw console") != NULL);
+
+    s_outn = 0;
+    argv[1] = "zz";
+    menu_command(2, argv);
+    s_out[s_outn] = '\0';
+    check("a bad upload address prints the usage", 1,
+          strstr(s_out, "upload [ADDR]") != NULL);
+
+    s_raw = 1;
+    mem_poke(0x0405, 0xA5);
+    memcpy(data, "HELLO", 5);
+    n = xm_stream(frame, 0, data, 5, 1);
+    type((char *)frame, n);
+    s_outn = 0;
+    argv[1] = "400";
+    menu_command(2, argv);
+    s_out[s_outn] = '\0';
+    check("the menu command receives at the address it was given",
+          'O', mem_rd(0x0404));
+    check("and says how many bytes arrived", 1,
+          strstr(s_out, "5 bytes at 0400") != NULL);
+    check("padding stayed out of memory", 0xA5, mem_rd(0x0405));
+
+    n = xm_stream(frame, 0, data, 5, 1);
+    type((char *)frame, n);
+    argv[1] = "500";
+    argv[2] = "raw";
+    menu_command(3, argv);
+    check("the menu's raw keeps the padding", XM_SUB, mem_rd(0x0505));
+    s_raw = 0;
+}
+
 /* ------------------------------------------------------- live */
 static int live(int argc, char **argv)
 {
@@ -824,6 +1029,7 @@ int main(int argc, char **argv)
     test_cpu();
     test_memory();
     test_io();
+    test_upload();
 
     printf("\n--- the program ---\n");
     s_outn = 0;
