@@ -354,10 +354,10 @@ typedef struct {
  *
  * What a handler may do is decided by what it can preempt.  Console
  * output, the LED, ticks_ms(), the pin calls, the timer calls and
- * crypt() are all safe.  malloc(), free(), the filesystem and the I2C,
- * SPI and 1-Wire calls are not - they can be interrupted halfway
- * through their own bookkeeping, or they spin on a bus - so the kernel
- * refuses them from a handler
+ * crypt() are all safe.  malloc(), free(), the filesystem, power() and
+ * the I2C, SPI and 1-Wire calls are not - they can be interrupted
+ * halfway through their own bookkeeping, or they spin on a bus - so the
+ * kernel refuses them from a handler
  * instead of letting a program corrupt the heap or the card.  A handler
  * that faults, or one that never returns, is killed and ends the run
  * the way a fault in the program would; it
@@ -390,6 +390,9 @@ typedef void (*freya_irq_fn)(int source, void *arg);
 #define FREYA_PRIO_NORMAL      1
 
 typedef void (*freya_thread_fn)(void *arg);
+
+/* A supply the kernel can take away.  FREYA_PWR_SD is the card socket. */
+#define FREYA_PWR_SD         1
 
 /*
  * Service table handed to the program.  Fields are only ever appended,
@@ -450,8 +453,9 @@ typedef struct freya_api {
     int         (*last_exit)(freya_exit_t *st);   /* -1 if nothing ran   */
     const char *(*exit_reason_str)(int reason);
 
-    /* appended: pins.  The console and the card own PA2..PA7; those are
-     * refused with FREYA_ERR_PIN and everything else is the program's. */
+    /* appended: pins.  The console owns PA2 and PA3.  The card owns
+     * PA4..PA7 and PA8, which switches its supply.  Those are refused
+     * with FREYA_ERR_PIN and everything else is the program's. */
     int      (*pin_mode)(int pin, int mode);      /* FREYA_PIN_*         */
     int      (*pin_read)(int pin);                /* 0 or 1              */
     int      (*pin_write)(int pin, int value);
@@ -563,6 +567,15 @@ typedef struct freya_api {
      * mode off again, returns or exits.  The kernel turns it off when the
      * run ends however it ends.  Returns the previous setting. */
     int      (*console_raw)(int on);
+
+    /* appended: board power.  FREYA_PWR_SD is the card socket.  on is
+     * 0 or 1.  The call returns the state it found, so that state can
+     * be put back, or FREYA_ERR_*.  Off closes every open file,
+     * unmounts, releases the SPI pins and drops VDD through the
+     * board's switch.  On brings VDD back and waits for the rail; the
+     * card stays unidentified until the next mount.  A pin or timer
+     * handler is refused. */
+    int      (*power)(int domain, int on);
 } freya_api_t;
 
 /*

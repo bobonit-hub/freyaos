@@ -93,9 +93,34 @@ void board_uart_pins(void)
                      ((7UL << 8) | (7UL << 12));
 }
 
+/* ---------------------------------------------------------- SD card power */
+/* PA8 is the gate.  The level is latched before the pin becomes an
+ * output, so the card never sees the gate float through the other state. */
+/* Own section.  The Black Pill linker keeps it out of the 48 KiB image. */
+void board_sd_power(int on) __attribute__((noinline, section(".text.board_sd_power")));
+void board_sd_power(int on)
+{
+    GPIO_TypeDef *port = BOARD_SD_PWR_PORT;
+    uint32_t pin = BOARD_SD_PWR_PIN;
+    uint32_t pair = pin * 2U;
+    int high = on ? BOARD_SD_PWR_ON : !BOARD_SD_PWR_ON;
+
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+    (void)RCC->AHB1ENR;
+
+    if (high) port->BSRR = (1UL << pin);
+    else      port->BSRR = (1UL << (pin + 16));
+    port->OTYPER  &= ~(1UL << pin);
+    port->OSPEEDR  = (port->OSPEEDR & ~(3UL << pair)) | (1UL << pair);
+    port->PUPDR   &= ~(3UL << pair);
+    port->MODER    = (port->MODER & ~(3UL << pair)) | (1UL << pair);
+}
+
 /* ---------------------------------------------------------- SD card pins */
 void board_spi_pins(void)
 {
+    board_sd_power(1);                  /* VDD on before any clock       */
+
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
     RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
     (void)RCC->APB2ENR;

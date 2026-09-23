@@ -36,6 +36,13 @@
 #define BOARD_SD_CS_PIN     4
 #define BOARD_SPI_HAS_I2S   1           /* SPI1 has the I2S registers    */
 
+/* PA8 is the gate of a P-channel MOSFET that feeds the socket.  Low
+ * applies VDD.  A pull-down on the gate keeps the card powered while
+ * the pin is still an input, which is how reset leaves it. */
+#define BOARD_SD_PWR_PORT   GPIOA
+#define BOARD_SD_PWR_PIN    8
+#define BOARD_SD_PWR_ON     0
+
 /* Card identification has to sit in the 100-400 kHz window; the data rate
  * is whatever the card and the wiring stand.  PCLK2 is 96 MHz here. */
 #define BOARD_SPI_BR_SLOW   7           /* /256 = 375 kHz                */
@@ -43,10 +50,11 @@
 
 /* ------------------------------------------------- pins and interrupts */
 /* The ports a program may name, and within them the pins Freya keeps for
- * itself: the console on PA2/PA3 and the card on PA4..PA7.  PC13 is the
- * LED, which a program may drive as a pin or through api->led(). */
+ * itself: the console on PA2/PA3, the card on PA4..PA7 and the socket's
+ * power switch on PA8.  PC13 is the LED, which a program may drive as a
+ * pin or through api->led(). */
 #define BOARD_PIN_PORTS     3                       /* GPIOA, GPIOB, GPIOC */
-#define BOARD_PIN_RESERVED  { 0x00FCU, 0x0000U, 0x0000U }
+#define BOARD_PIN_RESERVED  { 0x01FCU, 0x0000U, 0x0000U }
 
 /* ------------------------------------------- timers a program may open */
 /* TIM2..TIM4, all on APB1 and all clocked at twice PCLK1 because the
@@ -99,6 +107,7 @@
 void board_clock_init(void);            /* clock tree, fills g_clocks    */
 void board_uart_pins(void);             /* console pins and USART clock  */
 void board_spi_pins(void);              /* SD card pins, SPI and CS      */
+void board_sd_power(int on);            /* socket VDD, through PA8       */
 void board_spi_mux(SPI_TypeDef *spi, int sck, int miso, int mosi, int af);
 
 /* Pins for programs: the register layout is the chip's, so the generic

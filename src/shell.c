@@ -325,13 +325,18 @@ static int cmd_sysinfo(int argc, char **argv)
     inf("ram dump");   kprintf("%s\r\n", onoff(app_ramdump_enabled()));
 #endif
 
-    inf("sd card");    kprintf("%s", sd_type_str());
-    if (g_sd.initialised) {
-        kprintf(", ");
-        kput_size((uint64_t)g_sd.blocks * 512ULL);
-        kprintf(" (%u blocks)", g_sd.blocks);
+    inf("sd card");
+    if (!sd_powered()) {
+        kprintf("power off\r\n");
+    } else {
+        kprintf("%s", sd_type_str());
+        if (g_sd.initialised) {
+            kprintf(", ");
+            kput_size((uint64_t)g_sd.blocks * 512ULL);
+            kprintf(" (%u blocks)", g_sd.blocks);
+        }
+        kprintf("\r\n");
     }
-    kprintf("\r\n");
 
     if (fat_mounted()) {
         kprintf("  filesystem : %s", fat_type_str());
@@ -475,6 +480,40 @@ static int cmd_mount(int argc, char **argv)
     kprintf("mounted %s", fat_type_str());
     if (g_fs.label[0]) kprintf(" \"%s\"", g_fs.label);
     kprintf(" on /\r\n");
+    return 0;
+}
+
+/* --------------------------------------------------------------- power */
+/* Its own section, so the Black Pill linker can keep it out of the
+ * 48 KiB image.  The Blue Pill image still has room and leaves it there. */
+#define POWER_USAGE  "power [sd [on|off]]"
+#define POWER_TEXT __attribute__((noinline, section(".text.cmd_power")))
+
+static int POWER_TEXT cmd_power(int argc, char **argv)
+{
+    int on, rc;
+
+    if (argc == 1) {
+        kprintf("sd %s\r\n", sd_powered() ? "on" : "off");
+        kprintf("usage: %s\r\n", POWER_USAGE);
+        return 0;
+    }
+    if (strcmp(argv[1], "sd") != 0) return usage(POWER_USAGE);
+    if (argc == 2) {
+        kprintf("sd %s\r\n", sd_powered() ? "on" : "off");
+        return 0;
+    }
+    if (argc != 3) return usage(POWER_USAGE);
+    if (strcmp(argv[2], "on") == 0) on = 1;
+    else if (strcmp(argv[2], "off") == 0) on = 0;
+    else return usage(POWER_USAGE);
+
+    rc = board_power(FREYA_PWR_SD, on);
+    if (rc < 0) {
+        kprintf("power: refused\r\n");
+        return -1;
+    }
+    kprintf("sd %s\r\n", on ? "on" : "off");
     return 0;
 }
 
@@ -1979,6 +2018,7 @@ static const command_t s_cmds[] = {
     { "sysinfo",  cmd_sysinfo,  "sysinfo" },
     { "meminfo",  cmd_meminfo,  "meminfo" },
     { "mount",    cmd_mount,    "mount" },
+    { "power",    cmd_power,    POWER_USAGE },
     { "ls",       cmd_ls,       "ls [-l] [path]" },
     { "ll",       cmd_ls,       "ll [path]" },
     { "cd",       cmd_cd,       "cd [path]" },

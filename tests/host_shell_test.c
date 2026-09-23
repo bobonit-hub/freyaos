@@ -129,8 +129,28 @@ void heap_stats(uint32_t *total, uint32_t *used, uint32_t *free_bytes,
 uint32_t stack_used(void)              { return 40; }
 uint32_t stack_peak(void)              { return 80; }
 
+static int s_sd_on = 1;
+
+int  sd_powered(void)              { return s_sd_on; }
+int  board_power(int domain, int on)
+{
+    int was;
+
+    if (domain != FREYA_PWR_SD || (on != 0 && on != 1))
+        return FREYA_ERR_ARG;
+    was = s_sd_on;
+    if (on == was) return was;
+    s_sd_on = on;
+    if (!on) {
+        g_sd.initialised = 0;
+        g_sd.type = SD_TYPE_NONE;
+        s_mounted = 0;
+    }
+    return was;
+}
 int  sd_init(void)
 {
+    s_sd_on = 1;
     g_sd.initialised = 1;
     g_sd.type = SD_TYPE_SDHC;
     g_sd.blocks = 2048;
@@ -529,6 +549,7 @@ int main(void)
     expect_has("help lists sleep", "  sleep <ms>\r\n");
     expect_has("help lists if", "  if <command>\r\n");
     expect_has("help lists loop", "  loop <count>\r\n");
+    expect_has("help lists power", "  power [sd [on|off]]\r\n");
     check_summary_words();
 
     printf("help <command>\n");
@@ -932,6 +953,35 @@ int main(void)
     expect_rc("a file script can source flash", rc, 0);
     expect_exact("the flash script ran from the file", "flashside\r\n");
     s_flash_script = NULL;
+
+    rc = run("power");
+    expect_rc("power succeeds", rc, 0);
+    expect_has("power reports the socket", "sd on\r\n");
+    expect_has("power prints its usage", "usage: power [sd [on|off]]");
+
+    rc = run("power sd");
+    expect_rc("power sd succeeds", rc, 0);
+    expect_exact("power sd names the state", "sd on\r\n");
+
+    rc = run("power sd off");
+    expect_rc("power sd off succeeds", rc, 0);
+    expect_exact("power sd off says so", "sd off\r\n");
+    rc = run("sysinfo");
+    expect_has("sysinfo reports the socket off", "power off\r\n");
+    expect_has("power off unmounts", "not mounted");
+
+    rc = run("power sd on");
+    expect_rc("power sd on succeeds", rc, 0);
+    expect_exact("power sd on says so", "sd on\r\n");
+    rc = run("df");
+    expect_rc("power on does not mount", rc, FREYA_EXIT_FAIL);
+
+    rc = run("power led on");
+    expect_rc("power of an unknown domain fails", rc, FREYA_EXIT_FAIL);
+    expect_has("power prints the usage", "usage: power [sd [on|off]]");
+
+    rc = run("mount");
+    expect_rc("mount after power on succeeds", rc, 0);
 
     printf("%d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;

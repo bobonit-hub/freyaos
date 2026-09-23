@@ -440,6 +440,7 @@ static const freya_api_t s_api = {
     .spi_read        = spi_read,
     .crypt           = crypt_apply,
     .console_raw     = api_console_raw,
+    .power           = board_power,
 };
 
 const freya_api_t *app_api(void)

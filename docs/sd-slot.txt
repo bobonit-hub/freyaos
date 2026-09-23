@@ -1,27 +1,38 @@
 SD card slot
 ============
 
-Freya talks to the card in SPI mode on SPI1. The six wires are the same
-pins on the Blue Pill and the Black Pill. The headers are not, so each
-board has its own drawing below. Power the slot from the board's 3.3 V
-pin and join the two grounds. The card runs at 3.3 V on that pin.
+Freya talks to the card in SPI mode on SPI1. The six signal wires are the
+same pins on the Blue Pill and the Black Pill. The headers are not, so each
+board has its own drawing below. Join the two grounds. The card runs at
+3.3 V, taken from a high-side switch rather than straight from the 3.3 V
+pin: that switch is what `power sd off` opens.
 
     Signal     Pin    microSD     full-size SD
     ---------  -----  ----------  ------------
     CS         PA4    2  DAT3     1  CD/DAT3
     DI / MOSI  PA7    3  CMD      2  CMD
-    VDD        3.3 V  4  VDD      4  VDD
+    VDD        switch  4  VDD      4  VDD     (PA8 gates it; see below)
     CLK / SCK  PA5    5  CLK      5  CLK
     GND        GND    6  VSS      3  VSS1 and 6 VSS2
     DO / MISO  PA6    7  DAT0     7  DAT0
+
+PA8 drives the gate of a P-channel MOSFET. The source is the board's
+3.3 V pin, the drain is the socket's VDD, and a 100 kΩ pull-down from
+the gate to ground holds the card on while PA8 is still an input after
+reset. PA8 low keeps the card on; PA8 high turns it off. PA8 is on the
+right header of both boards. A socket tied straight to 3.3 V still
+enumerates; `power sd off` then releases the bus and the filesystem,
+and VDD stays up. Leave the socket off for a few hundred milliseconds
+when the card has to come back from a real power-on reset.
 
 DAT1 and DAT2 stay unused. Pull each up to 3.3 V with 10 kΩ: microSD
 pins 8 and 1, or full-size pins 8 and 9. Freya pulls DO up inside the
 chip. CS is driven and sits high while the card is idle. A card-detect
 switch on the socket is left open.
 
-A module that already labels CS, CLK, DO, DI, 3.3 V and GND takes the
-same six wires. Its VCC goes to 3.3 V.
+A module that already labels CS, CLK, DO, DI, VCC and GND takes the
+same six signal wires. Its VCC goes to the switched rail, not to the
+board's 3.3 V pin.
 
 
 Blue Pill
@@ -49,7 +60,7 @@ the left header. Pin 1 of that header is VB, next to the USB socket.
               B10  o
               B11  o
                 R  o
-              3.3  o-------- VDD
+              3.3  o-------- VDD   (the switch; gate is PA8)
                 G  o-------- VSS
                 G  o-------- VSS   (full-size pin 6; either ground)
 
@@ -65,7 +76,7 @@ USB-C socket. The 5V pin is not part of this wiring.
                     left
                5V  o
                 G  o-------- VSS
-              3.3  o-------- VDD
+              3.3  o-------- VDD   (the switch; gate is PA8)
               B10  o
                B2  o
                B1  o

@@ -271,6 +271,7 @@ uint8_t  sdspi_xfer(uint8_t v);
 void     sdspi_write(const uint8_t *buf, uint32_t len);
 void     sdspi_read(uint8_t *buf, uint32_t len);
 void     sdspi_cs(int low);
+void     sdspi_quiesce(void);             /* stop SPI1, release its pins */
 
 int      spi_open(int bus, uint32_t hz, int mode); /* 0, or FREYA_ERR_* */
 int      spi_close(int bus);
@@ -317,6 +318,9 @@ typedef struct {
 extern sd_info_t g_sd;
 
 int         sd_init(void);
+int         sd_powered(void);             /* 1 while the socket has VDD   */
+int         sd_power(int on);             /* the rail itself, 0 or 1      */
+int         board_power(int domain, int on); /* previous state, or FREYA_ERR_* */
 int         sd_read_block(uint32_t lba, uint8_t *buf);
 int         sd_read_blocks(uint32_t lba, uint8_t *buf, uint32_t count);
 int         sd_write_block(uint32_t lba, const uint8_t *buf);

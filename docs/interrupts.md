@@ -50,10 +50,11 @@ A, B and C exist on both boards; the register layout behind them does not
 (the F1 configures a pin in one four-bit field, the F4 in four two-bit ones),
 which is why the chip half lives in `boards/<board>/board.c`.
 
-Freya keeps **PA2 and PA3** for the console and **PA4 to PA7** for the card,
-and refuses them with `FREYA_ERR_PIN`. That is the whole reservation list:
-PC13 is the LED and a program may drive it either as a pin or through
-`api->led()`, and every other pin is the program's. A write to a pin is a
+Freya keeps **PA2 and PA3** for the console, **PA4 to PA7** for the card
+and **PA8** for the socket's power switch, and refuses them with
+`FREYA_ERR_PIN`. That is the whole reservation list: PC13 is the LED and
+a program may drive it either as a pin or through `api->led()`, and every
+other pin is the program's. A write to a pin is a
 single store to `BSRR`, so it cannot be caught halfway by an interrupt, and
 neither can a `pin_toggle()`.
 

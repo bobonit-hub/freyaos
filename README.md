@@ -75,7 +75,9 @@ Freya 1.1 "UFOnaut" for STM32F103C8T6
 * Console shell on USART2 at 921600 8N1, interrupt driven, with line editing and
   command history.
 * SD / SDHC cards over SPI, and a FAT16 / FAT32 implementation that reads *and*
-  writes: files, directories, long file names, MBR partitions.
+  writes: files, directories, long file names, MBR partitions. The socket's
+  supply is a power domain: `power sd off` drops VDD, `power sd on` brings
+  it back, and a program does the same with `api->power(FREYA_PWR_SD, on)`.
 * Receives files over the console with XMODEM / XMODEM-1K.
 * Logs dated messages from programs and the kernel to `/freya.log` on the card,
   keeping one previous file when the log reaches 1 MiB.
@@ -136,9 +138,12 @@ The console is wired the same way on both boards.
 
 The card is SPI1 on PA4 to PA7 on both boards. Those pins sit in different
 places on the two headers; the slot drawings are in
-[docs/sd-slot.txt](docs/sd-slot.txt).
+[docs/sd-slot.txt](docs/sd-slot.txt). VDD is switched: PA8 drives the gate
+of a P-channel MOSFET, low to power the socket. A pull-down on that gate
+keeps the card on through reset.
 
-Freya keeps six pins: PA2 and PA3 for the console, PA4 to PA7 for the card.
+Freya keeps seven pins: PA2 and PA3 for the console, PA4 to PA7 for the
+card, and PA8 for its supply.
 Every other pin of ports A, B and C is a program's
 to drive or take interrupts on, and eight of them — PA0, PA1, PB0, PB1 and
 PB6 to PB9 — have a timer channel behind them and can be driven as PWM.
@@ -257,6 +262,7 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `sysinfo` | CPU, unique id, clocks, reset cause, uptime, log level, auto-start and ram-dump flags, card, filesystem |
 | `meminfo` | flash and RAM usage: .data, .bss, heap, program region, stack |
 | `mount` | initialise the card and mount the filesystem |
+| `power [sd [on\|off]]` | show the socket supply, or switch it |
 | `ls [-l] [path]` | list a directory |
 | `ll [path]` | list with sizes, dates and attributes |
 | `cd [path]`, `pwd` | move around |

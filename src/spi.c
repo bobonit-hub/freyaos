@@ -72,6 +72,26 @@ void sdspi_read(uint8_t *buf, uint32_t len)
     while (len--) *buf++ = sdspi_xfer(0xFF);
 }
 
+/* Drop the bus before the socket loses VDD.  A pin left driving, or a
+ * pull-up left on, feeds the card through its protection diodes. */
+/* Own section, with sd_power().  The Black Pill image has no room. */
+void sdspi_quiesce(void) __attribute__((noinline, section(".text.sdspi_quiesce")));
+void sdspi_quiesce(void)
+{
+    GPIO_TypeDef *port;
+
+    if (RCC->APB2ENR & RCC_APB2ENR_SPI1EN) {
+        SPI1->CR1 &= ~SPI_CR1_SPE;
+        RCC->APB2ENR &= ~RCC_APB2ENR_SPI1EN;
+        (void)RCC->APB2ENR;
+    }
+
+    port = board_gpio_port(0);             /* GPIOA: PA4..PA7            */
+    if (!port) return;
+    for (int n = 4; n <= 7; n++)
+        board_pin_mode(port, n, FREYA_PIN_ANALOG);
+}
+
 /* --------------------------------------------------------- a program */
 typedef struct {
     SPI_TypeDef *regs;

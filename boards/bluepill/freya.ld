@@ -88,6 +88,9 @@ SECTIONS
         *spi.o(.text.spi_*)
         *shell.o(.text.cmd_crypt)
         *crypt.o(.text .text.*)
+        /* Socket power is left for .text.  This extension has no room
+         * for it; the 48 KiB image still does.  The Black Pill script
+         * claims those sections up here instead. */
         *shell.o(.text.shell_poll_runtime)
         *shell.o(.text.kext_script)
         *shell.o(.text.kext_script.*)

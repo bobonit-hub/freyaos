@@ -83,6 +83,14 @@ SECTIONS
         *spi.o(.text.spi_*)
         *shell.o(.text.cmd_crypt)
         *crypt.o(.text .text.*)
+        /* Socket power.  The 48 KiB image has no room; this extension does.
+         * The Blue Pill is the other way around, so its script leaves
+         * these sections for .text. */
+        *power.o(.text .text.*)
+        *shell.o(.text.cmd_power)
+        *sd.o(.text.sd_power*)
+        *spi.o(.text.sdspi_quiesce)
+        *board.o(.text.board_sd_power)
         *shell.o(.text.shell_poll_runtime)
         *shell.o(.text.kext_script)
         *shell.o(.text.kext_script.*)
@@ -95,6 +103,8 @@ SECTIONS
         *spi.o(.rodata.spi_*)
         *shell.o(.rodata.cmd_crypt*)
         *crypt.o(.rodata .rodata.*)
+        *power.o(.rodata .rodata.*)
+        *shell.o(.rodata.cmd_power*)
         *shell.o(.rodata.shell_poll_runtime*)
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)

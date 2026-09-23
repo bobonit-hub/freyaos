@@ -31,6 +31,19 @@ sd_info_t g_sd;
 #define TOKEN_MULTI     0xFC
 #define TOKEN_STOP      0xFD
 
+/* After VDD is applied the card needs the rail to finish rising before
+ * the first clock.  The simplified spec allows 1 ms; 10 ms covers a
+ * slow switch.  The 74 clocks are sd_init()'s. */
+#define SD_POWER_UP_MS  10
+
+/* The pull-down on the gate holds the card on out of reset, so the
+ * socket is powered before this driver has run.  The two calls are in
+ * their own section: the Black Pill linker keeps them out of the 48 KiB
+ * image, and the Blue Pill image still has room for that section. */
+static int s_powered = 1;
+
+#define SD_PWR __attribute__((noinline, section(".text.sd_power")))
+
 static uint8_t crc7(const uint8_t *data, int len)
 {
     uint8_t crc = 0;
@@ -138,11 +151,38 @@ static void decode_csd(void)
     }
 }
 
+int SD_PWR sd_powered(void)
+{
+    return s_powered;
+}
+
+/* The rail only.  Callers that also own the filesystem go through
+ * board_power(), which unmounts before this drops VDD. */
+int SD_PWR sd_power(int on)
+{
+    if (on) {
+        int cold = !s_powered;
+
+        board_sd_power(1);
+        s_powered = 1;
+        if (cold) sys_delay_ms(SD_POWER_UP_MS);
+        return 0;
+    }
+
+    memset(&g_sd, 0, sizeof(g_sd));
+    sdspi_quiesce();
+    board_sd_power(0);
+    s_powered = 0;
+    return 0;
+}
+
 int sd_init(void)
 {
     uint8_t r1, ocr[4];
     uint32_t start;
     int i;
+
+    if (!s_powered) sd_power(1);
 
     memset(&g_sd, 0, sizeof(g_sd));
     sdspi_init();

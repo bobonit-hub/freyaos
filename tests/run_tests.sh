@@ -141,6 +141,14 @@ echo "================= exit status ================="
 $CC $CFLAGS tests/host_exit_test.c -o "$OUT/hostexit"
 "$OUT/hostexit" || status=1
 
+# Card power: what is closed and unmounted around the rail.  The pin
+# itself is the board's; this is the decision in src/power.c.
+echo
+echo "================= board power ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_power_test.c src/power.c -o "$OUT/hostpower"
+"$OUT/hostpower" || status=1
+
 # Ctrl-C at the console: a stop for a running program, a key for one
 # that asked for a raw console, and the shell's own key otherwise.
 echo

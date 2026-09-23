@@ -14,6 +14,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `sysinfo` | CPU, unique id, clocks, reset cause, uptime, log level, auto-start and ram-dump flags, card, filesystem |
 | `meminfo` | flash and RAM usage: .data, .bss, heap, program region, stack |
 | `mount` | initialise the card and mount the filesystem |
+| `power [sd [on\|off]]` | show the socket supply, or switch it |
 | `ls [-l] [path]` | list a directory |
 | `ll [path]` | list with sizes, dates and attributes |
 | `cd [path]`, `pwd` | move around |
@@ -50,6 +51,17 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `if <command>` ... `else` ... `end` | run the following commands when that command's status is 0 |
 | `loop <count>` ... `end` | repeat the commands up to `end` |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
+
+## Socket power
+
+`power` is `api->power()`. `power sd off` closes every open file, unmounts,
+releases PA4..PA7 and drives PA8 high, which opens the VDD switch described
+in [sd-slot.txt](sd-slot.txt). `power sd on` drives PA8 low and waits for
+the rail; the card is not identified again until `mount`. `mount` itself
+turns the rail on when it was off. A program does the same with
+`api->power(FREYA_PWR_SD, 0)` and `api->power(FREYA_PWR_SD, 1)`. The call
+returns the state it found. A kernel from before this call is detected
+with `FREYA_API_HAS(api, power)`.
 
 ## Pins and PWM at the prompt
 
