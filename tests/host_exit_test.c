@@ -99,6 +99,15 @@ int main(void)
           0, FREYA_API_HAS(&api, last_exit) ? 1 : 0);
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
+    api.size = sizeof(freya_api_t);
+    check("console_raw is the last call in the table",
+          (int)sizeof(freya_api_t),
+          (int)(__builtin_offsetof(freya_api_t, console_raw) +
+                sizeof(api.console_raw)));
+    api.size = __builtin_offsetof(freya_api_t, console_raw);
+    check("a kernel from before console_raw does not offer it",
+          0, FREYA_API_HAS(&api, console_raw) ? 1 : 0);
+    check("but still offers crypt", 1, FREYA_API_HAS(&api, crypt) ? 1 : 0);
 
     printf("\n%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;

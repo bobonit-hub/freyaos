@@ -556,6 +556,13 @@ typedef struct freya_api {
      * Nothing is kept between calls, so a handler may use this. */
     int      (*crypt)(const void *key, const void *nonce, uint32_t off,
                       const void *in, void *out, int len);
+
+    /* appended: a raw console.  With on non-zero, Ctrl-C is no longer
+     * the kernel's: it arrives through getc() as 0x03 like any other key,
+     * and the program is the only way out of the run until it turns raw
+     * mode off again, returns or exits.  The kernel turns it off when the
+     * run ends however it ends.  Returns the previous setting. */
+    int      (*console_raw)(int on);
 } freya_api_t;
 
 /*

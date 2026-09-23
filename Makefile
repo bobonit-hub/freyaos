@@ -89,11 +89,18 @@ APP_GC     :=
 endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink tetris edit log forth irq pwm i2c spi w1 crypt flashprobe threads
+SAMPLES   := blink tetris edit log forth irq pwm i2c spi w1 crypt flashprobe threads \
+             altair
+# A sample a board has no room for at all is not built there: the Altair
+# wants 48 KiB of RAM for the 8080 alone, and the Blue Pill has 20.
+SKIP_bluepill := altair
+SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
-# whole of the Blue Pill's RAM window before its dictionary is counted.
-XIP_ONLY_bluepill := forth
+# whole of the Blue Pill's RAM window before its dictionary is counted, and
+# the Altair's 8080 memory fills the Black Pill's RAM window by itself.
+XIP_ONLY_bluepill  := forth
+XIP_ONLY_blackpill := altair
 XIP_ONLY  := $(XIP_ONLY_$(BOARD))
 SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(filter-out $(XIP_ONLY),$(SAMPLES)))
 
@@ -127,6 +134,9 @@ endif
 ifneq ($(PROGRAM),)
 ifeq ($(APP_XIP_LD),)
 $(error PROGRAM=$(PROGRAM): '$(BOARD)' keeps no program in flash)
+endif
+ifneq ($(filter $(PROGRAM),$(SKIP_$(BOARD))),)
+$(error PROGRAM=$(PROGRAM): that sample does not fit '$(BOARD)')
 endif
 ifneq ($(filter $(PROGRAM),$(APPS)),)
 PROGRAM_BIN := $(BUILD)/apps/$(PROGRAM).xip.bin
@@ -238,6 +248,11 @@ $(BUILD)/samples/%.xip.bin: $(BUILD)/samples/%.xip.elf tools/xip_image.py
 $(BUILD)/samples/%.bin: $(BUILD)/samples/%.elf
 	@$(OBJCOPY) -O binary $< $@
 	@echo "  BIN   $@"
+
+# A sample in several files keeps main.c as the one the rule compiles,
+# and main.c includes the rest; this makes a change to any of them count.
+$(BUILD)/samples/altair.elf $(BUILD)/samples/altair.xip.elf: \
+	$(wildcard $(SMPL_DIR)/altair/*.c $(SMPL_DIR)/altair/*.h)
 
 # ----------------------------------------------------------------- misc
 size: $(BUILD)/$(TARGET).elf

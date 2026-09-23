@@ -351,6 +351,14 @@ static int api_thread_self(void)
     return thread_self();
 }
 
+static int api_console_raw(int on)
+{
+    int was = uart_is_raw();
+
+    uart_set_raw(on);
+    return was;
+}
+
 static const freya_api_t s_api = {
     .size            = sizeof(freya_api_t),
     .version         = FREYA_ABI_VERSION,
@@ -431,6 +439,7 @@ static const freya_api_t s_api = {
     .spi_write       = spi_write,
     .spi_read        = spi_read,
     .crypt           = crypt_apply,
+    .console_raw     = api_console_raw,
 };
 
 const freya_api_t *app_api(void)

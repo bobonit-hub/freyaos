@@ -53,11 +53,13 @@ void usart2_interrupt(uint32_t *frame);
  * whatever was interrupted, so the entry point is a shim that captures
  * MSP before the compiler's prologue has moved it.
  */
+#ifndef FREYA_HOST
 __attribute__((naked)) void USART2_IRQHandler(void)
 {
     __asm volatile ("mrs r0, msp\n\t"
                     "b   usart2_interrupt");
 }
+#endif
 
 void usart2_interrupt(uint32_t *frame)
 {

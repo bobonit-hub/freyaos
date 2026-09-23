@@ -363,8 +363,11 @@ finds out how much
 internal flash the chip really has (`samples/flashprobe/README.md`),
 `samples/tetris` is a console game (keys
 in `samples/tetris/README.md`), `samples/edit` is a terminal text editor
-(`samples/edit/README.md`), and `samples/forth` is an interactive Forth
-with a compiler and 122 words (`samples/forth/README.md`). Every
+(`samples/edit/README.md`), `samples/forth` is an interactive Forth
+with a compiler and 122 words (`samples/forth/README.md`), and
+`samples/altair` is an Altair 8800b Turnkey that runs Altair BASIC and
+other original 8080 software from the card (`samples/altair/README.md`;
+Black Pill only, from flash). Every
 app and sample is also built as `.xip.bin` for `install`, and a sample too
 large for a board's program RAM region is built there as the flash image
 alone — which on the Blue Pill is what happens to `forth`, whose
@@ -396,7 +399,9 @@ The service table (`include/freya_api.h`) gives a program console I/O and
 `open`, `read`, `write`, `seek`, `close`, `unlink`, `mkdir`, `rename`,
 `opendir`, `readdir`, `closedir`, the exit status of the run before it:
 `exit`, `last_exit`, `exit_reason_str`, the pins, the timers, PWM and the
-interrupts, XTEA in CTR mode (`crypt`), and a file log: `log`, `get_log_level`,
+interrupts, XTEA in CTR mode (`crypt`), a raw console (`console_raw`,
+which hands Ctrl-C to the program as an ordinary key, as an emulator needs;
+Freya takes it back when the run ends), and a file log: `log`, `get_log_level`,
 `set_log_level`. Log lines are `YYYY-MM-DD HH:MM:SS LEVEL message` in
 `/freya.log` at the root of the card. The file is capped at 1 MiB; when it
 fills, it is renamed to `/freya.log.old` (replacing any previous copy) and a
@@ -748,7 +753,7 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth`, `altair` |
 | `tests/` | host side tests |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
@@ -788,6 +793,13 @@ control structure, defining words, string literals, recursion, a source
 file read through `include`, and each way the interpreter can fail. The
 same binary talks to a terminal with `-i`, which is the quickest way to
 try the language without a board.
+
+The `altair` sample is tested the same way. The 8080's flags, `DAA`,
+timing, memory map, ports, loaders and tapes are always checked. The
+CPU exercisers and Altair BASIC itself cannot be committed, so they run
+only when `ALTAIR_TESTS`, `ALTAIR_BASIC` and `ALTAIR_MBL` point at them
+(`samples/altair/README.md`). Ctrl-C with the console raw and not raw
+is checked on `src/uart.c` itself, against a fake USART.
 
 A run's exit status is decided in one place — `freya_exit_status()` in the ABI
 header — so that the closing line of `run`, `$?`, the log line and a program

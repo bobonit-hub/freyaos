@@ -123,6 +123,16 @@ echo "================= forth ================="
 $CC $CFLAGS -DFREYA_APP_XIP -no-pie tests/host_forth_test.c -o "$OUT/hostforth"
 "$OUT/hostforth" || status=1
 
+# The Altair sample: the 8080 instruction by instruction, the Turnkey
+# memory map, the serial ports and the file formats.  ALTAIR_TESTS=dir
+# adds the CP/M CPU exercisers found there, ALTAIR_BASIC=file a session
+# with that Altair BASIC image; neither file is part of Freya.
+echo
+echo "================= altair ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS -O2 -DFREYA_APP_XIP tests/host_altair_test.c -o "$OUT/hostaltair"
+"$OUT/hostaltair" || status=1
+
 # The exit status rule: how a program's code, a Ctrl-C and a fault each
 # become the number the shell reports as '$?'.
 echo
@@ -130,6 +140,14 @@ echo "================= exit status ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_exit_test.c -o "$OUT/hostexit"
 "$OUT/hostexit" || status=1
+
+# Ctrl-C at the console: a stop for a running program, a key for one
+# that asked for a raw console, and the shell's own key otherwise.
+echo
+echo "================= console Ctrl-C ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_uart_test.c -o "$OUT/hostuart"
+"$OUT/hostuart" || status=1
 
 # Thread names, priorities and stop.  The PendSV switch does not run on
 # the host; the table and the scheduling decision do.
