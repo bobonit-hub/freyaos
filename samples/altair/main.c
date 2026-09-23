@@ -25,8 +25,9 @@
  * The 8080 is in i8080.c, memory in mem.c, the ports in io.c, the
  * console side in term.c and the card side in load.c.  The Makefile
  * builds a sample from main.c alone, so they are included here.
- * samples/altair16 includes this file with 16 KiB of RAM, which fits
- * the program region and so loads with 'run' as well as from flash.
+ * samples/altair16 includes this file with 16 KiB of RAM.  On the Black
+ * Pill that fits the program region and so loads with 'run' as well as
+ * from flash.  On the Blue Pill the same RAM is kept in program flash.
  */
 #include <stddef.h>
 #include "freya_api.h"
@@ -627,6 +628,10 @@ int app_main(const freya_api_t *api, int argc, char **argv)
 
     i8080_init();
     got_kb = mem_init(ram_kb);
+    if (got_kb == 0) {
+        mem_release();
+        return FREYA_EXIT_FAIL;
+    }
     g->printf("altair: 8800b Turnkey, %u KiB RAM at 0000, Turnkey SRAM at "
               "F800, PROM at FC00\r\n", got_kb);
     if (got_kb < ram_kb)

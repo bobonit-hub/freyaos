@@ -374,8 +374,9 @@ with a compiler and 122 words (`samples/forth/README.md`), and
 `samples/altair` is an Altair 8800b Turnkey that runs Altair BASIC and
 other original 8080 software from the card (`samples/altair/README.md`;
 Black Pill only, from flash). `samples/altair16` is that machine with
-16 KiB of RAM, which fits the program region and so runs from RAM as
-well (`samples/altair16/README.md`). Every
+16 KiB of RAM. On the Black Pill it fits the program region and runs
+from RAM as well; on the Blue Pill, whose SRAM is 20 KiB, that RAM is
+kept in program flash (`samples/altair16/README.md`). Every
 app and sample is also built as `.xip.bin` for `install`, and a sample too
 large for a board's program RAM region is built there as the flash image
 alone — which on the Blue Pill is what happens to `forth`, whose

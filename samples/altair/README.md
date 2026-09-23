@@ -46,9 +46,10 @@ only. The Blue Pill's 8 KiB window could not hold even 4K BASIC and its
 workspace, so `make BOARD=bluepill` skips this sample.
 
 `samples/altair16` is the same machine with 16 KiB of RAM and no more.
-That fits the Black Pill's program region beside the interpreter, so it
-is built as `altair16.bin` (loaded with `run`) as well as a flash image.
-See `samples/altair16/README.md`.
+On the Black Pill that fits the program region beside the interpreter,
+so it is built as `altair16.bin` (loaded with `run`) as well as a flash
+image. On the Blue Pill the SRAM is 20 KiB, the window is 8 KiB, and
+that 16 KiB is kept in program flash. See `samples/altair16/README.md`.
 
 ```
 freya:/> install altair.xip.bin     once, into program flash

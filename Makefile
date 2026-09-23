@@ -91,16 +91,18 @@ endif
 # Sample programs, same ABI and linker script, one directory each under samples/
 SAMPLES   := blink tetris edit log forth irq pwm i2c spi w1 crypt flashprobe threads \
              altair altair16
-# A sample a board has no room for at all is not built there.  The Altair
-# keeps the 8080's RAM in the program region: 48 KiB, or 16 KiB for
-# altair16.  The Blue Pill's window is 8 KiB.
-SKIP_bluepill := altair altair16
+# A sample a board has no room for at all is not built there.  The 48 KiB
+# Altair keeps the 8080's RAM in the program region.  The Blue Pill's
+# window is 8 KiB of a 20 KiB SRAM, which cannot hold that.
+SKIP_bluepill := altair
 SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
 # whole of the Blue Pill's RAM window before its dictionary is counted, and
 # the Altair's 8080 memory fills the Black Pill's RAM window by itself.
-XIP_ONLY_bluepill  := forth
+# altair16 on the Blue Pill keeps its 16 KiB in the top of program flash,
+# so the interpreter runs from flash too.
+XIP_ONLY_bluepill  := forth altair16
 XIP_ONLY_blackpill := altair
 XIP_ONLY  := $(XIP_ONLY_$(BOARD))
 SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(filter-out $(XIP_ONLY),$(SAMPLES)))

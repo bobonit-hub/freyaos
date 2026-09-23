@@ -33,15 +33,29 @@ make flash PROGRAM=altair16 AUTOSTART=1   # and started on every reset
 The 48 KiB machine's memory fills the Black Pill's program region, so
 that build is a flash image. Here the memory is 16 KiB and the
 interpreter fits beside it, so the Makefile builds a RAM image and a
-flash image. It is for the Black Pill only. The Blue Pill's window is
-8 KiB, so `make BOARD=bluepill` skips this sample.
+flash image.
+
+The Blue Pill's SRAM is 20 KiB. The kernel, the stacks and the 8 KiB
+program window already use it, so this 16 KiB cannot be an array in
+that window. `make BOARD=bluepill` builds the flash image only. The
+interpreter runs from flash, and the 8080's main RAM is the top 16 KiB
+of the program flash region. Reads are ordinary loads from that flash.
+Writes are collected in a 3 KiB cache in the program window and written
+back a page at a time, because the chip cannot erase a byte in place.
+The Turnkey SRAM and the PROM sockets stay in the window. Starting the
+machine erases those 16 KiB, which takes a moment.
+
+```sh
+make BOARD=bluepill                          # build/bluepill/samples/altair16.xip.bin
+make BOARD=bluepill flash PROGRAM=altair16
+```
 
 ```
 freya:/> run altair16.bin           the files in /altair/
 freya:/> run altair16.bin 8k41.tap --boot 8k
 freya:/> run altair16.bin 4k40.tap --boot 4k40
 freya:/> install altair16.xip.bin   once, into program flash
-freya:/> runflash
+freya:/> runflash                   the Blue Pill runs it this way
 ```
 
 With no image named, it looks in `/altair/` for the same files as the
@@ -55,7 +69,7 @@ unchanged.
 
 | Address | What |
 |---|---|
-| 0000-3FFF | RAM, 16 KiB, in the program's RAM window |
+| 0000-3FFF | RAM, 16 KiB. On the Black Pill, in the program's RAM window. On the Blue Pill, in program flash |
 | 4000-F7FF | empty: reads FFh, writes are lost |
 | F800-FBFF | Turnkey Module SRAM, 1 KiB |
 | FC00-FFFF | Turnkey PROM sockets: FD00 TURMON, FE00 MBL, FF00 DBL |
