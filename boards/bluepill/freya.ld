@@ -11,13 +11,12 @@
  * it fits.  The size register on these parts often still reads 64 KiB.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
  *   0x0800C000 .. 0x0800C07F   auto-start flag + reserved          (128 B)
- *   0x0800C080 .. 0x0801EFFF   program flash region             (77696 B)
- *   0x0801F000 .. 0x0801FFFF   kernel extension (threads)          ( 4 KiB)
+ *   0x0800C080 .. 0x0801DFFF   program flash region             (73600 B)
+ *   0x0801E000 .. 0x0801FFFF   kernel extension (threads, shell)   ( 8 KiB)
  *
  * The extension is its own image at the top of the 128 KiB.  The program
- * region stops short of it, so install and uninstall never erase the
- * scheduler, and the 48 KiB image still ends on the page before the
- * auto-start slot.
+ * region stops short of it, so install and uninstall never erase it,
+ * and the 48 KiB image still ends on the page before the auto-start slot.
  *
  * RAM map - the whole system has to fit in a fifth of what the Black Pill
  * offers, so the heap is small and the program region is sized for the
@@ -38,7 +37,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x0801F000, LENGTH = 4K
+    KEXT  (rx)  : ORIGIN = 0x0801E000, LENGTH = 8K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
@@ -54,7 +53,7 @@ __shell_stack_limit  = __worker_stacks + __worker_count * __worker_stack_size;
 __autostart_start    = 0x0800C000;
 __autostart_end      = 0x0800C080;
 __app_flash_start    = 0x0800C080;
-__app_flash_end      = 0x0801F000;
+__app_flash_end      = 0x0801E000;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;
@@ -84,9 +83,16 @@ SECTIONS
         *shell.o(.text.cmd_stop)
         *shell.o(.text.cmd_threads)
         *shell.o(.text.shell_poll_runtime)
+        *shell.o(.text.kext_script)
+        *shell.o(.text.kext_script.*)
+        *loader.o(.text.kext_script)
+        *loader.o(.text.kext_script.*)
+        *uart.o(.text.uart_take_ctrlc)
         *shell.o(.rodata.cmd_stop*)
         *shell.o(.rodata.cmd_threads*)
         *shell.o(.rodata.shell_poll_runtime*)
+        *shell.o(.rodata.kext_script*)
+        *loader.o(.rodata.kext_script*)
         . = ALIGN(4);
         __kext_end = .;
     } > KEXT

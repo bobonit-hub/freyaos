@@ -136,6 +136,23 @@ void uart_rx_flush(void)
     s_tail = s_head;
 }
 
+/* 1 if Ctrl-C is the next key.  That byte is taken, and so is anything
+ * queued behind it, so a sleep or a loop that was cancelled does not
+ * then run whatever was typed after the Ctrl-C.  Any other key stays
+ * in the ring for the prompt. */
+int uart_take_ctrlc(void)
+{
+    uint32_t pm = irq_save();
+
+    if (s_head == s_tail || s_rx[s_tail] != CTRL_C) {
+        irq_restore(pm);
+        return 0;
+    }
+    s_tail = s_head;
+    irq_restore(pm);
+    return 1;
+}
+
 static int rx_pop(void)
 {
     int c;

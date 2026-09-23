@@ -32,10 +32,10 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `stop [thread]` | stop the program, or one thread by name |
 | `threads` | list threads: id, priority, state, name |
 | `status` | exit status of the last command and the last program |
-| `install <file>` | write a program into internal flash |
-| `saveflash [file]` | copy the installed program from flash onto the card (default `/<name>.xip.bin`) |
+| `install <file>` | write a program, or a shell script, into internal flash |
+| `saveflash [file]` | copy the installed program or script from flash onto the card |
 | `uninstall` | erase the program flash region |
-| `autostart [on\|off]` | run the flash program automatically at boot |
+| `autostart [on\|off]` | run the flash program or script automatically at boot |
 | `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (default off) |
 | `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
@@ -43,6 +43,10 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `pwm [<pin> <hz> <duty%>\|<pin> off]` | list the PWM channels, or start and stop one |
 | `i2c [<bus> <hz>\|<bus> off\|<bus> scan\|<bus> <addr> …]` | list the I2C buses, or open, scan and talk to one |
 | `w1 [<pin>\|<pin> off\|<pin> search\|<pin> reset\|…]` | list open 1-Wire pins, or open one and talk to it |
+| `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
+| `source <file>\|@flash` | run a shell script from a file, or from program flash |
+| `if <command>` ... `else` ... `end` | run the following commands when that command's status is 0 |
+| `loop <count>` ... `end` | repeat the commands up to `end` |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
 
 ## Pins and PWM at the prompt
@@ -134,8 +138,10 @@ The pin is named the way `pin` names one. `search` prints every ROM and
 when its run ends instead. Reading a thermometer is `samples/w1`.
 [docs/w1.md](w1.md) has the worked transcript.
 
-Ctrl-C stops a running program and every thread it created. `stop` with no
-name does the same when a program is running, and unloads it otherwise;
+Ctrl-C stops a running program and every thread it created. It also
+stops a `sleep` or a `loop`, and throws away a script that is still
+being typed. `stop` with no name does the same when a program is
+running, and unloads it otherwise;
 `stop <name>` stops that thread and leaves the run going. `threads` lists
 them. Ctrl-U clears the input line, and the up and down cursor keys walk
 the command history. While a program runs, only `threads`, `stop` and
@@ -147,6 +153,71 @@ it worked, 1 when it failed, 127 for a word that is not a command, and for
 after a fault. It is expanded before the line is split, so `echo $?` and
 `write /runs.txt $?` both work, and `status` prints the same numbers with the
 reason and the run time beside them.
+
+## Scripts
+
+`;` separates commands on one line. A new line separates them the same
+way, and quotes hide a semicolon, so `echo "a;b"` is one command.
+
+`if` runs the command written after it. When that command's status is
+0, the commands up to `else` or `end` run. Otherwise they are skipped,
+and the commands between `else` and `end` run if an `else` was written.
+`loop` repeats the commands up to `end` the number of times given.
+`sleep` waits that many milliseconds. A count is a decimal number, at
+most 1000000. `$?` may be the count: it is read when the loop starts.
+
+```
+freya:/> if echo hi
+> echo yes
+> else
+> echo no
+> end
+hi
+yes
+freya:/> loop 3; echo tick; sleep 200; end
+tick
+tick
+tick
+```
+
+The prompt changes to `>` while a block is still open, and Ctrl-C on
+that prompt throws the lines away. Those lines together have to stay
+within 160 characters. Nothing runs until the block is closed, so a
+missing `end` or an `else` in the wrong place does not half-run the
+commands. A branch that is skipped does not change `$?`. `$?` is
+expanded when each command runs, so a loop sees a new value every pass.
+Blocks nest, eight deep.
+
+A `#` at the start of a statement, or after a space, comments out the
+rest of that statement. Quotes hide it, so `echo "a # b"` prints the
+hash. A line that is only a comment is skipped.
+
+`source <file>` reads a script from the card and runs it. The file is
+plain text, at most 1024 bytes, and each command is still one line of
+at most 159 characters. `source @flash` runs the script stored in the
+program flash region, which needs no card. A short flash script is
+copied into RAM first, so the script may `install` or `uninstall`
+without erasing the text it is still reading; a longer one is read
+from the flash as it runs. `source` inside a script is allowed, three
+deep including the line that started it. Ctrl-C stops the script the
+same way it stops a `loop`.
+
+```
+freya:/> source /blink.sh
+PB5 = 1
+freya:/> install /blink.sh
+install: console input is dropped while flash is busy
+  erasing 1 page ... writing ... ok
+installed script /blink.sh at 0x0800c080: 24 B in 1 page
+freya:/> source @flash
+PB5 = 1
+```
+
+`install` of a text file stores that script in the program flash region,
+in place of a program image. `saveflash` copies it back (default
+`/script.sh`). `uninstall` erases it. `runflash` on a script says to
+use `source @flash`. With `autostart on`, the next boot runs the script
+when `/autorun.bin` is absent.
 
 ## Commands that were Blue Pill only
 

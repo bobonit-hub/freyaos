@@ -615,6 +615,25 @@ const freya_app_header_t *app_flash_header(void)
     return h;
 }
 
+int app_script_find(const char **text, uint32_t *length)
+{
+    const freya_script_header_t *h =
+        (const freya_script_header_t *)(uintptr_t)FREYA_APP_FLASH_ADDR;
+    const char *body;
+    uint32_t n;
+
+    if (text) *text = NULL;
+    if (h->magic != FREYA_SCRIPT_MAGIC) return 0;
+    n = h->length;
+    if (n > FREYA_APP_FLASH_SIZE - sizeof(*h) - 1U) return -1;
+    body = (const char *)(h + 1);
+    if (body[n] != '\0') return -1;
+    if (!script_text_ok(body, n)) return -1;
+    if (text) *text = body;
+    if (length) *length = n;
+    return 1;
+}
+
 /*
  * Copy an installed image to the top of the program RAM window when it
  * fits.  Its .data and .bss occupy the bottom, so keeping the two ranges
@@ -631,7 +650,13 @@ static int app_load_flash(void)
     uint8_t *copy;
 
     if (!hdr) {
-        kprintf("load: no program in flash - install one, or flash it with the kernel\r\n");
+        const char *script = NULL;
+
+        if (app_script_find(&script, NULL) > 0)
+            kprintf("load: that is a shell script - 'source %s'\r\n",
+                    APP_FLASH_PATH);
+        else
+            kprintf("load: no program in flash - install one, or flash it with the kernel\r\n");
         return -1;
     }
     if (check_xip_header(hdr, hdr->image_size, "load") != 0) return -1;
@@ -843,7 +868,170 @@ static int image_matches(int fd, uint32_t want, uint8_t *buf)
     return 1;
 }
 
-int app_install(const char *path)
+/* Same extension as the shell's script interpreter: the 48 KiB image
+ * has no room for another install path. */
+#define KEXT __attribute__((noinline, section(".text.kext_script")))
+
+/* 1 if the open file's first four bytes are 'magic'.  The file position
+ * is left wherever the read stopped. */
+static int KEXT file_has_magic(int fd, uint32_t magic)
+{
+    uint8_t b[4];
+    uint32_t m;
+
+    if (fs_fd_seek(fd, 0, FREYA_SEEK_SET) != FAT_OK) return 0;
+    if (read_full(fd, b, 4) != 4) return 0;
+    m = (uint32_t)b[0] | ((uint32_t)b[1] << 8) |
+        ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+    return m == magic;
+}
+
+/* 1 if every byte of the file is text a shell script may contain. */
+static int KEXT file_is_script(int fd, uint32_t size)
+{
+    uint8_t buf[64];
+    uint32_t off = 0;
+
+    if (size == 0 ||
+        size > FREYA_APP_FLASH_SIZE - sizeof(freya_script_header_t) - 1U)
+        return 0;
+    if (fs_fd_seek(fd, 0, FREYA_SEEK_SET) != FAT_OK) return 0;
+    while (off < size) {
+        int chunk = (int)MIN((uint32_t)sizeof buf, size - off);
+
+        if (read_full(fd, buf, chunk) != chunk) return 0;
+        if (!script_text_ok((const char *)buf, (uint32_t)chunk)) return 0;
+        off += (uint32_t)chunk;
+    }
+    return 1;
+}
+
+/* One chunk of the image 'install' writes: 8-byte header, then the file,
+ * then the NUL that ends the text.  The file is read in order, so the
+ * caller seeks to the start before the first chunk. */
+static int KEXT fill_script_image(int fd, uint32_t size, uint32_t done,
+                             uint8_t *dst, uint32_t n)
+{
+    freya_script_header_t h;
+    uint8_t hdr[sizeof h];
+    uint32_t i = 0;
+
+    h.magic = FREYA_SCRIPT_MAGIC;
+    h.length = size;
+    memcpy(hdr, &h, sizeof h);
+
+    while (i < n) {
+        uint32_t off = done + i;
+
+        if (off < sizeof h) {
+            dst[i++] = hdr[off];
+        } else if (off < sizeof h + size) {
+            uint32_t left = sizeof h + size - off;
+            int chunk = (int)MIN(n - i, left);
+
+            if (read_full(fd, dst + i, chunk) != chunk) return -1;
+            i += (uint32_t)chunk;
+        } else {
+            dst[i++] = 0;
+        }
+    }
+    return 0;
+}
+
+/* 1 if flash already holds this script, 0 if it does not, -1 on a read
+ * error.  The file is rewound first. */
+static int KEXT script_in_flash(int fd, uint32_t size, uint8_t *buf)
+{
+    const uint8_t *flash = (const uint8_t *)(uintptr_t)FREYA_APP_FLASH_ADDR;
+    uint32_t total = (uint32_t)sizeof(freya_script_header_t) + size + 1U;
+    uint32_t done = 0;
+
+    if (fs_fd_seek(fd, 0, FREYA_SEEK_SET) != FAT_OK) return -1;
+    while (done < total) {
+        uint32_t n = MIN((uint32_t)INSTALL_BUF_SIZE, total - done);
+
+        if (fill_script_image(fd, size, done, buf, n) != 0) return -1;
+        if (memcmp(buf, flash + done, n) != 0) return 0;
+        done += n;
+    }
+    return 1;
+}
+
+static int KEXT install_script(int fd, const char *abs, uint32_t size, uint8_t *buf)
+{
+    uint32_t page = flash_page_size();
+    uint32_t total = (uint32_t)sizeof(freya_script_header_t) + size + 1U;
+    uint32_t pages, done = 0;
+    int rc, same;
+
+    same = script_in_flash(fd, size, buf);
+    if (same < 0) {
+        kprintf("install: read error\r\n");
+        return -1;
+    }
+    if (same) {
+        kprintf("install: flash already holds this script, nothing written\r\n");
+        return 0;
+    }
+
+    rc = flash_begin();
+    if (rc != FLASH_OK) {
+        kprintf("install: %s\r\n", flash_err_str(rc));
+        return -1;
+    }
+
+    {
+        uint32_t erase0 = FREYA_APP_FLASH_ADDR & ~(page - 1);
+        pages = (FREYA_APP_FLASH_ADDR + total - erase0 + page - 1) / page;
+    }
+    kprintf("install: console input is dropped while flash is busy\r\n");
+    kprintf("  erasing %u page%s ... ", pages, pages == 1 ? "" : "s");
+    uart_drain_tx();
+
+    rc = flash_erase(FREYA_APP_FLASH_ADDR, total);
+    if (rc != FLASH_OK) goto fail;
+
+    kprintf("writing ... ");
+    uart_drain_tx();
+
+    if (fs_fd_seek(fd, 0, FREYA_SEEK_SET) != FAT_OK) {
+        kprintf("\r\ninstall: read error\r\n");
+        goto fail_quiet;
+    }
+    while (done < total) {
+        uint32_t chunk = MIN((uint32_t)INSTALL_BUF_SIZE, total - done);
+
+        if (fill_script_image(fd, size, done, buf, chunk) != 0) {
+            kprintf("\r\ninstall: read error at offset %u\r\n", done);
+            goto fail_quiet;
+        }
+        rc = flash_program(FREYA_APP_FLASH_ADDR + done, buf, chunk);
+        if (rc != FLASH_OK) goto fail;
+        done += chunk;
+    }
+    flash_end();
+    uart_rx_flush();
+
+    if (script_in_flash(fd, size, buf) != 1) {
+        kprintf("\r\ninstall: verify failed\r\n");
+        return -1;
+    }
+    kprintf("ok\r\n");
+    kprintf("installed script %s at 0x%08x: ", abs,
+            (unsigned)FREYA_APP_FLASH_ADDR);
+    kput_size(size);
+    kprintf(" in %u page%s\r\n", pages, pages == 1 ? "" : "s");
+    return 0;
+
+fail:
+    kprintf("\r\ninstall: %s at offset %u\r\n", flash_err_str(rc), done);
+fail_quiet:
+    flash_end();
+    uart_rx_flush();
+    return -1;
+}
+
+int KEXT app_install(const char *path)
 {
     freya_app_header_t hdr;
     char abs[FAT_MAX_PATH];
@@ -872,6 +1060,23 @@ int app_install(const char *path)
         return -1;
     }
     size = (uint32_t)fs_fd_size(fd);
+
+    /* A text file is a shell script, stored beside programs in the same
+     * region.  A Freya program is recognised by its magic and keeps the
+     * path below, including the refusal of a RAM image. */
+    if (size > 0 &&
+        size <= FREYA_APP_FLASH_SIZE - sizeof(freya_script_header_t) - 1U &&
+        !file_has_magic(fd, FREYA_APP_MAGIC) &&
+        file_is_script(fd, size)) {
+        rc = install_script(fd, abs, size, buf);
+        fs_fd_close(fd);
+        return rc;
+    }
+    if (fs_fd_seek(fd, 0, FREYA_SEEK_SET) != FAT_OK) {
+        kprintf("install: read error\r\n");
+        fs_fd_close(fd);
+        return -1;
+    }
 
     if (read_header(fd, &hdr) != 0) {
         kprintf("install: cannot read program header\r\n");

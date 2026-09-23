@@ -4,13 +4,23 @@
  * Line editing with backspace, Ctrl-U, Ctrl-C and a small command
  * history on the cursor keys, plus the built-in command set.  Every
  * command leaves an exit status behind, which '$?' and 'status' read.
+ * ';' separates commands on one line.  'if'/'else'/'end' and 'loop'
+ * group them; a block that is still open is finished on later lines.
+ * 'source' runs the same language from a file or from program flash.
  */
 #include "freya.h"
 #include "fat.h"
 
+/* The 48 KiB kernel image has no room left for the script interpreter.
+ * The extension is a separate image; a call across the two is an
+ * ordinary branch.  These stay out of line so they are not copied
+ * back into the main image. */
+#define KEXT __attribute__((noinline, section(".text.kext_script")))
+
 #define LINE_MAX    160
 #define MAX_ARGS    16
 #define HIST_DEPTH  8
+#define SOURCE_NEST 3           /* shell_exec frames, including this one */
 
 static char s_hist[HIST_DEPTH][LINE_MAX];
 static int  s_hist_count;
@@ -18,6 +28,8 @@ static int  s_hist_pos;
 static int  s_status;               /* status of the last command, '$?' */
 static char s_poll_line[LINE_MAX];  /* a command typed during a run       */
 static int  s_poll_len;
+static int  s_script_stop;          /* Ctrl-C while a script or sleep runs */
+static int  s_exec_depth;           /* shell_exec frames currently active  */
 
 /* ------------------------------------------------------- line editing */
 static void erase_line(int len)
@@ -141,9 +153,9 @@ static int status_of(int rc)
 }
 
 /*
- * '$?' in a line becomes the status of the command before it, which is
- * what makes 'echo $?' and 'write /runs.txt $?' work.  Nothing else is
- * expanded: this is a console, not a scripting language.
+ * '$?' becomes the status of the command before this one.  It is
+ * expanded when that command runs, so each pass of a loop sees the
+ * status the previous command left.  Nothing else is expanded.
  */
 static void expand_status(const char *in, char *out, int size)
 {
@@ -275,6 +287,7 @@ static uint32_t mcu_flash_kib(void)
 
 /* ----------------------------------------------------------- commands */
 static int cmd_help(int argc, char **argv);
+static int cmd_script(int argc, char **argv);
 
 static int cmd_sysinfo(int argc, char **argv)
 {
@@ -378,7 +391,18 @@ static int cmd_meminfo(int argc, char **argv)
             print_bar(h->image_size, FREYA_APP_FLASH_SIZE);
             kprintf("\r\n");
         } else {
-            kprintf("     empty - 'install <file>', or flash one in with the kernel\r\n");
+            const char *script = NULL;
+            uint32_t slen = 0;
+
+            if (app_script_find(&script, &slen) > 0) {
+                kprintf("     shell script, %u B\r\n", slen);
+                kprintf("     ");
+                print_bar((uint32_t)sizeof(freya_script_header_t) + slen + 1U,
+                          FREYA_APP_FLASH_SIZE);
+                kprintf("\r\n");
+            } else {
+                kprintf("     empty - 'install <file>', or flash one in with the kernel\r\n");
+            }
         }
         kprintf("  auto-start     : %s  at 0x%08x  (%u B)\r\n",
                 onoff(app_autostart_enabled()),
@@ -863,9 +887,13 @@ static int cmd_uninstall(int argc, char **argv)
 {
     (void)argc; (void)argv;
 
-    if (!app_flash_header()) {
-        kprintf("no program is installed in flash\r\n");
-        return 0;
+    {
+        const char *script = NULL;
+
+        if (!app_flash_header() && app_script_find(&script, NULL) == 0) {
+            kprintf("no program is installed in flash\r\n");
+            return 0;
+        }
     }
     return app_flash_erase();
 }
@@ -883,6 +911,14 @@ static int cmd_saveflash(int argc, char **argv)
 
     h = app_flash_header();
     if (!h) {
+        const char *script = NULL;
+        uint32_t slen = 0;
+
+        if (app_script_find(&script, &slen) > 0) {
+            name = (argc == 2) ? argv[1] : "/script.sh";
+            return write_mem_file("saveflash", name,
+                                  (const uint8_t *)script, slen);
+        }
         kprintf("saveflash: no program is installed in flash\r\n");
         return -1;
     }
@@ -1264,6 +1300,150 @@ static int cmd_echo(int argc, char **argv)
     for (int i = 1; i < argc; i++)
         kprintf("%s%s", argv[i], (i + 1 < argc) ? " " : "");
     kprintf("\r\n");
+    return 0;
+}
+
+/* Printable ASCII, plus the whitespace a script is written with.
+ * A NUL does not belong in the text; the caller supplies the length. */
+int script_text_ok(const char *text, uint32_t len)
+{
+    for (uint32_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)text[i];
+
+        if (c != '\t' && c != '\n' && c != '\r' && (c < 0x20 || c > 0x7E))
+            return 0;
+    }
+    return 1;
+}
+
+/* Read a script into the heap.  The caller frees *out.  0 on success. */
+static int KEXT load_script_file(const char *path, char **out)
+{
+    int fd, n, got = 0;
+    int32_t size;
+    char *buf;
+
+    *out = NULL;
+    fd = fs_fd_open(path, FREYA_O_RDONLY);
+    if (fd < 0) return fs_fail("source", path, fd);
+    size = fs_fd_size(fd);
+    if (size < 0) {
+        fs_fd_close(fd);
+        return fs_fail("source", path, size);
+    }
+    if ((uint32_t)size > FREYA_SCRIPT_FILE_MAX) {
+        fs_fd_close(fd);
+        kprintf("source: script too long\r\n");
+        return -1;
+    }
+    buf = kmalloc((uint32_t)size + 1U);
+    if (!buf) {
+        fs_fd_close(fd);
+        kprintf("source: out of memory\r\n");
+        return -1;
+    }
+    while (got < size) {
+        n = fs_fd_read(fd, buf + got, (int)(size - got));
+        if (n < 0) {
+            kfree(buf);
+            fs_fd_close(fd);
+            return fs_fail("source", path, n);
+        }
+        if (n == 0) break;
+        got += n;
+    }
+    fs_fd_close(fd);
+    if (got != size) {
+        kfree(buf);
+        kprintf("source: read error\r\n");
+        return -1;
+    }
+    if (!script_text_ok(buf, (uint32_t)got)) {
+        kfree(buf);
+        kprintf("source: %s: not a shell script\r\n", path);
+        return -1;
+    }
+    buf[got] = '\0';
+    *out = buf;
+    return 0;
+}
+
+static int KEXT cmd_source(int argc, char **argv)
+{
+    char *buf = NULL;
+    const char *text = NULL;
+    int rc;
+
+    if (argc != 2) return usage("source " PROG_ARG);
+    if (busy_running("source")) return -1;
+    if (s_exec_depth >= SOURCE_NEST) {
+        kprintf("source: scripts nest too deeply\r\n");
+        return -1;
+    }
+
+#ifdef FREYA_APP_FLASH_ADDR
+    if (is_flash_path(argv[1])) {
+        uint32_t n = 0;
+        int found = app_script_find(&text, &n);
+
+        if (found <= 0) {
+            if (app_flash_header())
+                kprintf("source: %s is a program - 'runflash'\r\n", APP_FLASH_PATH);
+            else if (found < 0)
+                kprintf("source: script in flash is damaged\r\n");
+            else
+                kprintf("source: no script in flash\r\n");
+            return -1;
+        }
+        /* A short script is copied so a later 'install' can erase the
+         * flash it was stored in.  A longer one is read from the flash. */
+        if (n <= FREYA_SCRIPT_FILE_MAX && (buf = kmalloc(n + 1U)) != NULL) {
+            memcpy(buf, text, n);
+            buf[n] = '\0';
+            rc = shell_exec(buf);
+            kfree(buf);
+            return rc;
+        }
+        return shell_exec(text);
+    }
+#endif
+    if (!need_fs()) return -1;
+    if (load_script_file(argv[1], &buf) != 0) return -1;
+    rc = shell_exec(buf);
+    kfree(buf);
+    return rc;
+}
+
+/* 1 once Ctrl-C has been noticed.  The first time prints '^C' and
+ * remembers it, so a loop unwinds without printing it again. */
+static int KEXT script_interrupted(void)
+{
+    if (s_script_stop) return 1;
+    if (!uart_take_ctrlc()) return 0;
+    kprintf("^C\r\n");
+    s_script_stop = 1;
+    s_status = FREYA_EXIT_FAIL;
+    return 1;
+}
+
+/* Busy wait, in short slices, so Ctrl-C can land between them.  The
+ * console interrupt still queues the key while this thread spins. */
+#define SLEEP_SLICE_MS  20
+
+static int KEXT cmd_sleep(int argc, char **argv)
+{
+    uint32_t ms, done = 0;
+
+    if (argc != 2 || str_to_u32(argv[1], &ms) != 0)
+        return usage("sleep <ms>");
+    while (done < ms) {
+        uint32_t step = ms - done;
+
+        if (step > SLEEP_SLICE_MS) step = SLEEP_SLICE_MS;
+        if (script_interrupted()) return -1;
+        sys_delay_ms(step);
+        done += step;
+    }
     return 0;
 }
 
@@ -1693,9 +1873,25 @@ static const command_t s_cmds[] = {
     { "i2c",      cmd_i2c,      I2C_USAGE },
     { "w1",       cmd_w1,       W1_USAGE },
     { "echo",     cmd_echo,     "echo <text...>" },
+    { "sleep",    cmd_sleep,    "sleep <ms>" },
+    { "source",   cmd_source,   "source " PROG_ARG },
+    { "if",       cmd_script,   "if <command>" },
+    { "else",     cmd_script,   "else" },
+    { "end",      cmd_script,   "end" },
+    { "loop",     cmd_script,   "loop <count>" },
     { "clear",    cmd_clear,    "clear" },
     { "reboot",   cmd_reboot,   "reboot" },
 };
+
+/* 'if', 'else', 'end' and 'loop' are syntax, handled before the table
+ * is searched.  Reaching here means one of those words was itself the
+ * command an 'if' ran, which is not what they mean. */
+static int cmd_script(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    return -1;
+}
 
 static int cmd_help(int argc, char **argv)
 {
@@ -1722,10 +1918,317 @@ static int cmd_help(int argc, char **argv)
     return 0;
 }
 
-/* --------------------------------------------------------------- loop */
-/* Runs one line and records its status, which the next line's '$?' and
- * the 'status' command read back.  An empty line changes nothing, the
- * way a shell leaves '$?' alone. */
+/* ------------------------------------------------------------- scripts */
+/*
+ * A script is a list of commands.  ';' and a new line both separate
+ * them, except inside quotes.  A '#' at the start of a statement, or
+ * after a space, comments out the rest of that statement.  'if' runs
+ * one command and then either the lines up to 'else' or the lines up
+ * to 'end', depending on whether that command's status was 0.  'loop'
+ * repeats the lines up to 'end'.  A block left open at the end of a
+ * typed line is finished on the next lines; the prompt changes so that
+ * is visible.
+ *
+ * The whole script is checked before anything runs, so a missing 'end'
+ * or an 'else' in the wrong place does not half-run the commands.
+ */
+#define SCRIPT_MAX   160           /* one line; longer scripts use ';' */
+#define SCRIPT_NEST  8
+#define LOOP_MAX     1000000u
+
+#define BLK_IF       1
+#define BLK_ELSE     2
+#define BLK_LOOP     3
+
+#define SCR_DONE     0
+#define SCR_END      1
+#define SCR_ELSE     2
+#define SCR_ERR     -1
+
+static char s_script[SCRIPT_MAX];   /* lines of a block still being typed */
+static int  s_script_len;
+
+/* Next statement into dst.  1 at the end of the text, -1 when a statement
+ * does not fit in dst (the message is already printed).  Quotes hide a
+ * ';' or a newline, the way they hide a space when the line is split.
+ * A '#' at the start of a statement, or after a space, is a comment
+ * through the next separator. */
+static int KEXT next_stmt(const char **pp, char *dst, int size)
+{
+    const char *s = *pp;
+    int i = 0, q = 0, over = 0;
+
+    for (;;) {
+        while (*s == ' ' || *s == '\t' || *s == ';' || *s == '\n' || *s == '\r')
+            s++;
+        if (!*s) {
+            *pp = s;
+            return 1;
+        }
+        if (*s != '#') break;
+        while (*s && *s != ';' && *s != '\n' && *s != '\r') s++;
+    }
+
+    while (*s) {
+        char c = *s;
+
+        if (c == '"') q = !q;
+        else if (!q && (c == ';' || c == '\n' || c == '\r')) break;
+        else if (!q && c == '#' &&
+                 (i == 0 || dst[i - 1] == ' ' || dst[i - 1] == '\t')) {
+            while (*s && *s != ';' && *s != '\n' && *s != '\r') s++;
+            break;
+        }
+        if (i < size - 1) dst[i++] = c;
+        else over = 1;
+        s++;
+    }
+    while (i > 0 && (dst[i - 1] == ' ' || dst[i - 1] == '\t')) i--;
+    dst[i] = '\0';
+    *pp = s;
+    if (over) {
+        kprintf("line too long\r\n");
+        s_status = FREYA_EXIT_FAIL;
+        return -1;
+    }
+    return 0;
+}
+
+/* 1 if the statement's first word is kw.  *rest is what follows it. */
+static int KEXT word_is(const char *stmt, const char *kw, const char **rest)
+{
+    int n = (int)strlen(kw);
+
+    while (*stmt == ' ' || *stmt == '\t') stmt++;
+    if (strncmp(stmt, kw, (size_t)n) != 0) return 0;
+    if (stmt[n] != '\0' && stmt[n] != ' ' && stmt[n] != '\t') return 0;
+    stmt += n;
+    while (*stmt == ' ' || *stmt == '\t') stmt++;
+    if (rest) *rest = stmt;
+    return 1;
+}
+
+/* Decimal count, 0 .. LOOP_MAX.  -1 is not a count, -2 is too large.
+ * Overflow is refused rather than wrapped: a long string of digits
+ * must not become a small loop. */
+static int KEXT parse_count(const char *s, uint32_t *out)
+{
+    uint32_t v = 0;
+    int digits = 0;
+
+    while (*s >= '0' && *s <= '9') {
+        uint32_t d = (uint32_t)(*s - '0');
+
+        if (v > (LOOP_MAX - d) / 10U) return -2;
+        v = v * 10U + d;
+        digits++;
+        s++;
+    }
+    if (!digits || *s) return -1;
+    *out = v;
+    return 0;
+}
+
+static int KEXT count_error(int pr)
+{
+    if (pr < -1) kprintf("loop: count too large\r\n");
+    else usage("loop <count>");
+    s_status = FREYA_EXIT_FAIL;
+    return -1;
+}
+
+/* 0 when the text is a finished script, 1 when a block is still open,
+ * -1 when the shape is wrong (the message is already printed). */
+static int KEXT script_check(const char *text, char *walk)
+{
+    const char *p = text;
+    int8_t stk[SCRIPT_NEST];
+    int sp = 0, ns = 1;
+
+    while ((ns = next_stmt(&p, walk, LINE_MAX)) == 0) {
+        const char *rest;
+
+        if (word_is(walk, "if", &rest)) {
+            if (!*rest) {
+                usage("if <command>");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            if (sp >= SCRIPT_NEST) {
+                kprintf("too many nested blocks\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            stk[sp++] = BLK_IF;
+        } else if (word_is(walk, "loop", &rest)) {
+            if (!*rest) return count_error(-1);
+            /* '$?' is a count, but not until the loop actually runs. */
+            if (!strchr(rest, '$')) {
+                uint32_t n;
+                int pr = parse_count(rest, &n);
+
+                if (pr != 0) return count_error(pr);
+            }
+            if (sp >= SCRIPT_NEST) {
+                kprintf("too many nested blocks\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            stk[sp++] = BLK_LOOP;
+        } else if (word_is(walk, "else", &rest)) {
+            if (*rest) {
+                usage("else");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            if (sp == 0 || stk[sp - 1] != BLK_IF) {
+                kprintf("unexpected else\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            stk[sp - 1] = BLK_ELSE;
+        } else if (word_is(walk, "end", &rest)) {
+            if (*rest) {
+                usage("end");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            if (sp == 0) {
+                kprintf("unexpected end\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            sp--;
+        }
+    }
+    if (ns < 0) return -1;
+    return sp ? 1 : 0;
+}
+
+static int KEXT run_command(const char *line)
+{
+    char buf[LINE_MAX];
+    char *argv[MAX_ARGS];
+    int argc;
+
+    expand_status(line, buf, (int)sizeof buf);
+    argc = split_args(buf, argv, MAX_ARGS);
+    if (argc == 0) return s_status;
+
+    for (unsigned i = 0; i < ARRAY_SIZE(s_cmds); i++) {
+        if (strcmp(s_cmds[i].name, argv[0]) == 0)
+            return s_status = status_of(s_cmds[i].fn(argc, argv));
+    }
+    kprintf("%s: command not found (try 'help')\r\n", argv[0]);
+    return s_status = FREYA_EXIT_NOTFOUND;
+}
+
+/* 1 if rc is the 'end' that closes this block.  Anything else is already
+ * a failure, or becomes one here. */
+static int KEXT block_closed(int rc)
+{
+    if (rc == SCR_END) return 1;
+    if (rc != SCR_ERR) {
+        kprintf("%s\r\n", rc == SCR_ELSE ? "unexpected else" : "missing end");
+        s_status = FREYA_EXIT_FAIL;
+    }
+    return 0;
+}
+
+/* Run statements until 'end' or 'else' at this level.  skip means the
+ * commands are parsed, so the block still matches, but not run. */
+static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
+{
+    int ns = 1;
+
+    while ((ns = next_stmt(pp, walk, LINE_MAX)) == 0) {
+        const char *rest;
+        int rc;
+
+        if (script_interrupted()) return SCR_ERR;
+
+        if (word_is(walk, "end", NULL)) return SCR_END;
+        if (word_is(walk, "else", NULL)) return SCR_ELSE;
+
+        if (word_is(walk, "if", &rest)) {
+            int took = 0;
+
+            /* 'one' is shared with the nested call, so the condition is
+             * run before that call reuses it. */
+            if (!skip) {
+                strncpy(one, rest, LINE_MAX - 1);
+                one[LINE_MAX - 1] = '\0';
+                run_command(one);
+                took = (s_status == 0);
+            }
+            rc = exec_block(pp, skip || !took, walk, one);
+            if (rc == SCR_ERR) return SCR_ERR;
+            if (rc == SCR_ELSE)
+                rc = exec_block(pp, skip || took, walk, one);
+            if (!block_closed(rc)) return SCR_ERR;
+            continue;
+        }
+
+        if (word_is(walk, "loop", &rest)) {
+            uint32_t count = 0;
+            const char *body;
+
+            if (!skip) {
+                int pr;
+
+                expand_status(rest, one, LINE_MAX);
+                pr = parse_count(one, &count);
+                if (pr != 0) {
+                    count_error(pr);
+                    return SCR_ERR;
+                }
+            }
+            body = *pp;
+            if (skip || count == 0) {
+                rc = exec_block(pp, 1, walk, one);
+                if (!block_closed(rc)) return SCR_ERR;
+                continue;
+            }
+            while (count--) {
+                const char *q = body;
+
+                if (script_interrupted()) return SCR_ERR;
+                rc = exec_block(&q, 0, walk, one);
+                if (!block_closed(rc)) return SCR_ERR;
+                *pp = q;
+            }
+            continue;
+        }
+
+        if (!skip) run_command(walk);
+    }
+    return (ns < 0) ? SCR_ERR : SCR_DONE;
+}
+
+static void KEXT script_discard(void)
+{
+    s_script_len = 0;
+    s_script[0] = '\0';
+}
+
+static int KEXT script_append(const char *line)
+{
+    int n = (int)strlen(line);
+    int extra = n + (s_script_len ? 1 : 0);
+
+    if (s_script_len + extra >= SCRIPT_MAX) {
+        kprintf("script too long\r\n");
+        script_discard();
+        s_status = FREYA_EXIT_FAIL;
+        return -1;
+    }
+    if (s_script_len) s_script[s_script_len++] = '\n';
+    memcpy(s_script + s_script_len, line, (size_t)n);
+    s_script_len += n;
+    s_script[s_script_len] = '\0';
+    return 0;
+}
+
 /* A line typed while a program is running.  Only the commands that look
  * at threads are taken: anything else would re-enter the card or the
  * loader under a thread that may be using them.  The line is assembled
@@ -1742,7 +2245,6 @@ void shell_poll_runtime(void)
         if (c < 0) return;
 
         if (c == '\r' || c == '\n') {
-            char cmd[LINE_MAX];
             char tmp[LINE_MAX];
             char *argv[MAX_ARGS];
             int argc;
@@ -1763,8 +2265,7 @@ void shell_poll_runtime(void)
                 return;
             }
             hist_push(s_poll_line);
-            expand_status(s_poll_line, cmd, sizeof cmd);
-            shell_exec(cmd);
+            shell_exec(s_poll_line);
             return;
         }
 
@@ -1790,19 +2291,28 @@ void shell_poll_runtime(void)
     }
 }
 
-int shell_exec(char *line)
+int KEXT shell_exec(const char *line)
 {
-    char *argv[MAX_ARGS];
-    int argc = split_args(line, argv, MAX_ARGS);
+    char walk[LINE_MAX];
+    char one[LINE_MAX];
+    const char *p;
+    int st;
 
-    if (argc == 0) return s_status;
-
-    for (unsigned i = 0; i < ARRAY_SIZE(s_cmds); i++) {
-        if (strcmp(s_cmds[i].name, argv[0]) == 0)
-            return s_status = status_of(s_cmds[i].fn(argc, argv));
+    if (!line) return s_status;
+    st = script_check(line, walk);
+    if (st < 0) return s_status;
+    if (st > 0) {
+        kprintf("missing end\r\n");
+        return s_status = FREYA_EXIT_FAIL;
     }
-    kprintf("%s: command not found (try 'help')\r\n", argv[0]);
-    return s_status = FREYA_EXIT_NOTFOUND;
+    /* A nested 'source' must not forget a Ctrl-C the outer script saw. */
+    if (s_exec_depth == 0)
+        s_script_stop = 0;
+    s_exec_depth++;
+    p = line;
+    (void)exec_block(&p, 0, walk, one);
+    s_exec_depth--;
+    return s_status;
 }
 
 void console_banner(void)
@@ -1828,17 +2338,36 @@ void console_banner(void)
 void shell_run(void)
 {
     static char line[LINE_MAX];
-    static char cmd[LINE_MAX];
 
     for (;;) {
-        int n;
+        char walk[LINE_MAX];
+        int n, st;
 
-        kprintf("freya:%s> ", fat_mounted() ? fs_cwd() : "(no fs)");
-        n = readline(line, sizeof(line));
-        if (n <= 0) continue;
+        if (s_script_len) uart_puts("> ");
+        else kprintf("freya:%s> ", fat_mounted() ? fs_cwd() : "(no fs)");
 
-        hist_push(line);                    /* history keeps what was typed */
-        expand_status(line, cmd, sizeof(cmd));
-        shell_exec(cmd);
+        n = readline(line, (int)sizeof line);
+        if (n < 0) {                        /* Ctrl-C abandons the block */
+            script_discard();
+            continue;
+        }
+        if (n == 0) continue;
+
+        hist_push(line);
+        /* A finished line runs at once.  An open block is kept and
+         * read on the following lines, until 'end' brings it level. */
+        if (!s_script_len) {
+            st = script_check(line, walk);
+            if (st < 0) continue;
+            if (st == 0) {
+                shell_exec(line);
+                continue;
+            }
+        }
+        if (script_append(line) != 0) continue;
+        st = script_check(s_script, walk);
+        if (st > 0) continue;
+        if (st == 0) shell_exec(s_script);
+        script_discard();
     }
 }

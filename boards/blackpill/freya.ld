@@ -78,9 +78,16 @@ SECTIONS
         *shell.o(.text.cmd_stop)
         *shell.o(.text.cmd_threads)
         *shell.o(.text.shell_poll_runtime)
+        *shell.o(.text.kext_script)
+        *shell.o(.text.kext_script.*)
+        *loader.o(.text.kext_script)
+        *loader.o(.text.kext_script.*)
+        *uart.o(.text.uart_take_ctrlc)
         *shell.o(.rodata.cmd_stop*)
         *shell.o(.rodata.cmd_threads*)
         *shell.o(.rodata.shell_poll_runtime*)
+        *shell.o(.rodata.kext_script*)
+        *loader.o(.rodata.kext_script*)
         . = ALIGN(4);
         __kext_end = .;
     } > KEXT
@@ -169,6 +176,8 @@ SECTIONS
            "Freya: program flash is not 128-byte aligned")
     ASSERT((__autostart_end - __autostart_start) == 128,
            "Freya: auto-start slot is not 128 bytes")
+    ASSERT(__kernel_flash_end <= 0x0800C000,
+           "Freya: kernel image does not fit in the first 48 KiB")
     ASSERT(__kernel_flash_end <= __autostart_start,
            "Freya: kernel image overflows into the autostart slot")
     ASSERT(__ramfunc_end <= __app_ram_end,

@@ -84,6 +84,7 @@ void uart_write(const void *buf, int len)
 int  uart_getc(void)                   { return -1; }
 int  uart_getc_timeout(uint32_t ms)    { (void)ms; return -1; }
 int  uart_rx_ready(void)               { return 0; }
+int  uart_take_ctrlc(void)            { return 0; }
 void uart_rx_flush(void)               { }
 void uart_drain_tx(void)               { }
 
@@ -185,11 +186,52 @@ int  fs_rename(const char *a, const char *b)
     (void)a; (void)b; return FAT_ERR_INVAL;
 }
 void fs_close_all(void)                { }
-int  fs_fd_open(const char *path, int flags)  { (void)path; (void)flags; return -1; }
-int  fs_fd_close(int fd)               { (void)fd; return FAT_OK; }
+
+/* One planted script file.  Every other open fails, as before. */
+static const char *s_src_path;
+static const char *s_src_data;
+static int s_src_pos;
+static int s_src_open;
+
+static void plant_script(const char *path, const char *data)
+{
+    s_src_path = path;
+    s_src_data = data;
+    s_src_pos = 0;
+    s_src_open = 0;
+}
+
+int  fs_fd_open(const char *path, int flags)
+{
+    (void)flags;
+    if (s_src_path && path && strcmp(path, s_src_path) == 0 && s_src_data) {
+        s_src_open = 1;
+        s_src_pos = 0;
+        return 3;
+    }
+    return FAT_ERR_NOENT;
+}
+int  fs_fd_close(int fd)
+{
+    if (fd == 3) s_src_open = 0;
+    return FAT_OK;
+}
 int  fs_fd_read(int fd, void *buf, int len)
 {
-    (void)fd; (void)buf; (void)len; return 0;
+    int left, n;
+
+    if (fd != 3 || !s_src_open || !s_src_data || len < 0) return 0;
+    left = (int)strlen(s_src_data) - s_src_pos;
+    if (left <= 0) return 0;
+    n = len < left ? len : left;
+    memcpy(buf, s_src_data + s_src_pos, (size_t)n);
+    s_src_pos += n;
+    return n;
+}
+int32_t fs_fd_size(int fd)
+{
+    if (fd != 3 || !s_src_data) return FAT_ERR_INVAL;
+    return (int32_t)strlen(s_src_data);
 }
 int  fs_fd_write(int fd, const void *buf, int len)
 {
@@ -213,6 +255,30 @@ const freya_app_header_t *app_flash_header(void)
     static freya_app_header_t h;
     return s_installed ? &h : NULL;
 }
+static const char *s_flash_script;
+static int s_flash_script_bad;
+int app_script_find(const char **text, uint32_t *length)
+{
+    if (s_flash_script_bad) return -1;
+    if (!s_flash_script) return 0;
+    if (text) *text = s_flash_script;
+    if (length) *length = (uint32_t)strlen(s_flash_script);
+    return 1;
+}
+
+static char s_km[8192];
+static uint32_t s_km_used;
+void *kmalloc(uint32_t size)
+{
+    uint32_t a;
+
+    if (size == 0) return NULL;
+    a = (s_km_used + 7U) & ~7U;
+    if (a + size > sizeof s_km) return NULL;
+    s_km_used = a + size;
+    return s_km + a;
+}
+void kfree(void *p)                    { (void)p; }
 int  app_flash_erase(void)
 {
     s_erased = 1;
@@ -385,6 +451,12 @@ static void expect_exact(const char *what, const char *text)
     else fail(what);
 }
 
+static void expect_lacks(const char *what, const char *needle)
+{
+    if (!strstr(s_out, needle)) pass(what);
+    else fail(what);
+}
+
 /* Every listed command is one word: a line of the summary has no space
  * in the name.  Usage lines that still carry arguments are not in this
  * set; those commands print their name from the command table instead. */
@@ -392,7 +464,7 @@ static void check_summary_words(void)
 {
     static const char *const names[] = {
         "sysinfo", "meminfo", "mount", "pwd", "df", "threads", "status",
-        "uninstall", "uptime", "clear", "reboot"
+        "uninstall", "uptime", "clear", "reboot", "else", "end"
     };
     static const char *const gone[] = {
         "CPU, clocks, reset, card, fs",
@@ -425,7 +497,7 @@ int main(void)
 {
     static const char *const one_word[] = {
         "sysinfo", "meminfo", "mount", "pwd", "df", "threads", "status",
-        "uninstall", "uptime", "clear", "reboot"
+        "uninstall", "uptime", "clear", "reboot", "else", "end"
     };
     unsigned i;
     int rc;
@@ -442,6 +514,9 @@ int main(void)
     expect_rc("help succeeds", rc, 0);
     expect_has("help introduces the list", "Freya commands:\r\n");
     expect_has("help lists stop with its argument", "  stop [thread]\r\n");
+    expect_has("help lists sleep", "  sleep <ms>\r\n");
+    expect_has("help lists if", "  if <command>\r\n");
+    expect_has("help lists loop", "  loop <count>\r\n");
     check_summary_words();
 
     printf("help <command>\n");
@@ -597,6 +672,228 @@ int main(void)
     else fail("reboot did not sync");
     if (s_rebooted) pass("reboot restarted the MCU");
     else fail("reboot did not restart");
+
+    printf("scripts\n");
+    rc = run("echo a; echo b");
+    expect_rc("two commands succeed", rc, 0);
+    expect_exact("semicolon separates commands", "a\r\nb\r\n");
+
+    rc = run("echo \"a;b\"");
+    expect_rc("quoted semicolon succeeds", rc, 0);
+    expect_exact("quotes hide a semicolon", "a;b\r\n");
+
+    rc = run("nosuch");
+    expect_rc("unknown command is 127", rc, FREYA_EXIT_NOTFOUND);
+    expect_has("unknown command is named", "command not found");
+
+    rc = run("sleep");
+    expect_rc("sleep without a time fails", rc, FREYA_EXIT_FAIL);
+    expect_has("sleep usage", "usage: sleep <ms>");
+    rc = run("sleep x");
+    expect_rc("sleep with a word fails", rc, FREYA_EXIT_FAIL);
+    rc = run("sleep 0");
+    expect_rc("sleep 0 succeeds", rc, 0);
+    expect_exact("sleep 0 prints nothing", "");
+    rc = run("sleep 20");
+    expect_rc("sleep succeeds", rc, 0);
+    expect_exact("sleep prints nothing", "");
+
+    rc = run("if");
+    expect_rc("bare if fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("bare if is usage", "usage: if <command>\r\n");
+    rc = run("loop");
+    expect_rc("bare loop fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("bare loop is usage", "usage: loop <count>\r\n");
+    rc = run("else");
+    expect_rc("bare else fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("bare else is unexpected", "unexpected else\r\n");
+    rc = run("echo hi; end");
+    expect_rc("end at the top fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("end at the top runs nothing", "unexpected end\r\n");
+    rc = run("if echo hi");
+    expect_rc("unclosed if fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("unclosed if runs nothing", "missing end\r\n");
+    rc = run("loop 1000001; end");
+    expect_rc("huge loop fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("huge loop is refused", "loop: count too large\r\n");
+
+    rc = run("if echo hi; echo THEN; else; echo ELSE; end");
+    expect_rc("if of a success succeeds", rc, 0);
+    expect_exact("if takes the then branch", "hi\r\nTHEN\r\n");
+
+    rc = run("if help nosuch; echo THEN; else; echo ELSE; end");
+    expect_rc("if of a failure takes else", rc, 0);
+    expect_has("else branch ran", "ELSE\r\n");
+    expect_lacks("then branch did not run", "THEN\r\n");
+
+    rc = run("if help nosuch; echo THEN; end");
+    expect_rc("if without else keeps the failure", rc, FREYA_EXIT_FAIL);
+    expect_lacks("skipped then prints nothing", "THEN\r\n");
+
+    rc = run("help nosuch");
+    rc = run("loop 0; echo no; end");
+    expect_rc("loop 0 leaves the status", rc, FREYA_EXIT_FAIL);
+    expect_exact("loop 0 runs nothing", "");
+
+    rc = run("loop $?; echo $?; end");
+    expect_rc("loop of $? runs once", rc, 0);
+    expect_exact("$? is the status before the loop", "1\r\n");
+
+    rc = run("loop 2; echo tick; end");
+    expect_rc("loop succeeds", rc, 0);
+    expect_exact("loop repeats the body", "tick\r\ntick\r\n");
+
+    rc = run("loop 2; sleep 5; echo s; end");
+    expect_rc("sleep in a loop succeeds", rc, 0);
+    expect_exact("sleep does not hide the body", "s\r\ns\r\n");
+
+    rc = run("if echo hi\necho THEN\nelse\necho ELSE\nend");
+    expect_rc("multi-line if succeeds", rc, 0);
+    expect_exact("newlines separate like semicolons", "hi\r\nTHEN\r\n");
+
+    rc = run("loop 2; if help nosuch; echo T; else; echo E; end; end");
+    expect_rc("loop of if succeeds", rc, 0);
+    expect_exact("else ran on each pass",
+                 "help: no such command: nosuch\r\nE\r\n"
+                 "help: no such command: nosuch\r\nE\r\n");
+    expect_lacks("then did not run inside the loop", "\r\nT\r\n");
+
+    rc = run("if echo a; if help nosuch; echo innerT; else; echo innerE; end; "
+             "else; echo outerE; end");
+    expect_rc("nested if succeeds", rc, 0);
+    expect_has("inner else ran", "innerE\r\n");
+    expect_lacks("inner then did not run", "innerT\r\n");
+    expect_lacks("outer else did not run", "outerE\r\n");
+
+    rc = run("if echo; if echo; if echo; if echo; if echo; if echo; "
+             "if echo; if echo; if echo; end; end; end; end; end; end; "
+             "end; end; end");
+    expect_rc("nine nested blocks fail", rc, FREYA_EXIT_FAIL);
+    expect_exact("nesting has a limit", "too many nested blocks\r\n");
+
+    printf("source\n");
+    rc = run("echo hi # there");
+    expect_rc("comment after a command succeeds", rc, 0);
+    expect_exact("a hash after a space is a comment", "hi\r\n");
+    rc = run("echo \"hi # there\"");
+    expect_rc("hash inside quotes succeeds", rc, 0);
+    expect_exact("quotes hide a hash", "hi # there\r\n");
+    rc = run("# only a comment\necho z");
+    expect_rc("a comment line succeeds", rc, 0);
+    expect_exact("a comment line is skipped", "z\r\n");
+
+    rc = run("source");
+    expect_rc("source without a path fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("source usage", "usage: source <file>|@flash\r\n");
+    rc = run("help source");
+    expect_rc("help source succeeds", rc, 0);
+    expect_exact("help source names the command, then its usage",
+                 "source\r\nsource <file>|@flash\r\n");
+
+    fat_unmount();
+    rc = run("source /t.sh");
+    expect_rc("source before mount fails", rc, FREYA_EXIT_FAIL);
+    expect_has("source asks for mount", "no filesystem mounted");
+    rc = run("mount");
+    expect_rc("mount after source succeeds", rc, 0);
+
+    plant_script(NULL, NULL);
+    rc = run("source /missing.sh");
+    expect_rc("source of a missing file fails", rc, FREYA_EXIT_FAIL);
+    expect_has("source names the missing file", "source: /missing.sh:");
+
+    plant_script("/t.sh", "echo fromfile\n");
+    rc = run("source /t.sh");
+    expect_rc("source of a file succeeds", rc, 0);
+    expect_exact("source runs the file", "fromfile\r\n");
+
+    plant_script("/t.sh", "echo a; echo b\n");
+    rc = run("source /t.sh");
+    expect_rc("source of two commands succeeds", rc, 0);
+    expect_exact("source splits on a semicolon", "a\r\nb\r\n");
+
+    plant_script("/t.sh", "# setup\nif echo hi\necho THEN\nelse\necho ELSE\nend\n");
+    rc = run("source /t.sh");
+    expect_rc("source of a multi-line if succeeds", rc, 0);
+    expect_exact("source runs the then branch", "hi\r\nTHEN\r\n");
+
+    plant_script("/t.sh", "loop 2\necho tick\nend\n");
+    rc = run("source /t.sh");
+    expect_rc("source of a loop succeeds", rc, 0);
+    expect_exact("source repeats the loop", "tick\r\ntick\r\n");
+
+    plant_script("/t.sh", "echo hi\x01\n");
+    rc = run("source /t.sh");
+    expect_rc("source of a binary file fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("source refuses a binary file",
+                 "source: /t.sh: not a shell script\r\n");
+
+    {
+        static char big[FREYA_SCRIPT_FILE_MAX + 2];
+        memset(big, 'a', FREYA_SCRIPT_FILE_MAX + 1);
+        big[FREYA_SCRIPT_FILE_MAX + 1] = '\0';
+        plant_script("/t.sh", big);
+        rc = run("source /t.sh");
+        expect_rc("source of a long file fails", rc, FREYA_EXIT_FAIL);
+        expect_exact("source refuses a long file", "source: script too long\r\n");
+    }
+
+    {
+        static char line[200];
+        memset(line, 'b', sizeof line - 1);
+        line[sizeof line - 1] = '\0';
+        plant_script("/t.sh", line);
+        rc = run("source /t.sh");
+        expect_rc("source of a long line fails", rc, FREYA_EXIT_FAIL);
+        expect_exact("source refuses a long line", "line too long\r\n");
+    }
+
+    plant_script("/t.sh", "help nosuch\n");
+    rc = run("source /t.sh");
+    expect_rc("source returns the script status", rc, FREYA_EXIT_FAIL);
+    expect_has("source ran the failing command", "no such command");
+    rc = run("echo $?");
+    expect_exact("source leaves $? set", "1\r\n");
+
+    plant_script("/t.sh", "source /t.sh\n");
+    rc = run("source /t.sh");
+    expect_rc("source of itself fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("source refuses deep nesting",
+                 "source: scripts nest too deeply\r\n");
+
+    rc = run("source @flash");
+    expect_rc("source of an empty flash region fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("source says the flash is empty",
+                 "source: no script in flash\r\n");
+
+    s_installed = 1;
+    rc = run("source @flash");
+    expect_rc("source of a flash program fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("source points at runflash",
+                 "source: @flash is a program - 'runflash'\r\n");
+    s_installed = 0;
+
+    s_flash_script_bad = 1;
+    rc = run("source @flash");
+    expect_rc("source of a damaged script fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("source names a damaged script",
+                 "source: script in flash is damaged\r\n");
+    s_flash_script_bad = 0;
+
+    s_flash_script = "echo fromflash\n";
+    fat_unmount();
+    rc = run("source @flash");
+    expect_rc("source from flash needs no card", rc, 0);
+    expect_exact("source runs the flash script", "fromflash\r\n");
+    rc = run("mount");
+    expect_rc("mount after flash source succeeds", rc, 0);
+
+    s_flash_script = "echo flashside\n";
+    plant_script("/t.sh", "source @flash\n");
+    rc = run("source /t.sh");
+    expect_rc("a file script can source flash", rc, 0);
+    expect_exact("the flash script ran from the file", "flashside\r\n");
+    s_flash_script = NULL;
 
     printf("%d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;

@@ -96,6 +96,7 @@ void uart_puts(const char *s);
 int  uart_getc(void);                  /* blocking, -1 when aborted     */
 int  uart_getc_timeout(uint32_t ms);   /* -1 on timeout                 */
 int  uart_rx_ready(void);
+int  uart_take_ctrlc(void);            /* 1 if Ctrl-C was waiting       */
 void uart_rx_flush(void);
 void uart_drain_tx(void);
 int  uart_getc_raw_timeout(uint32_t ms); /* bypasses Ctrl-C handling    */
@@ -355,9 +356,19 @@ void app_unload(void);
 /* Auto-start slot words; erased flash reads 0xFFFFFFFF (flag off). */
 #define FREYA_AUTOSTART_MAGIC  0x31415946UL   /* 'F','Y','A','1' */
 #define FREYA_RAMDUMP_MAGIC    0x50444D52UL   /* 'R','M','D','P' */
+#define FREYA_SCRIPT_MAGIC 0x54524353UL   /* 'S','C','R','T' */
+/* Text follows the header and is ended by a NUL.  'length' is the
+ * text, not counting that NUL. */
+typedef struct {
+    uint32_t magic;
+    uint32_t length;
+} freya_script_header_t;
 int  app_install(const char *path);           /* card image -> flash    */
 int  app_flash_erase(void);
 const freya_app_header_t *app_flash_header(void);   /* NULL if empty    */
+/* 1 and *text set when the region holds a script.  0 when it does not.
+ * -1 when a script header is there but the text is not usable. */
+int  app_script_find(const char **text, uint32_t *length);
 int  app_autostart_enabled(void);
 int  app_autostart_set(int enable);           /* 0 = FLASH_OK           */
 uint32_t app_log_level_stored(void);          /* 0xFFFFFFFF if erased   */
@@ -449,7 +460,12 @@ extern uint32_t thread_exc_restore;
 /* -------------------------------------------------------------- shell */
 void shell_poll_runtime(void);          /* threads/stop while a program runs */
 void shell_run(void) __attribute__((noreturn));
-int  shell_exec(char *line);                  /* returns the status     */
+int  shell_exec(const char *line);            /* returns the status     */
+/* A shell script is ASCII, plus tab and newline.  'len' may be 0. */
+int  script_text_ok(const char *text, uint32_t len);
+/* A file passed to 'source' has to fit in the heap.  A script installed
+ * in program flash may be larger; that one is read from the flash. */
+#define FREYA_SCRIPT_FILE_MAX  1024U
 void console_banner(void);
 
 /* ------------------------------------------------------------- xmodem */

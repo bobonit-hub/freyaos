@@ -62,9 +62,9 @@
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
-/* The last 4 KiB of the 128 KiB holds the kernel's thread extension, so
- * an install does not erase the scheduler. */
-#define FREYA_APP_FLASH_SIZE   (0x0801F000UL - FREYA_APP_FLASH_ADDR)
+/* The last 8 KiB of the 128 KiB holds the kernel extension (threads and
+ * the shell's script interpreter), so an install does not erase it. */
+#define FREYA_APP_FLASH_SIZE   (0x0801E000UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)

@@ -43,7 +43,7 @@ freya:/>
 | Crystal | 25 MHz | 8 MHz |
 | Flash | 512 KiB | 128 KiB |
 | SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 77696 B flash |
+| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 73600 B flash |
 | Build | `make` | `make BOARD=bluepill` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -99,7 +99,7 @@ Freya 1.0.1 "Chupacabra" for STM32F103C8T6
   a DS18B20 ([docs/w1.md](docs/w1.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
-  size from 8 KiB to 77696 bytes; on the Black Pill the flash region is 64 KiB
+  size from 8 KiB to 73600 bytes; on the Black Pill the flash region is 64 KiB
   (sector 4) and is there so the same console commands work with no card in
   the socket. The program can be copied from the card, or packed into the
   module when Freya itself is flashed.
@@ -255,15 +255,18 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `runflash [args...]` | run the program stored in internal flash |
 | `stop` | stop, or unload, the program |
 | `status` | exit status of the last command and the last program (also `$?`) |
-| `install <file>` | write a program into internal flash |
-| `saveflash [file]` | copy the installed program from flash onto the card (default `/<name>.xip.bin`) |
+| `install <file>` | write a program, or a shell script, into internal flash |
+| `saveflash [file]` | copy the installed program or script from flash onto the card |
 | `uninstall` | erase the program flash region |
-| `autostart [on\|off]` | run the flash program automatically at boot |
+| `autostart [on\|off]` | run the flash program or script automatically at boot |
 | `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (default off) |
 | `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin: `pin PB5 out 1`, `pin PB0 up` |
 | `pwm [<pin> <hz> <duty%>]` | list the PWM channels, or start one: `pwm PB6 1000 25`, `pwm PB6 off` |
+| `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
+| `source <file>\|@flash` | run a shell script from a file, or from program flash |
+| `if` / `else` / `end`, `loop <count>` | run commands when a status is 0, or repeat them |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
 
 Ctrl-C stops a running program, Ctrl-U clears the input line, and the up and
@@ -523,6 +526,16 @@ expanded before the line is split, `write /runs.txt $?` records the status of
 the last run on the card. Each run also writes its outcome to `/freya.log`,
 at `info` when the status is 0 and at `warn` when it is not.
 
+`;` separates commands on one line. `if <command>` runs the following
+commands up to `else` or `end` when that command's status is 0, and the
+`else` commands otherwise. `loop <count>` repeats up to `end`, and
+`sleep <ms>` waits that many milliseconds. A block left open is finished
+on the next lines (`>` is the prompt); Ctrl-C throws those lines away,
+and also cuts a `sleep` or a `loop` short. `source <file>` runs a script
+from the card, and `source @flash` runs one kept in the program flash
+region. `install` of a text file stores that script there. The same rules
+are written out in [docs/console-commands.md](docs/console-commands.md).
+
 A program reads the status of the run before it with `api->last_exit()`,
 which fills in the name, the reason, the status and how long that run took;
 `api->exit_reason_str()` names the reason. Both were appended to the service
@@ -533,10 +546,11 @@ built against this ABI can check before calling:
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-most of the 128 KiB of flash sits idle. So the board reserves 77696 bytes
+most of the 128 KiB of flash sits idle. So the board reserves 73600 bytes
 at the top of flash — the rest of page 48 after a 128-byte auto-start slot,
-then pages 49 to 123 — for one program image. The last 4 KiB holds the
-thread scheduler, which is flashed as its own image. The size register on
+then pages 49 to 119 — for one program image. The last 8 KiB holds the
+kernel extension (the thread scheduler and the shell's script interpreter),
+which is flashed as its own image. The size register on
 these parts often still reads 64 KiB; the region runs through the 128 KiB
 anyway. The Black Pill does not need
 the size (it already has 56 KiB of program RAM) but it keeps the same
@@ -585,7 +599,7 @@ flash into the RAM region before `app_main` is called. That is what the second
 linker script (`boards/<board>/app_flash.ld`) describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
-spends the 8 KiB RAM window entirely on its variables, and gets 77696 bytes
+spends the 8 KiB RAM window entirely on its variables, and gets 73600 bytes
 for code instead of 8 KiB. On the Black Pill the RAM window is still 56 KiB and
 the flash image may be up to 64 KiB.
 
@@ -614,7 +628,8 @@ to press a key and cancel. Failing that, on a board that keeps a program in
 flash, an installed image is started the same way when the auto-start flag is
 on — `autostart on` after `install`, or `AUTOSTART=1` when the program is
 packed into the module, so a board with nothing in the card socket still
-boots Freya and runs a program.
+boots Freya and runs a program. An installed shell script is started the
+same way when that is what the region holds.
 
 ## Memory map
 
@@ -630,7 +645,7 @@ Black Pill:
 0x08010000  +--------------------------------+
             |  program flash region          |  64 KiB, sector 4
 0x08020000  +--------------------------------+
-            |  thread scheduler              |  start of sector 5
+            |  kernel extension              |  start of sector 5
 0x08080000  +--------------------------------+
 
 0x20000000  +--------------------------------+
@@ -646,7 +661,7 @@ Black Pill:
 0x20020000  +--------------------------------+
 ```
 
-Blue Pill — the same shape, squeezed into a fifth of the RAM. The top 6 KiB
+Blue Pill — the same shape, squeezed into a fifth of the RAM. The top 8 KiB
 holds two thread stacks, the shell stack and the interrupt stack, and the
 heap takes whatever `.bss` leaves behind:
 
@@ -656,10 +671,10 @@ heap takes whatever `.bss` leaves behind:
 0x0800C000  +--------------------------------+
             |  auto-start flag + log level  |  128 B, page 48
 0x0800C080  +--------------------------------+
-            |  program flash region          |  77696 B, rest of page 48
-            |                                |  and pages 49..123, installed
-0x0801F000  +--------------------------------+  from the card
-            |  thread scheduler              |  4 KiB, pages 124..127
+            |  program flash region          |  73600 B, rest of page 48
+            |                                |  and pages 49..119, installed
+0x0801E000  +--------------------------------+  from the card
+            |  kernel extension              |  8 KiB, pages 120..127
 0x08020000  +--------------------------------+
 
 0x20000000  +--------------------------------+
@@ -823,7 +838,7 @@ ALL TESTS PASSED
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 128 KiB of
   flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
   KiB instead of sixty. Installing a program into flash is the answer to the
-  first half of that, not the second — such a program gets 77696 bytes of code, but
+  first half of that, not the second — such a program gets 73600 bytes of code, but
   the heap is still small and the main thread still uses the shell stack.
 * The Black Pill keeps a program in flash for the same console commands, not
   because 56 KiB of program RAM is too small. Its erase unit at the program

@@ -39,9 +39,10 @@ static void boot_storage(void)
 
 /*
  * The card is asked first, so a program on it always overrides one in
- * flash.  The installed image is started only when the auto-start flag is
- * set, which is what lets a board with nothing in the card socket still
- * boot into a program without doing so on every reset by default.
+ * flash.  The installed image — a program, or a shell script — is started
+ * only when the auto-start flag is set, which is what lets a board with
+ * nothing in the card socket still boot into that image without doing so
+ * on every reset by default.
  */
 static void boot_autorun(void)
 {
@@ -49,6 +50,7 @@ static void boot_autorun(void)
     char *argv[1];
     const char *path = NULL;
     const char *what = NULL;
+    const char *script = NULL;
 
     if (fat_mounted() && fat_stat(AUTORUN_PATH, &e) == FAT_OK &&
         !(e.attr & FAT_ATTR_DIR)) {
@@ -59,17 +61,29 @@ static void boot_autorun(void)
     else if (app_autostart_enabled() && app_flash_header()) {
         path = APP_FLASH_PATH;
         what = "auto-start enabled, program in flash";
-    } else if (app_autostart_enabled() && !app_flash_header()) {
+    } else if (app_autostart_enabled() &&
+               app_script_find(&script, NULL) > 0) {
+        what = "auto-start enabled, script in flash";
+    } else if (app_autostart_enabled()) {
         kprintf("[boot] auto-start on, but no flash program\r\n");
     }
 #endif
-    if (!path) return;
+    if (!path && !script) return;
 
     kprintf("[boot] %s - starting in %u s, press a key to cancel\r\n",
             what, AUTORUN_GRACE / 1000);
     if (uart_getc_timeout(AUTORUN_GRACE) >= 0) {
         uart_rx_flush();
         kprintf("[boot] autorun cancelled\r\n");
+        return;
+    }
+
+    if (script) {
+        int st;
+
+        kprintf("--- script starting (Ctrl-C stops it) ---\r\n");
+        st = shell_exec(script);
+        kprintf("\r\n--- autorun script, exit status %d ---\r\n", st);
         return;
     }
 
