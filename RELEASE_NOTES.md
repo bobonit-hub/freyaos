@@ -1,3 +1,58 @@
+# Freya 1.1 "UFOnaut"
+
+23 September 2026
+
+UFOnaut follows Chupacabra. The console banner and `sysinfo` print the
+version and this name:
+
+```
+Freya 1.1 "UFOnaut" for STM32F411CEU6
+```
+
+The program ABI is still version 3. The 1-Wire and thread calls are
+appended to the service table, so a program built against 1.0.1 still
+loads. One built against this kernel can check `FREYA_API_HAS` before
+calling the new entries.
+
+## What changed
+
+* The shell runs scripts. `source <file>` reads a text file from the
+  card, at most 1024 bytes, and runs it with the same rules as a typed
+  line: `;`, newlines, `if`/`else`/`end`, `loop`, `sleep` and `$?`. A
+  `#` at the start of a statement, or after a space, is a comment.
+  Each command is still one line of at most 159 characters. Ctrl-C
+  stops the script. Scripts may nest, three deep including the line
+  that started them.
+* `source @flash` runs a script stored in the program flash region, and
+  needs no card. `install` of a text file stores that script there, in
+  place of a program image. `saveflash` copies it back (default
+  `/script.sh`). `uninstall` erases it. `meminfo` names it. `runflash`
+  of a script says to use `source @flash`. With `autostart on`, the next
+  boot runs the script when `/autorun.bin` is absent. A short flash
+  script is copied into RAM before it runs, so the script may `install`
+  or `uninstall` without erasing the text it is still reading.
+* A program can start named threads. Each has a name and a priority from
+  0 to 7; the highest priority that is ready runs, and equal priorities
+  take turns. `threads` lists them. `stop blink` stops that thread;
+  `stop` with no name still stops the whole program. The Black Pill has
+  room for four of these threads, the Blue Pill for two, each with 1 KiB
+  of stack. See [docs/threads.md](docs/threads.md).
+* The scheduler and the script interpreter live in a kernel extension, a
+  second flash image, so the 48 KiB kernel still does not share an erase
+  unit with the auto-start slot. On the Blue Pill that extension is the
+  last 8 KiB of the 128 KiB, and the program flash region is 73600 bytes,
+  through `0x0801DFFF`. On the Black Pill the extension is 16 KiB at the
+  start of sector 5, and the program region stays 64 KiB.
+* A program can speak 1-Wire at standard speed on a spare pin: presence,
+  byte reads and writes, a ROM search, and a strong pull-up. Up to four
+  pins may be open at once. `w1 PB12 search` lists the devices, and
+  `samples/w1` reads a DS18B20. See [docs/w1.md](docs/w1.md).
+* The Blue Pill has no FPU. A program that uses single-precision float is
+  linked with `src/softfp.c` (add, subtract, multiply, divide, compare,
+  and conversion to or from an integer). Helpers the program does not
+  call stay out of the image.
+* Host tests delete the FAT disk images when a run finishes (`make test`).
+
 # Freya 1.0.1 "Chupacabra"
 
 22 September 2026
