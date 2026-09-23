@@ -17,7 +17,7 @@ leaving 7 KiB of headroom instead of 11.
 allowed, then spent it again: the split is 48 KiB of kernel plus a 128-byte
 slot at `0x0800C000`. The program region grew with the flash along the way —
 every supported board has at least 128 KiB — so a Blue Pill program gets
-73600 bytes, through `0x0801DFFF`, rather than the 20352 bytes that fit in a
+71552 bytes, through `0x0801D7FF`, rather than the 20352 bytes that fit in a
 64 KiB part. Everything below describes 40/24, which is where it started;
 `include/freya_api.h` and `boards/bluepill/freya.ld` are where it is now, and
 `make test` compares the two.
@@ -109,8 +109,8 @@ recommendation.
 **The upper 64 KiB is part of the map.** Most STM32F103C8 dies are physically
 the 128 KiB part, and `FLASHSIZE_BASE` still often reports 64 KiB. Freya no
 longer stays inside that report. Every supported board is built as having at
-least 128 KiB. The Blue Pill program region runs to `0x0801DFFF`; the last
-8 KiB is the kernel extension. The size used by `sysinfo`,
+least 128 KiB. The Blue Pill program region runs to `0x0801D7FF`; the last
+10 KiB is the kernel extension. The size used by `sysinfo`,
 `meminfo` and `flashdump` is at least 128 KiB.
 
 `samples/flashprobe` still walks erase units above that floor, programs a

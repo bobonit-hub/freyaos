@@ -373,6 +373,18 @@ int  w1_search(int pin, void *rom)     { (void)pin; (void)rom; return 0; }
 int  w1_pullup(int pin, int on)        { (void)pin; (void)on; return 0; }
 int  w1_crc(const void *buf, int len)  { (void)buf; (void)len; return 0; }
 
+int  spi_info(int idx, spi_info_t *info) { (void)idx; (void)info; return -1; }
+int  spi_open(int bus, uint32_t hz, int mode)
+{
+    (void)bus; (void)hz; (void)mode; return 0;
+}
+int  spi_close(int bus)                { (void)bus; return 0; }
+int  spi_transfer(int bus, const void *tx, void *rx, int len)
+{
+    (void)bus; (void)tx; (void)rx; (void)len; return 0;
+}
+int  spi_owns_pin(int pin)             { (void)pin; return 0; }
+
 int xmodem_receive_to_file(const char *path, uint32_t *received, int strip)
 {
     (void)path; (void)received; (void)strip; return -1;
@@ -546,6 +558,13 @@ int main(void)
     rc = run("w1");
     expect_rc("w1 with no pin succeeds", rc, 0);
     expect_has("w1 asks for a pull-up", "pull the data pin up to 3.3 V");
+    rc = run("help spi");
+    expect_rc("help spi succeeds", rc, 0);
+    expect_has("help spi names the command", "spi\r\n");
+    expect_has("help spi shows a transfer", "x <byte>");
+    rc = run("spi");
+    expect_rc("spi with no bus succeeds", rc, 0);
+    expect_has("spi names chip select", "chip select is a pin you drive");
 
     printf("commands\n");
     rc = run("status");

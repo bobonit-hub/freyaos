@@ -11,8 +11,8 @@
  * it fits.  The size register on these parts often still reads 64 KiB.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
  *   0x0800C000 .. 0x0800C07F   auto-start flag + reserved          (128 B)
- *   0x0800C080 .. 0x0801DFFF   program flash region             (73600 B)
- *   0x0801E000 .. 0x0801FFFF   kernel extension (threads, shell)   ( 8 KiB)
+ *   0x0800C080 .. 0x0801D7FF   program flash region             (71552 B)
+ *   0x0801D800 .. 0x0801FFFF   kernel extension (threads, SPI)    (10 KiB)
  *
  * The extension is its own image at the top of the 128 KiB.  The program
  * region stops short of it, so install and uninstall never erase it,
@@ -37,7 +37,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x0801E000, LENGTH = 8K
+    KEXT  (rx)  : ORIGIN = 0x0801D800, LENGTH = 10K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
@@ -53,7 +53,7 @@ __shell_stack_limit  = __worker_stacks + __worker_count * __worker_stack_size;
 __autostart_start    = 0x0800C000;
 __autostart_end      = 0x0800C080;
 __app_flash_start    = 0x0800C080;
-__app_flash_end      = 0x0801E000;
+__app_flash_end      = 0x0801D800;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;
@@ -69,8 +69,9 @@ SECTIONS
     } > FLASH
 
     /*
-     * Threads, the switch, and the console commands that talk to them.
-     * Claimed before .text so the wildcard below does not take them.
+     * Threads, the switch, the console commands that talk to them, and
+     * the SPI master.  Claimed before .text so the wildcard below does
+     * not take them.  The extension is 10 KiB so SPI fits beside them.
      * A call across the two images is an ordinary branch.
      */
     .kext :
@@ -82,6 +83,8 @@ SECTIONS
         *switch.o(.text .text.*)
         *shell.o(.text.cmd_stop)
         *shell.o(.text.cmd_threads)
+        *shell.o(.text.cmd_spi)
+        *spi.o(.text.spi_*)
         *shell.o(.text.shell_poll_runtime)
         *shell.o(.text.kext_script)
         *shell.o(.text.kext_script.*)
@@ -90,6 +93,8 @@ SECTIONS
         *uart.o(.text.uart_take_ctrlc)
         *shell.o(.rodata.cmd_stop*)
         *shell.o(.rodata.cmd_threads*)
+        *shell.o(.rodata.cmd_spi*)
+        *spi.o(.rodata.spi_*)
         *shell.o(.rodata.shell_poll_runtime*)
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)

@@ -217,12 +217,12 @@ serve several, and `arg` is whatever was registered beside it.
 What a handler may do follows from what it can preempt. Console output, the
 LED, `ticks_ms()`, the pin calls and `timer_start` / `timer_stop` /
 `timer_period` / the counters are all safe. `malloc()`, `free()` and the
-filesystem and the I2C and 1-Wire calls are not — a handler can land in the
-middle of the heap's or FAT's own bookkeeping, or spin on a bus — so **the
-kernel refuses them from a handler** rather than let a program corrupt the
-card or the heap: `malloc()` returns `NULL`, the file calls return an error,
-`api->log()` writes to the console instead of the card, and an I2C or 1-Wire
-call returns `FREYA_ERR_HANDLER`. `w1_crc()` is arithmetic and may be called. `pin_irq_attach`, `pin_irq_detach`, `timer_open` and `timer_close`
+filesystem and the I2C, SPI and 1-Wire calls are not — a handler can land in
+the middle of the heap's or FAT's own bookkeeping, or spin on a bus — so
+**the kernel refuses them from a handler** rather than let a program corrupt
+the card or the heap: `malloc()` returns `NULL`, the file calls return an
+error, `api->log()` writes to the console instead of the card, and an I2C,
+SPI or 1-Wire call returns `FREYA_ERR_HANDLER`. `w1_crc()` is arithmetic and may be called. `pin_irq_attach`, `pin_irq_detach`, `timer_open` and `timer_close`
 are refused too, with `FREYA_ERR_HANDLER`: they rearrange the tables the
 interrupt itself is walking.
 
@@ -280,11 +280,11 @@ and everything else in thread mode.
 | `FREYA_ERR_ARG` (-3) | mode, edge, period, frequency, duty cycle or handle out of range |
 | `FREYA_ERR_HANDLER` (-4) | not callable from a handler |
 | `FREYA_ERR_NACK` (-5) | an I2C address or byte was not acknowledged, or no 1-Wire device answered |
-| `FREYA_ERR_TIMEOUT` (-6) | an I2C transfer did not finish, or a 1-Wire line stayed low |
+| `FREYA_ERR_TIMEOUT` (-6) | an I2C or SPI transfer did not finish, or a 1-Wire line stayed low |
 | `FREYA_ERR_IO` (-7) | a bus error, or a stop requested mid-transfer |
 
-I2C and 1-Wire are the other buses a program can drive. Neither is an
-interrupt source; [docs/i2c.md](i2c.md) and [docs/w1.md](w1.md) are their APIs.
+I2C, SPI and 1-Wire are the other buses a program can drive. None of them is an
+interrupt source; [docs/i2c.md](i2c.md), [docs/spi.md](spi.md) and [docs/w1.md](w1.md) are their APIs.
 
 ## Older kernels
 

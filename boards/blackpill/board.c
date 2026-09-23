@@ -117,6 +117,38 @@ void board_spi_pins(void)
     BOARD_SD_CS_PORT->BSRR = (1UL << BOARD_SD_CS_PIN);
 }
 
+/* Hand SCK, MISO and MOSI to a program's SPI.  MISO is pulled up so an
+ * idle slave reads as high.  The driver is the fast one: this bus is
+ * allowed up to PCLK/2. */
+void board_spi_mux(SPI_TypeDef *spi, int sck, int miso, int mosi, int af)
+{
+    int pins[3] = { sck, miso, mosi };
+
+    if (spi == SPI2) {
+        RCC->APB1ENR |= RCC_APB1ENR_SPI2EN;
+        (void)RCC->APB1ENR;
+    }
+
+    for (int i = 0; i < 3; i++) {
+        int n = FREYA_PIN_NUM(pins[i]);
+        uint32_t pair = (uint32_t)n * 2U;
+        uint32_t idx  = (uint32_t)n >> 3;
+        uint32_t sh   = ((uint32_t)n & 7U) * 4U;
+        GPIO_TypeDef *port = board_gpio_port(FREYA_PIN_PORT(pins[i]));
+
+        if (!port) continue;
+        port->AFR[idx] = (port->AFR[idx] & ~(0xFUL << sh)) |
+                         (((uint32_t)af & 0xFUL) << sh);
+        port->MODER    = (port->MODER & ~(3UL << pair)) | (2UL << pair);
+        port->OTYPER  &= ~(1UL << n);
+        port->OSPEEDR  = (port->OSPEEDR & ~(3UL << pair)) | (3UL << pair);
+        if (pins[i] == miso)
+            port->PUPDR = (port->PUPDR & ~(3UL << pair)) | (1UL << pair);
+        else
+            port->PUPDR = (port->PUPDR & ~(3UL << pair));
+    }
+}
+
 /* ---------------------------------------------------------- pins for programs */
 /*
  * The F4 describes a pin in four registers, two bits each: MODER picks

@@ -43,7 +43,7 @@ freya:/>
 | Crystal | 25 MHz | 8 MHz |
 | Flash | 512 KiB | 128 KiB |
 | SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 73600 B flash |
+| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 71552 B flash |
 | Build | `make` | `make BOARD=bluepill` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -97,9 +97,15 @@ Freya 1.1 "UFOnaut" for STM32F103C8T6
   and writes, and the ROM search. The data line needs a pull-up to 3.3 V.
   `w1 PB12 search` at the console lists the ROMs, and `samples/w1` reads
   a DS18B20 ([docs/w1.md](docs/w1.md)).
+* Speaks SPI as a master, 8-bit, modes 0 to 3. The card keeps SPI1. A
+  program gets SPI2, SCK/MISO/MOSI on PB13/PB14/PB15 on both boards, and
+  drives chip select itself. The clock is the fastest power-of-two
+  division of the bus clock that does not exceed the rate asked for,
+  from 187.5 kHz to 24 MHz. `spi 1 1000000` at the console and
+  `samples/spi` do the same thing ([docs/spi.md](docs/spi.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
-  size from 8 KiB to 73600 bytes; on the Black Pill the flash region is 64 KiB
+  size from 8 KiB to 71552 bytes; on the Black Pill the flash region is 64 KiB
   (sector 4) and is there so the same console commands work with no card in
   the socket. The program can be copied from the card, or packed into the
   module when Freya itself is flashed.
@@ -146,6 +152,15 @@ the usual value. The Black Pill also turns on the pin's own weak pull-up;
 the Blue Pill cannot, so the resistor is required there. A pin that is
 already a PWM output or an I2C line is not also a 1-Wire pin until that is
 turned off. Up to four pins may be open at once.
+
+SPI for a program is SPI2, the same three pins on both boards: SCK on
+PB13, MISO on PB14 and MOSI on PB15. The card keeps SPI1, so a program's
+bus is not the socket. Chip select is any other spare pin, driven with
+the pin calls; `pin PB12 0`, then `spi 1 x 9F FF FF FF`, then `pin PB12 1`
+is one transfer.
+MISO is pulled up. The clock is the fastest of eight taps that does not
+go faster than the rate asked for. A pin that is already PWM, I2C or
+1-Wire is not also an SPI pin until that is turned off.
 
 The console runs at 921600 baud, the fastest rate every common adapter agrees
 on: a CP2101, a CP2102 and an FT232 all list it, where 1 Mbaud is already the
@@ -334,7 +349,8 @@ the `SAMPLES` variable and builds into `build/samples/`; `samples/blink` is a
 minimal starting point, `samples/log` writes one line at each log level,
 `samples/irq` blinks from a timer interrupt and counts button presses from a
 pin one (`samples/irq/README.md`), `samples/pwm` fades an LED and sweeps a
-servo (`samples/pwm/README.md`), `samples/i2c` scans a bus, `samples/w1`
+servo (`samples/pwm/README.md`), `samples/i2c` scans a bus, `samples/spi`
+loops SPI back to itself (`samples/spi/README.md`), `samples/w1`
 reads a 1-Wire thermometer (`samples/w1/README.md`), `samples/flashprobe`
 finds out how much
 internal flash the chip really has (`samples/flashprobe/README.md`),
@@ -547,11 +563,11 @@ built against this ABI can check before calling:
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-most of the 128 KiB of flash sits idle. So the board reserves 73600 bytes
+most of the 128 KiB of flash sits idle. So the board reserves 71552 bytes
 at the top of flash — the rest of page 48 after a 128-byte auto-start slot,
-then pages 49 to 119 — for one program image. The last 8 KiB holds the
-kernel extension (the thread scheduler and the shell's script interpreter),
-which is flashed as its own image. The size register on
+then pages 49 to 117 — for one program image. The last 10 KiB holds the
+kernel extension (the thread scheduler, the shell's script interpreter and
+the SPI master), which is flashed as its own image. The size register on
 these parts often still reads 64 KiB; the region runs through the 128 KiB
 anyway. The Black Pill does not need
 the size (it already has 56 KiB of program RAM) but it keeps the same
@@ -600,7 +616,7 @@ flash into the RAM region before `app_main` is called. That is what the second
 linker script (`boards/<board>/app_flash.ld`) describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
-spends the 8 KiB RAM window entirely on its variables, and gets 73600 bytes
+spends the 8 KiB RAM window entirely on its variables, and gets 71552 bytes
 for code instead of 8 KiB. On the Black Pill the RAM window is still 56 KiB and
 the flash image may be up to 64 KiB.
 
@@ -672,10 +688,10 @@ heap takes whatever `.bss` leaves behind:
 0x0800C000  +--------------------------------+
             |  auto-start flag + log level  |  128 B, page 48
 0x0800C080  +--------------------------------+
-            |  program flash region          |  73600 B, rest of page 48
-            |                                |  and pages 49..119, installed
-0x0801E000  +--------------------------------+  from the card
-            |  kernel extension              |  8 KiB, pages 120..127
+            |  program flash region          |  71552 B, rest of page 48
+            |                                |  and pages 49..117, installed
+0x0801D800  +--------------------------------+  from the card
+            |  kernel extension              |  10 KiB, pages 118..127
 0x08020000  +--------------------------------+
 
 0x20000000  +--------------------------------+
@@ -707,7 +723,7 @@ is measured rather than guessed).
 | `boards/<board>/app_flash.ld` | the second program linker script: code in flash, data in RAM |
 | `src/system.c` | SysTick, reset cause, delays, software clock |
 | `src/uart.c` | USART2 console, interrupt driven receive |
-| `src/spi.c`, `src/sd.c` | SPI1 and the SD / SDHC card protocol |
+| `src/spi.c`, `src/sd.c` | SPI1 for the card, and SPI master for a program |
 | `src/gpio.c` | pins a program may drive, and the sixteen EXTI interrupt lines |
 | `src/timer.c` | the general purpose timers and their interrupts |
 | `src/pwm.c` | the compare channels of those timers, driving pins |
@@ -724,11 +740,12 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `w1`, `flashprobe`, `tetris`, `edit`, `forth` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `flashprobe`, `tetris`, `edit`, `forth` |
 | `tests/` | host side tests |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
 | `docs/i2c.md` | the I2C master API, the pins, and the `i2c` command |
+| `docs/spi.md` | the SPI master API, the pins, and the `spi` command |
 | `docs/w1.md` | the 1-Wire master API, the pin, and the `w1` command |
 | `docs/sd-slot.txt` | SD slot wiring for the Blue Pill and the Black Pill |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
@@ -785,7 +802,11 @@ a hand written table whose two temptations are naming a pin the kernel keeps
 and giving one timer channel to two pins. The I2C half-period gets the same
 treatment: each half of the clock is a whole number of microseconds, rounded
 up, so the bus is the rate that was asked for or a little slower and never
-faster, and bus 1 of the pin table is PB6/PB7 on either board. The 1-Wire
+faster, and bus 1 of the pin table is PB6/PB7 on either board. The SPI
+baud tap gets the same treatment: of the eight power-of-two divisions of
+the bus clock, the one chosen is the fastest that does not exceed the
+rate asked for, at 48, 36 and 32 MHz, and bus 1 is SCK/MISO/MOSI on
+PB13/PB14/PB15 on either board. The 1-Wire
 ROM search and its CRC-8 get the same treatment, against device ids planted
 on the host: that walk is the part that would be quietly wrong.
 
@@ -806,7 +827,7 @@ the kernel compares them at boot, and this compares them at build time.
 18 checks, 0 failures     XMODEM
 79 checks, 0 failures     forth
 26 checks, 0 failures     exit status
-65 checks, 0 failures     pins, timers and PWM
+166 checks, 0 failures    pins, timers, PWM, I2C, 1-Wire and SPI
 35 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```
@@ -839,7 +860,7 @@ ALL TESTS PASSED
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 128 KiB of
   flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
   KiB instead of sixty. Installing a program into flash is the answer to the
-  first half of that, not the second — such a program gets 73600 bytes of code, but
+  first half of that, not the second — such a program gets 71552 bytes of code, but
   the heap is still small and the main thread still uses the shell stack.
 * The Black Pill keeps a program in flash for the same console commands, not
   because 56 KiB of program RAM is too small. Its erase unit at the program

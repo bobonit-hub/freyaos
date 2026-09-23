@@ -187,12 +187,13 @@ else
     echo "  --    ${CROSS_FP}gcc not found, skipping the soft-float link"
 fi
 
-# Pins, timers, PWM, I2C and 1-Wire: the pin numbering a program uses,
-# the two timer dividers and the I2C half-period compiled for the host
-# and asked for every value they accept, the board's pin tables, and
-# the 1-Wire ROM search against ids planted in place of a pin.
+# Pins, timers, PWM, I2C, 1-Wire and SPI: the pin numbering a program
+# uses, the timer dividers, the I2C half-period and the SPI baud tap
+# compiled for the host and asked for every value they accept, the
+# board's pin tables, and the 1-Wire ROM search against ids planted
+# in place of a pin.
 echo
-echo "================= pins, timers, PWM, I2C and 1-Wire ================="
+echo "================= pins, timers, PWM, I2C, 1-Wire and SPI ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_irq_test.c -o "$OUT/hostirq"
 "$OUT/hostirq" || status=1

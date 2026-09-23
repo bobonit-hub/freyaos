@@ -258,12 +258,39 @@ typedef struct {
 int      w1_info(int idx, w1_info_t *info);    /* -1 past the last open */
 
 /* ---------------------------------------------------------------- SPI */
-void     spi_init(void);
-void     spi_set_speed(int fast);
-uint8_t  spi_xfer(uint8_t v);
-void     spi_write(const uint8_t *buf, uint32_t len);
-void     spi_read(uint8_t *buf, uint32_t len);
-void     spi_cs(int low);
+/*
+ * SPI1 belongs to the SD card.  A program's master is the buses
+ * BOARD_SPI_MAP names, which are a different controller so the card is
+ * never that bus.  Chip select is a pin the caller drives.  A bus a
+ * program opened is closed when the run ends.  One opened at the console
+ * is not, and a program that wants it is told it is busy.
+ */
+void     sdspi_init(void);
+void     sdspi_set_speed(int fast);
+uint8_t  sdspi_xfer(uint8_t v);
+void     sdspi_write(const uint8_t *buf, uint32_t len);
+void     sdspi_read(uint8_t *buf, uint32_t len);
+void     sdspi_cs(int low);
+
+int      spi_open(int bus, uint32_t hz, int mode); /* 0, or FREYA_ERR_* */
+int      spi_close(int bus);
+int      spi_transfer(int bus, const void *tx, void *rx, int len);
+int      spi_write(int bus, const void *buf, int len);
+int      spi_read(int bus, void *buf, int len);
+int      spi_owns_pin(int pin);           /* 1 when an open bus uses it   */
+void     spi_release(void);               /* drop whatever a run left     */
+
+typedef struct {
+    const char *name;
+    int         sck;
+    int         miso;
+    int         mosi;
+    int         open;
+    int         mode;
+    uint32_t    hz;              /* the divider's rate, 0 when shut       */
+} spi_info_t;
+
+int      spi_info(int idx, spi_info_t *info);   /* -1 past the last bus   */
 
 /* ------------------------------------------------------------ SD card */
 enum { SD_TYPE_NONE = 0, SD_TYPE_MMC, SD_TYPE_SD1, SD_TYPE_SD2, SD_TYPE_SDHC };

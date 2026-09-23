@@ -1500,7 +1500,8 @@ static int pin_fail(const char *cmd, int rc)
     switch (rc) {
     case FREYA_ERR_PIN:  why = "not a pin Freya hands out"; break;
     case FREYA_ERR_BUSY:
-        if (strcmp(cmd, "i2c") == 0) why = "that bus or its pins are taken";
+        if (strcmp(cmd, "i2c") == 0 || strcmp(cmd, "spi") == 0)
+            why = "that bus or its pins are taken";
         else if (strcmp(cmd, "w1") == 0)
             why = "that pin is taken, or every bus is open";
         else why = "that timer is taken";
@@ -1508,6 +1509,8 @@ static int pin_fail(const char *cmd, int rc)
     case FREYA_ERR_ARG:
         if (strcmp(cmd, "i2c") == 0)
             why = "speed, address or length out of range";
+        else if (strcmp(cmd, "spi") == 0)
+            why = "bus, speed, mode or length out of range";
         else if (strcmp(cmd, "w1") == 0)
             why = "not open, or the length is out of range";
         else why = "out of range";
@@ -1751,6 +1754,82 @@ static int cmd_i2c(int argc, char **argv)
     return 0;
 }
 
+/* ------------------------------------------------------------ SPI */
+/* Chip select is a pin, driven with 'pin' around the shift. */
+#define SPI_USAGE \
+    "spi [<bus> <hz> [mode] | <bus> off | <bus> x <byte>...]"
+
+static int cmd_spi(int argc, char **argv)
+{
+    spi_info_t in;
+    uint8_t tx[8], rx[8];
+    uint32_t bus, n;
+    int i, rc, nbyte;
+
+    if (argc < 2) {
+        for (i = 0; spi_info(i, &in) == 0; i++) {
+            kprintf("  %d  %s  ", i + 1, in.name);
+            put_pin(in.sck);
+            kprintf(" ");
+            put_pin(in.miso);
+            kprintf(" ");
+            put_pin(in.mosi);
+            if (in.open) kprintf("  %u Hz  mode %d\r\n", in.hz, in.mode);
+            else         kprintf("  off\r\n");
+        }
+        kprintf("chip select is a pin you drive\r\nusage: %s\r\n", SPI_USAGE);
+        return 0;
+    }
+
+    if (str_to_u32(argv[1], &bus) != 0 || spi_info((int)bus - 1, &in) != 0) {
+        kprintf("spi: no such bus\r\n");
+        return -1;
+    }
+    if (argc == 3 && strcmp(argv[2], "off") == 0) {
+        if (spi_close((int)bus) != 0) {
+            kprintf("spi: not open\r\n");
+            return -1;
+        }
+        kprintf("%s off\r\n", in.name);
+        return 0;
+    }
+    if ((argc == 3 || argc == 4) && argv[2][0] != 'x' &&
+        str_to_u32(argv[2], &n) == 0) {
+        int mode = FREYA_SPI_MODE0;
+
+        if (argc == 4) {
+            uint32_t m;
+            if (str_to_u32(argv[3], &m) != 0) return usage(SPI_USAGE);
+            mode = (int)m;
+        }
+        rc = spi_open((int)bus, n, mode);
+        if (rc != 0) return pin_fail("spi", rc);
+        spi_info((int)bus - 1, &in);
+        kprintf("%s  %u Hz  mode %d\r\n", in.name, in.hz, in.mode);
+        return 0;
+    }
+    if (!in.open) {
+        kprintf("spi: not open\r\n");
+        return -1;
+    }
+    if (argc < 4 || strcmp(argv[2], "x") != 0) return usage(SPI_USAGE);
+
+    nbyte = 0;
+    for (i = 3; i < argc; i++) {
+        if (nbyte == 8 || str_to_u32(argv[i], &n) != 0 || n > 0xFF)
+            return usage(SPI_USAGE);
+        tx[nbyte++] = (uint8_t)n;
+    }
+    rc = spi_transfer((int)bus, tx, rx, nbyte);
+    if (rc != 0) return pin_fail("spi", rc);
+    for (i = 0; i < nbyte; i++) {
+        if (i) kprintf(" ");
+        kprintf("%02x", rx[i]);
+    }
+    kprintf("\r\n");
+    return 0;
+}
+
 /* ----------------------------------------------------------- 1-Wire */
 /* Byte reads, writes and the strong pull-up are the program calls.
  * The prompt opens a pin, checks presence and walks the ROMs. */
@@ -1871,6 +1950,7 @@ static const command_t s_cmds[] = {
     { "pin",      cmd_pin,      PIN_USAGE },
     { "pwm",      cmd_pwm,      PWM_USAGE },
     { "i2c",      cmd_i2c,      I2C_USAGE },
+    { "spi",      cmd_spi,      SPI_USAGE },
     { "w1",       cmd_w1,       W1_USAGE },
     { "echo",     cmd_echo,     "echo <text...>" },
     { "sleep",    cmd_sleep,    "sleep <ms>" },

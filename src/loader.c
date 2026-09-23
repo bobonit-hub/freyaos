@@ -425,6 +425,11 @@ static const freya_api_t s_api = {
     .thread_yield    = api_thread_yield,
     .thread_sleep    = api_thread_sleep,
     .thread_self     = api_thread_self,
+    .spi_open        = spi_open,
+    .spi_close       = spi_close,
+    .spi_transfer    = spi_transfer,
+    .spi_write       = spi_write,
+    .spi_read        = spi_read,
 };
 
 const freya_api_t *app_api(void)
@@ -1369,13 +1374,14 @@ int app_run(int argc, char **argv)
     /* Nothing belonging to the program may still be able to run: its pin
      * and timer interrupts are dropped before the memory their handlers
      * were using is handed back, its PWM pins stop driving whatever they
-     * were driving, and an I2C or 1-Wire bus it opened is released even
-     * if a transfer was abandoned halfway through a byte. */
+     * were driving, and an I2C, SPI or 1-Wire bus it opened is released
+     * even if a transfer was abandoned halfway through a byte. */
     gpio_irq_release();
     pwm_release();
     timer_release();
     i2c_release();
     w1_release();
+    spi_release();
     g_app.last_run_ms = sys_ticks() - t0;
     g_app.last_status = status;
     g_app.last_stop_reason = g_app_stop_reason;

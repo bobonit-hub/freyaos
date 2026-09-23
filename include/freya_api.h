@@ -62,9 +62,10 @@
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
-/* The last 8 KiB of the 128 KiB holds the kernel extension (threads and
- * the shell's script interpreter), so an install does not erase it. */
-#define FREYA_APP_FLASH_SIZE   (0x0801E000UL - FREYA_APP_FLASH_ADDR)
+/* The last 10 KiB of the 128 KiB holds the kernel extension (threads,
+ * the shell's script interpreter and the SPI master), so an install
+ * does not erase it. */
+#define FREYA_APP_FLASH_SIZE   (0x0801D800UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)
@@ -287,8 +288,29 @@ typedef struct {
 #define FREYA_W1_ROM_LEN     8
 #define FREYA_W1_MAX_LEN     64
 
+/* ---------------------------------------------------------------- SPI */
 /*
- * What the pin, timer, PWM, I2C, 1-Wire and interrupt calls return.
+ * Master, 8-bit, MSB first.  Mode is CPOL and CPHA: mode 0 is the usual
+ * one, clock idle low and sampled on the rising edge.  The clock is the
+ * fastest power-of-two division of the bus clock that does not exceed
+ * the rate asked for, so a program gets that rate or a slower one.
+ * FREYA_SPI_MIN_HZ is the slowest tap on the faster board; a slower
+ * board asked for it runs slower still.  FREYA_SPI_MAX_HZ is the fastest
+ * tap on that same board; a slower board asked for it runs at its own
+ * PCLK/2.  A transfer longer than FREYA_SPI_MAX_LEN is refused rather
+ * than split.  Chip select is not part of the bus: the program drives
+ * that pin itself.
+ */
+#define FREYA_SPI_MODE0      0
+#define FREYA_SPI_MODE1      1
+#define FREYA_SPI_MODE2      2
+#define FREYA_SPI_MODE3      3
+#define FREYA_SPI_MIN_HZ     187500UL
+#define FREYA_SPI_MAX_HZ     24000000UL
+#define FREYA_SPI_MAX_LEN    4096
+
+/*
+ * What the pin, timer, PWM, I2C, 1-Wire, SPI and interrupt calls return.
  * Anything else they hand back is the value asked for: a pin level, a
  * handle, a count.
  */
@@ -297,13 +319,14 @@ typedef struct {
 #define FREYA_ERR_BUSY       -2   /* that line is taken, every timer is,
                                    * or the timer runs at another rate   */
 #define FREYA_ERR_ARG        -3   /* mode, edge, period, frequency,
-                                   * duty cycle or length out of range   */
+                                   * duty cycle, bus or length out of
+                                   * range                               */
 #define FREYA_ERR_HANDLER    -4   /* not allowed from a handler          */
 #define FREYA_ERR_NACK       -5   /* an I2C address or byte was not
                                    * acknowledged, or no 1-Wire device
                                    * pulled the line down                */
-#define FREYA_ERR_TIMEOUT    -6   /* an I2C transfer did not finish, or
-                                   * a 1-Wire line stayed low            */
+#define FREYA_ERR_TIMEOUT    -6   /* an I2C or SPI transfer did not
+                                   * finish, or a 1-Wire line stayed low */
 #define FREYA_ERR_IO         -7   /* a bus error, or the run was asked
                                    * to stop mid-transfer                */
 
@@ -314,7 +337,7 @@ typedef struct {
  *
  * What a handler may do is decided by what it can preempt.  Console
  * output, the LED, ticks_ms(), the pin calls and the timer calls are all
- * safe.  malloc(), free(), the filesystem and the I2C and 1-Wire
+ * safe.  malloc(), free(), the filesystem and the I2C, SPI and 1-Wire
  * calls are not - they can be interrupted halfway through their own
  * bookkeeping, or they spin on a bus - so the kernel refuses them from
  * a handler
@@ -492,6 +515,21 @@ typedef struct freya_api {
     void     (*thread_yield)(void);
     int      (*thread_sleep)(uint32_t ms);
     int      (*thread_self)(void);
+
+    /* appended: SPI master, 8-bit, MSB first.  'bus' is 1 for the first
+     * bus the board lists.  mode is FREYA_SPI_MODE0..3.  The clock is
+     * the fastest power-of-two division of the bus clock that does not
+     * exceed hz, so the bus runs at that rate or slower.  A transfer
+     * shifts one byte out for each byte in; spi_read() clocks out 0xFF
+     * and spi_write() discards what came back.  Chip select is a pin
+     * the program drives around the call.  Opening an open bus, by the
+     * same side, programs a new speed and mode.  A bus a program opened
+     * is closed when the run ends. */
+    int      (*spi_open)(int bus, uint32_t hz, int mode); /* 0, or FREYA_ERR_* */
+    int      (*spi_close)(int bus);
+    int      (*spi_transfer)(int bus, const void *tx, void *rx, int len);
+    int      (*spi_write)(int bus, const void *buf, int len);
+    int      (*spi_read)(int bus, void *buf, int len);
 } freya_api_t;
 
 /*

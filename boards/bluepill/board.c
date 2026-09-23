@@ -119,6 +119,30 @@ void board_spi_pins(void)
     gpio_config(BOARD_SD_CS_PORT, BOARD_SD_CS_PIN, GPIO_OUT_PP_50M);
 }
 
+/* Hand SCK and MOSI to a program's SPI, and leave MISO an input with a
+ * pull-up so an idle slave reads as high.  SPI2 is PB13..PB15 with no
+ * remap, so 'af' is the F4's number and is not used here. */
+void board_spi_mux(SPI_TypeDef *spi, int sck, int miso, int mosi, int af)
+{
+    GPIO_TypeDef *ps, *pm, *po;
+
+    (void)af;
+    if (spi == SPI2) {
+        RCC->APB1ENR |= RCC_APB1ENR_SPI2EN;
+        (void)RCC->APB1ENR;
+    }
+
+    ps = board_gpio_port(FREYA_PIN_PORT(sck));
+    pm = board_gpio_port(FREYA_PIN_PORT(miso));
+    po = board_gpio_port(FREYA_PIN_PORT(mosi));
+    if (ps) gpio_config(ps, FREYA_PIN_NUM(sck), GPIO_AF_PP_50M);
+    if (po) gpio_config(po, FREYA_PIN_NUM(mosi), GPIO_AF_PP_50M);
+    if (pm) {
+        pm->BSRR = 1UL << FREYA_PIN_NUM(miso);      /* pull-up before input */
+        gpio_config(pm, FREYA_PIN_NUM(miso), GPIO_IN_PULL);
+    }
+}
+
 /* ---------------------------------------------------------- pins for programs */
 /*
  * The F1 describes a pin in one four-bit field of CRL or CRH, and a

@@ -453,7 +453,8 @@ int w1_open(int pin)
 
     if (app_in_handler()) return FREYA_ERR_HANDLER;
     if (!pin_legal(pin)) return FREYA_ERR_PIN;
-    if (pwm_pin_busy(pin) || i2c_owns_pin(pin)) return FREYA_ERR_BUSY;
+    if (pwm_pin_busy(pin) || i2c_owns_pin(pin) || spi_owns_pin(pin))
+        return FREYA_ERR_BUSY;
 
     idx = slot_of(pin);
     if (idx >= 0) return w1_owns(&s_bus[idx]) ? 0 : FREYA_ERR_BUSY;

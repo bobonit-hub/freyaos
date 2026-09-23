@@ -52,21 +52,21 @@ static int wait_ready(uint32_t ms)
     uint32_t start = sys_ticks();
 
     do {
-        if (spi_xfer(0xFF) == 0xFF) return 0;
+        if (sdspi_xfer(0xFF) == 0xFF) return 0;
     } while ((uint32_t)(sys_ticks() - start) < ms);
     return -1;
 }
 
 static void deselect(void)
 {
-    spi_cs(0);
-    (void)spi_xfer(0xFF);           /* release DO after CS rises */
+    sdspi_cs(0);
+    (void)sdspi_xfer(0xFF);           /* release DO after CS rises */
 }
 
 static int select_card(void)
 {
-    spi_cs(1);
-    (void)spi_xfer(0xFF);
+    sdspi_cs(1);
+    (void)sdspi_xfer(0xFF);
     if (wait_ready(500) == 0) return 0;
     deselect();
     return -1;
@@ -85,12 +85,12 @@ static uint8_t send_cmd(uint8_t cmd, uint32_t arg)
     frame[3] = (uint8_t)(arg >> 8);
     frame[4] = (uint8_t)arg;
     frame[5] = crc7(frame, 5);
-    spi_write(frame, 6);
+    sdspi_write(frame, 6);
 
-    if (cmd == CMD12) (void)spi_xfer(0xFF);     /* discard the stuff byte */
+    if (cmd == CMD12) (void)sdspi_xfer(0xFF);     /* discard the stuff byte */
 
     for (int i = 0; i < 10; i++) {
-        r1 = spi_xfer(0xFF);
+        r1 = sdspi_xfer(0xFF);
         if (!(r1 & 0x80)) break;
     }
     return r1;
@@ -109,14 +109,14 @@ static int read_data(uint8_t *buf, uint32_t len)
     uint8_t token;
 
     do {
-        token = spi_xfer(0xFF);
+        token = sdspi_xfer(0xFF);
         if (token != 0xFF) break;
     } while ((uint32_t)(sys_ticks() - start) < 200);
 
     if (token != TOKEN_START) return -1;
-    spi_read(buf, len);
-    (void)spi_xfer(0xFF);           /* CRC16, ignored */
-    (void)spi_xfer(0xFF);
+    sdspi_read(buf, len);
+    (void)sdspi_xfer(0xFF);           /* CRC16, ignored */
+    (void)sdspi_xfer(0xFF);
     return 0;
 }
 
@@ -145,14 +145,14 @@ int sd_init(void)
     int i;
 
     memset(&g_sd, 0, sizeof(g_sd));
-    spi_init();
-    spi_set_speed(0);
+    sdspi_init();
+    sdspi_set_speed(0);
 
     /* At least 74 clocks with CS and DI high to wake the card up. */
-    spi_cs(0);
-    for (i = 0; i < 10; i++) (void)spi_xfer(0xFF);
+    sdspi_cs(0);
+    for (i = 0; i < 10; i++) (void)sdspi_xfer(0xFF);
 
-    spi_cs(1);
+    sdspi_cs(1);
     for (i = 0; i < 64; i++) {
         r1 = send_cmd(CMD0, 0);
         if (r1 == R1_IDLE) break;
@@ -162,7 +162,7 @@ int sd_init(void)
 
     r1 = send_cmd(CMD8, 0x000001AA);
     if (r1 == R1_IDLE) {
-        spi_read(ocr, 4);                       /* rest of R7 */
+        sdspi_read(ocr, 4);                       /* rest of R7 */
         if (ocr[2] != 0x01 || ocr[3] != 0xAA) { deselect(); return -2; }
 
         start = sys_ticks();
@@ -173,7 +173,7 @@ int sd_init(void)
         if (r1 != 0) { deselect(); return -3; }
 
         if (send_cmd(CMD58, 0) != 0) { deselect(); return -4; }
-        spi_read(ocr, 4);
+        sdspi_read(ocr, 4);
         g_sd.type = (ocr[0] & 0x40) ? SD_TYPE_SDHC : SD_TYPE_SD2;
     } else {
         /* Version 1 SD or MMC. */
@@ -205,7 +205,7 @@ int sd_init(void)
     decode_csd();
 
     deselect();
-    spi_set_speed(1);
+    sdspi_set_speed(1);
     g_sd.initialised = 1;
     return 0;
 }
@@ -284,13 +284,13 @@ int sd_write_block(uint32_t lba, const uint8_t *buf)
     }
 
     if (send_cmd(CMD24, lba_to_arg(lba)) == 0) {
-        (void)spi_xfer(0xFF);
-        spi_xfer(TOKEN_START);
-        spi_write(buf, 512);
-        (void)spi_xfer(0xFF);           /* dummy CRC16 */
-        (void)spi_xfer(0xFF);
+        (void)sdspi_xfer(0xFF);
+        sdspi_xfer(TOKEN_START);
+        sdspi_write(buf, 512);
+        (void)sdspi_xfer(0xFF);           /* dummy CRC16 */
+        (void)sdspi_xfer(0xFF);
 
-        if ((spi_xfer(0xFF) & 0x1F) == 0x05)
+        if ((sdspi_xfer(0xFF) & 0x1F) == 0x05)
             rc = wait_ready(1000);
     }
 

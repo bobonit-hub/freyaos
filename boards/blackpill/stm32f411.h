@@ -76,6 +76,7 @@ typedef struct {
 #define RCC_APB1ENR_TIM4EN  (1UL << 2)
 #define RCC_APB1ENR_I2C1EN  (1UL << 21)
 #define RCC_APB1ENR_I2C2EN  (1UL << 22)
+#define RCC_APB1ENR_SPI2EN  (1UL << 14)
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB1ENR_PWREN   (1UL << 28)
 #define RCC_APB2ENR_SPI1EN  (1UL << 12)
@@ -219,6 +220,7 @@ typedef struct {
 } SPI_TypeDef;
 
 #define SPI1                ((SPI_TypeDef *)0x40013000UL)
+#define SPI2                ((SPI_TypeDef *)0x40003800UL)
 
 #define SPI_CR1_CPHA        (1UL << 0)
 #define SPI_CR1_CPOL        (1UL << 1)

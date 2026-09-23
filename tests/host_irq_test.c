@@ -15,10 +15,13 @@
  * written by hand: every pin in it has to be one a program may have, and
  * no two entries may name the same pin or the same timer channel.  The
  * I2C map is the same kind of table, and the half-period of its clock
- * is asked what frequency that delay would actually produce.  The
- * 1-Wire ROM search is the same kind of thing that would be quietly
- * wrong, so it is walked here against device ids planted in place of
- * a pin, and the CRC-8 those ids end with is checked beside it.
+ * is asked what frequency that delay would actually produce.  The SPI
+ * divider is the same kind of arithmetic: of the eight power-of-two
+ * taps, the one chosen has to be the fastest that does not exceed the
+ * rate asked for.  The 1-Wire ROM search is the same kind of thing
+ * that would be quietly wrong, so it is walked here against device
+ * ids planted in place of a pin, and the CRC-8 those ids end with is
+ * checked beside it.
  *
  * The kernel they expect around them is not here, so the few symbols
  * they refer to are defined below; nothing in the test calls the
@@ -49,11 +52,17 @@ int  app_handler_call(freya_irq_fn fn, int source, void *arg) { return 0; }
 GPIO_TypeDef *board_gpio_port(int port) { return NULL; }
 void board_pin_mode(GPIO_TypeDef *port, int pin, int mode) { }
 void board_pin_af(GPIO_TypeDef *port, int pin, int af) { }
+void board_spi_pins(void) { }
+void board_spi_mux(SPI_TypeDef *spi, int sck, int miso, int mosi, int af)
+{
+    (void)spi; (void)sck; (void)miso; (void)mosi; (void)af;
+}
 
 #include "../src/timer.c"
 #include "../src/pwm.c"
 #include "../src/i2c.c"
 #include "../src/w1.c"
+#include "../src/spi.c"
 
 static int checks, fails;
 
@@ -281,6 +290,86 @@ static void i2c_map(void)
           i2c_info(0, &a) == 0 && a.scl == FREYA_PB(6) && a.sda == FREYA_PB(7));
     check("no I2C pin is one the kernel keeps", 0, bad);
     check("no I2C pin is shared between buses", 0, dup);
+}
+
+/* The tap is acceptable when it is the fastest one that does not exceed
+ * the rate asked for.  A slower tap that also fits means a faster one
+ * was left on the table. */
+static int spi_tap_ok(uint32_t pclk, uint32_t hz)
+{
+    int br = spi_br(pclk, hz);
+    uint32_t rate;
+
+    if (br < 0 || br > 7) return 0;
+    rate = spi_hz(pclk, br);
+    if (rate == 0 || rate > hz) return 0;
+    if (br > 0 && spi_hz(pclk, br - 1) <= hz) return 0;
+    return 1;
+}
+
+static void spi_sweep(uint32_t pclk)
+{
+    char what[80];
+    int bad = 0;
+
+    for (uint32_t hz = FREYA_SPI_MIN_HZ; hz <= FREYA_SPI_MAX_HZ;
+         hz += (hz / 7) + 1)
+        if (!spi_tap_ok(pclk, hz)) bad++;
+    snprintf(what, sizeof what,
+             "every SPI speed at %u MHz is a tap that is not too fast",
+             pclk / 1000000U);
+    check(what, 0, bad);
+}
+
+static int pwm_has_pin(int pin)
+{
+    for (int i = 0; i < PWM_COUNT; i++)
+        if (s_map[i].pin == pin) return 1;
+    return 0;
+}
+
+static void spi_map(void)
+{
+    static const uint16_t reserved[] = BOARD_PIN_RESERVED;
+    spi_info_t a, b;
+    i2c_info_t bus;
+    int n = 0, bad = 0, dup = 0, clash = 0;
+
+    while (spi_info(n, &a) == 0) {
+        int pins[3] = { a.sck, a.miso, a.mosi };
+
+        if (a.sck == a.miso || a.sck == a.mosi || a.miso == a.mosi || !a.name)
+            bad++;
+        for (int k = 0; k < 3; k++) {
+            int port = FREYA_PIN_PORT(pins[k]);
+            int num  = FREYA_PIN_NUM(pins[k]);
+            if (port >= BOARD_PIN_PORTS || (reserved[port] & (1U << num)))
+                bad++;
+            if (pwm_has_pin(pins[k])) clash++;
+        }
+        for (int j = 0; i2c_info(j, &bus) == 0; j++) {
+            if (bus.scl == a.sck || bus.scl == a.miso || bus.scl == a.mosi ||
+                bus.sda == a.sck || bus.sda == a.miso || bus.sda == a.mosi)
+                clash++;
+        }
+        for (int j = 0; j < n; j++) {
+            spi_info(j, &b);
+            if (b.sck == a.sck || b.sck == a.miso || b.sck == a.mosi ||
+                b.miso == a.sck || b.miso == a.miso || b.miso == a.mosi ||
+                b.mosi == a.sck || b.mosi == a.miso || b.mosi == a.mosi)
+                dup++;
+        }
+        n++;
+    }
+
+    printf("  --    %d SPI buses on this board\n", n);
+    check("this board has an SPI bus", 1, n > 0);
+    check("bus 1 is SCK PB13, MISO PB14, MOSI PB15", 1,
+          spi_info(0, &a) == 0 && a.sck == FREYA_PB(13) &&
+          a.miso == FREYA_PB(14) && a.mosi == FREYA_PB(15));
+    check("no SPI pin is one the kernel keeps", 0, bad);
+    check("no SPI pin is shared between buses", 0, dup);
+    check("no SPI pin is also PWM or I2C", 0, clash);
 }
 
 /*
@@ -580,6 +669,39 @@ int main(void)
     /* -------------------------------------------------------- 1-Wire */
     w1_cases();
 
+    /* ----------------------------------------------------------- SPI */
+    check("a speed below the floor is refused",
+          FREYA_ERR_ARG, spi_open(1, FREYA_SPI_MIN_HZ - 1, FREYA_SPI_MODE0));
+    check("and a speed above the ceiling",
+          FREYA_ERR_ARG, spi_open(1, FREYA_SPI_MAX_HZ + 1, FREYA_SPI_MODE0));
+    check("and a mode the hardware does not have",
+          FREYA_ERR_ARG, spi_open(1, 1000000, FREYA_SPI_MODE3 + 1));
+    check("and a bus the board does not have",
+          FREYA_ERR_ARG, spi_open(0, 1000000, FREYA_SPI_MODE0));
+    check("24 MHz on a 48 MHz bus is the /2 tap",
+          0, spi_br(48000000, 24000000));
+    check("and that tap is 24 MHz", 24000000, (long)spi_hz(48000000, 0));
+    check("just under 24 MHz steps down to /4",
+          1, spi_br(48000000, 23999999));
+    check("1 MHz on 48 MHz lands on 750 kHz",
+          750000, (long)spi_hz(48000000, spi_br(48000000, 1000000)));
+    check("187.5 kHz is the slowest tap of a 48 MHz bus",
+          7, spi_br(48000000, FREYA_SPI_MIN_HZ));
+    check("slower than that tap is refused",
+          -1, spi_br(48000000, FREYA_SPI_MIN_HZ - 1));
+    check("1 MHz on 36 MHz lands on 562.5 kHz",
+          562500, (long)spi_hz(36000000, spi_br(36000000, 1000000)));
+    check("24 MHz asked of a 36 MHz bus is its /2 tap",
+          0, spi_br(36000000, FREYA_SPI_MAX_HZ));
+    check("and that tap is 18 MHz", 18000000, (long)spi_hz(36000000, 0));
+    check("the floor still has a tap on a 32 MHz bus",
+          7, spi_br(32000000, FREYA_SPI_MIN_HZ));
+    check("and that tap is 125 kHz", 125000, (long)spi_hz(32000000, 7));
+    spi_sweep(48000000);
+    spi_sweep(36000000);
+    spi_sweep(32000000);
+    spi_map();
+
     /* ------------------------------------------- the table a program sees */
     memset(&api, 0, sizeof(api));
     api.size = sizeof(freya_api_t);
@@ -588,6 +710,7 @@ int main(void)
     check("and the PWM calls", 1, FREYA_API_HAS(&api, pwm_freq) ? 1 : 0);
     check("and the I2C calls", 1, FREYA_API_HAS(&api, i2c_transfer) ? 1 : 0);
     check("and the 1-Wire calls", 1, FREYA_API_HAS(&api, w1_crc) ? 1 : 0);
+    check("and the SPI calls", 1, FREYA_API_HAS(&api, spi_transfer) ? 1 : 0);
     api.size = __builtin_offsetof(freya_api_t, exit_reason_str) +
                sizeof(api.exit_reason_str);
     check("a kernel from before them says so", 0,
@@ -604,6 +727,10 @@ int main(void)
                sizeof(api.i2c_transfer);
     check("a kernel with I2C but not 1-Wire says that too", 0,
           FREYA_API_HAS(&api, w1_open) ? 1 : 0);
+    api.size = __builtin_offsetof(freya_api_t, thread_self) +
+               sizeof(api.thread_self);
+    check("a kernel with threads but not SPI says that too", 0,
+          FREYA_API_HAS(&api, spi_open) ? 1 : 0);
 
     printf("\n%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;

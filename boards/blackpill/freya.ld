@@ -64,8 +64,9 @@ SECTIONS
     } > FLASH
 
     /*
-     * Threads, the switch, and the console commands that talk to them.
-     * Claimed before .text so the wildcard below does not take them.
+     * Threads, the switch, the console commands that talk to them, and
+     * the SPI master.  Claimed before .text so the wildcard below does
+     * not take them.  The 48 KiB image has no room left for SPI.
      * A call across the two images is an ordinary branch.
      */
     .kext :
@@ -77,6 +78,8 @@ SECTIONS
         *switch.o(.text .text.*)
         *shell.o(.text.cmd_stop)
         *shell.o(.text.cmd_threads)
+        *shell.o(.text.cmd_spi)
+        *spi.o(.text.spi_*)
         *shell.o(.text.shell_poll_runtime)
         *shell.o(.text.kext_script)
         *shell.o(.text.kext_script.*)
@@ -85,6 +88,8 @@ SECTIONS
         *uart.o(.text.uart_take_ctrlc)
         *shell.o(.rodata.cmd_stop*)
         *shell.o(.rodata.cmd_threads*)
+        *shell.o(.rodata.cmd_spi*)
+        *spi.o(.rodata.spi_*)
         *shell.o(.rodata.shell_poll_runtime*)
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)

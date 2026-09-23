@@ -85,10 +85,21 @@
       { FREYA_PB(10), FREYA_PB(9) } }
 #define BOARD_I2C_NAMES { "I2C1", "I2C2" }
 
+/* ----------------------------------------------- SPI a program may open */
+/* The card keeps SPI1.  What a program gets is SPI2, the controller both
+ * boards bond to the same three pins: { regs, APB number, SCK, MISO,
+ * MOSI, alternate function }.  The F1 has no alternate function number
+ * and ignores the last field.  Chip select is not in the map; a program
+ * drives that pin itself. */
+#define BOARD_SPI_MAP \
+    { { SPI2, 1, FREYA_PB(13), FREYA_PB(14), FREYA_PB(15), 5 } }
+#define BOARD_SPI_NAMES { "SPI2" }
+
 /* --------------------------------------------------------------- hooks */
 void board_clock_init(void);            /* clock tree, fills g_clocks    */
 void board_uart_pins(void);             /* console pins and USART clock  */
 void board_spi_pins(void);              /* SD card pins, SPI and CS      */
+void board_spi_mux(SPI_TypeDef *spi, int sck, int miso, int mosi, int af);
 
 /* Pins for programs: the register layout is the chip's, so the generic
  * driver in src/gpio.c asks the board to configure and to route. */

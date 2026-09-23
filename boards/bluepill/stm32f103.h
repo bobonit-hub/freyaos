@@ -66,6 +66,7 @@ typedef struct {
 #define RCC_APB1ENR_TIM4EN  (1UL << 2)
 #define RCC_APB1ENR_I2C1EN  (1UL << 21)
 #define RCC_APB1ENR_I2C2EN  (1UL << 22)
+#define RCC_APB1ENR_SPI2EN  (1UL << 14)
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB1ENR_PWREN   (1UL << 28)
 

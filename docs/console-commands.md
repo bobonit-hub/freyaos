@@ -42,6 +42,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin, by the name a program uses for it |
 | `pwm [<pin> <hz> <duty%>\|<pin> off]` | list the PWM channels, or start and stop one |
 | `i2c [<bus> <hz>\|<bus> off\|<bus> scan\|<bus> <addr> …]` | list the I2C buses, or open, scan and talk to one |
+| `spi [<bus> <hz> [mode]\|<bus> off\|<bus> x <byte>…]` | list the SPI buses, or open one and shift bytes |
 | `w1 [<pin>\|<pin> off\|<pin> search\|<pin> reset\|…]` | list open 1-Wire pins, or open one and talk to it |
 | `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
 | `source <file>\|@flash` | run a shell script from a file, or from program flash |
@@ -117,6 +118,25 @@ Bus 2's pins are the board's: PB10/PB11 on the Blue Pill, PB10/PB9 on the
 Black Pill. The rest of the command is opening a speed, scanning, a write, a
 read, or a write then a read, and closing again. [docs/i2c.md](i2c.md) has
 the worked transcript and the reasons a call is refused.
+
+## SPI at the prompt
+
+`spi` is the SPI service calls with a prompt in front of them — the same
+`src/spi.c` a program reaches through `api->spi_open()` and
+`api->spi_transfer()`. With no arguments it lists the buses and the pins:
+
+```
+freya:/> spi
+  1  SPI2  PB13 PB14 PB15  off
+chip select is a pin you drive
+usage: spi [<bus> <hz> [mode] | <bus> off | <bus> x <byte>...]
+```
+
+The bus is SPI2 on both boards. The card keeps SPI1. The rest of the
+command is opening a speed and a mode, shifting bytes, and closing
+again. Chip select is `pin`, around the shift.
+[docs/spi.md](spi.md) has the worked transcript and the reasons a call
+is refused.
 
 ## 1-Wire at the prompt
 

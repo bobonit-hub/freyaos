@@ -9,7 +9,7 @@ version and this name:
 Freya 1.1 "UFOnaut" for STM32F411CEU6
 ```
 
-The program ABI is still version 3. The 1-Wire and thread calls are
+The program ABI is still version 3. The 1-Wire, thread and SPI calls are
 appended to the service table, so a program built against 1.0.1 still
 loads. One built against this kernel can check `FREYA_API_HAS` before
 calling the new entries.
@@ -40,13 +40,20 @@ calling the new entries.
 * The scheduler and the script interpreter live in a kernel extension, a
   second flash image, so the 48 KiB kernel still does not share an erase
   unit with the auto-start slot. On the Blue Pill that extension is the
-  last 8 KiB of the 128 KiB, and the program flash region is 73600 bytes,
-  through `0x0801DFFF`. On the Black Pill the extension is 16 KiB at the
+  last 10 KiB of the 128 KiB (it grew by 2 KiB so the SPI master fits
+  beside the scheduler), and the program flash region is 71552 bytes,
+  through `0x0801D7FF`. On the Black Pill the extension is 16 KiB at the
   start of sector 5, and the program region stays 64 KiB.
 * A program can speak 1-Wire at standard speed on a spare pin: presence,
   byte reads and writes, a ROM search, and a strong pull-up. Up to four
   pins may be open at once. `w1 PB12 search` lists the devices, and
   `samples/w1` reads a DS18B20. See [docs/w1.md](docs/w1.md).
+* A program can speak SPI as a master. The card keeps SPI1. Bus 1 is
+  SPI2 on both boards: SCK PB13, MISO PB14, MOSI PB15. Chip select is a
+  pin the program drives. The clock is the fastest power-of-two division
+  of the bus clock that does not exceed the rate asked for, from 187.5 kHz
+  to 24 MHz. `spi 1 1000000` opens it, and `samples/spi` checks the wires.
+  See [docs/spi.md](docs/spi.md).
 * The Blue Pill has no FPU. A program that uses single-precision float is
   linked with `src/softfp.c` (add, subtract, multiply, divide, compare,
   and conversion to or from an integer). Helpers the program does not
@@ -173,7 +180,7 @@ Programs shipped with the tree:
 | Kind | Names |
 |---|---|
 | Apps | `hello`, `spin` |
-| Samples | `blink`, `log`, `irq`, `pwm`, `i2c`, `flashprobe`, `tetris`, `edit`, `forth` |
+| Samples | `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `threads`, `flashprobe`, `tetris`, `edit`, `forth` |
 
 `forth` is larger than the Blue Pill program RAM region, so on that board
 it is built as a flash image only.

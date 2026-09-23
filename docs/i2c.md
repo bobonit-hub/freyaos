@@ -65,7 +65,7 @@ the pins of the image that is running.
 
 PB6 and PB7 are also PWM pins, and on the Black Pill so is PB9. A pin can be
 one of those at a time: opening I2C while PWM still drives it, or while the
-pin is a 1-Wire bus, or the other way round, returns `FREYA_ERR_BUSY`.
+pin is an SPI or 1-Wire bus, or the other way round, returns `FREYA_ERR_BUSY`.
 
 Both lines are open drain and need a pull-up to 3.3 V. 4.7 kΩ is the ordinary
 choice, 2.2 kΩ once the bus is long or at 400 kHz. The Black Pill turns on
@@ -100,7 +100,7 @@ The kernel returns `FREYA_ERR_HANDLER`.
 
 | | |
 |---|---|
-| `FREYA_ERR_BUSY` | the bus is open from the other side, or a pin is already PWM or 1-Wire |
+| `FREYA_ERR_BUSY` | the bus is open from the other side, or a pin is already PWM, SPI or 1-Wire |
 | `FREYA_ERR_ARG` | no such bus, not open, speed, address or length out of range |
 | `FREYA_ERR_NACK` | the address or a written byte was not acknowledged |
 | `FREYA_ERR_TIMEOUT` | the bus did not finish |
