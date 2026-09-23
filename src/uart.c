@@ -20,6 +20,7 @@ static volatile uint8_t  s_rx[RX_BUF_SIZE];
 static volatile uint16_t s_head, s_tail;
 static volatile uint32_t s_overruns;
 static volatile uint8_t  s_raw_mode;     /* 1 = do not treat Ctrl-C specially */
+static volatile int      s_waiters;      /* blocked in uart_getc          */
 
 void uart_init(uint32_t baud)
 {
@@ -148,17 +149,45 @@ static int rx_pop(void)
     return c;
 }
 
+int uart_getc_nb(void)
+{
+    return rx_pop();
+}
+
+int uart_is_raw(void)
+{
+    return s_raw_mode;
+}
+
+int uart_waiters(void)
+{
+    return s_waiters;
+}
+
 static int uart_wait(uint32_t ms, int timed, int honor_stop)
 {
     uint32_t start = sys_ticks();
+    int c;
 
+    {
+        uint32_t pm = irq_save();
+        s_waiters++;
+        irq_restore(pm);
+    }
     for (;;) {
-        int c = rx_pop();
-        if (c >= 0) return c;
-        if (honor_stop && g_app.running && app_should_stop()) return -1;
-        if (timed && (uint32_t)(sys_ticks() - start) >= ms) return -1;
+        c = rx_pop();
+        if (c >= 0) break;
+        if (honor_stop && g_app.running && app_should_stop()) break;
+        if (timed && (uint32_t)(sys_ticks() - start) >= ms) break;
+        thread_yield();
         if (!timed) __wfi();
     }
+    {
+        uint32_t pm = irq_save();
+        if (s_waiters) s_waiters--;
+        irq_restore(pm);
+    }
+    return c;
 }
 
 int uart_getc(void)                     { return uart_wait(0, 0, 1); }

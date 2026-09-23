@@ -37,8 +37,9 @@ static void systick_init(void)
     SysTick->CTRL = SysTick_CTRL_CLKSRC | SysTick_CTRL_TICKINT |
                     SysTick_CTRL_ENABLE;
     /* Lowest priority so the console never loses characters to it.
-     * PendSV shares that level: it carries out program aborts and must
-     * only run once every other handler has finished. */
+     * PendSV shares that level: it switches threads and carries out
+     * program aborts, and must only run once every other handler has
+     * finished. */
     SCB->SHPR[10] = 0xF0;        /* PendSV  */
     SCB->SHPR[11] = 0xF0;        /* SysTick */
 }
@@ -50,6 +51,7 @@ void SysTick_Handler(void)
         s_rtc_frac = 0;
         s_rtc_secs++;
     }
+    thread_tick();
 }
 
 uint32_t sys_ticks(void)    { return s_ticks; }

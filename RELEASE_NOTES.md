@@ -50,7 +50,7 @@ Freya 1.0 "Chupacabra" for STM32F411CEU6
 | Flash | 512 KiB | 128 KiB |
 | SRAM | 128 KiB | 20 KiB |
 | Program RAM | 56 KiB at `0x20010000` | 8 KiB at `0x20001800` |
-| Program flash | 64 KiB (sector 4) | 81792 bytes |
+| Program flash | 64 KiB (sector 4) | 77696 bytes |
 | Build | `make` | `make BOARD=bluepill` |
 
 Both boards fall back to the internal oscillator if the crystal does not

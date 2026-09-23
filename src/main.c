@@ -84,6 +84,7 @@ static void boot_autorun(void)
 
 void freya_main(void)
 {
+    thread_init();
     sys_init();
     heap_init();
     log_init();

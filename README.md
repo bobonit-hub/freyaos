@@ -1,6 +1,6 @@
 # Freya
 
-Freya is a 32-bit, single-task, single-user, text OS for STMicroelectronics
+Freya is a 32-bit, single-user, text OS for STMicroelectronics
 STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
 metal on the STM32F411CEU6 "Black Pill" and the STM32F103C8T6 "Blue Pill".
 No HAL, no CMSIS, no third party libraries: Freya brings the chip up itself,
@@ -43,7 +43,7 @@ freya:/>
 | Crystal | 25 MHz | 8 MHz |
 | Flash | 512 KiB | 128 KiB |
 | SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 81792 B flash |
+| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 77696 B flash |
 | Build | `make` | `make BOARD=bluepill` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -99,10 +99,15 @@ Freya 1.0.1 "Chupacabra" for STM32F103C8T6
   a DS18B20 ([docs/w1.md](docs/w1.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
-  size from 8 KiB to 81792 bytes; on the Black Pill the flash region is 64 KiB
+  size from 8 KiB to 77696 bytes; on the Black Pill the flash region is 64 KiB
   (sector 4) and is there so the same console commands work with no card in
   the socket. The program can be copied from the card, or packed into the
   module when Freya itself is flashed.
+* Runs threads inside a program. A thread has a name and a numeric priority;
+  the highest priority that is ready runs, and equal priorities take turns.
+  `threads` lists them. `stop blink` stops that thread; `stop` with no name
+  still stops the whole program, threads included.
+  [docs/threads.md](docs/threads.md) is the call list.
 * Stops a running program at any time — even one stuck in a tight loop — and
   contains a program that crashes instead of taking the system down with it.
 * Reports how every run ended: the program's own exit code, 130 for Ctrl-C or
@@ -528,10 +533,11 @@ built against this ABI can check before calling:
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-most of the 128 KiB of flash sits idle. So the board reserves 81792 bytes
+most of the 128 KiB of flash sits idle. So the board reserves 77696 bytes
 at the top of flash — the rest of page 48 after a 128-byte auto-start slot,
-then pages 49 to 127 — for one program image. The size register on these
-parts often still reads 64 KiB; the region runs to the end of the 128 KiB
+then pages 49 to 123 — for one program image. The last 4 KiB holds the
+thread scheduler, which is flashed as its own image. The size register on
+these parts often still reads 64 KiB; the region runs through the 128 KiB
 anyway. The Black Pill does not need
 the size (it already has 56 KiB of program RAM) but it keeps the same
 commands: a 128-byte slot at the end of sector 3, then the whole of sector
@@ -579,7 +585,7 @@ flash into the RAM region before `app_main` is called. That is what the second
 linker script (`boards/<board>/app_flash.ld`) describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
-spends the 8 KiB RAM window entirely on its variables, and gets 81792 bytes
+spends the 8 KiB RAM window entirely on its variables, and gets 77696 bytes
 for code instead of 8 KiB. On the Black Pill the RAM window is still 56 KiB and
 the flash image may be up to 64 KiB.
 
@@ -616,7 +622,7 @@ Black Pill:
 
 ```
 0x08000000  +--------------------------------+
-            |  Freya kernel (~42.5 KiB used) |  48 KiB, sectors 0..2
+            |  Freya kernel (~47.8 KiB used) |  48 KiB, sectors 0..2
 0x0800C000  +--------------------------------+
             |  unused                        |  rest of sector 3
 0x0800FF80  +--------------------------------+
@@ -624,41 +630,48 @@ Black Pill:
 0x08010000  +--------------------------------+
             |  program flash region          |  64 KiB, sector 4
 0x08020000  +--------------------------------+
-            |  unused                        |  sectors 5..7
+            |  thread scheduler              |  start of sector 5
 0x08080000  +--------------------------------+
 
 0x20000000  +--------------------------------+
-            |  .data + .bss (~4 KiB)         |
-            |  system heap (~60 KiB)         |
+            |  .data + .bss + system heap    |
+0x2000F000  +--------------------------------+
+            |  thread stacks, 4 x 1 KiB      |
 0x20010000  +--------------------------------+
             |  user program region (56 KiB)  |  image + .bss, loaded from
 0x2001E000  +--------------------------------+  card, or just .data + .bss
-            |  main stack (8 KiB)            |  kernel and program share it
+            |  shell stack (6 KiB)           |  the program's main thread
+0x2001F800  +--------------------------------+
+            |  interrupt stack (2 KiB)       |
 0x20020000  +--------------------------------+
 ```
 
-Blue Pill — the same shape, squeezed into a fifth of the RAM. The stack keeps 6 KiB
-because the kernel's deepest path (an XMODEM download writing through the
-filesystem) needs a little over three, and the heap takes whatever `.bss`
-leaves behind:
+Blue Pill — the same shape, squeezed into a fifth of the RAM. The top 6 KiB
+holds two thread stacks, the shell stack and the interrupt stack, and the
+heap takes whatever `.bss` leaves behind:
 
 ```
 0x08000000  +--------------------------------+
-            |  Freya kernel (~45 KiB used)   |  48 KiB, pages 0..47
+            |  Freya kernel (~47.5 KiB used) |  48 KiB, pages 0..47
 0x0800C000  +--------------------------------+
             |  auto-start flag + log level  |  128 B, page 48
 0x0800C080  +--------------------------------+
-            |  program flash region          |  81792 B, rest of page 48
-            |                                |  and pages 49..127, installed
-0x08020000  +--------------------------------+  from the card
+            |  program flash region          |  77696 B, rest of page 48
+            |                                |  and pages 49..123, installed
+0x0801F000  +--------------------------------+  from the card
+            |  thread scheduler              |  4 KiB, pages 124..127
+0x08020000  +--------------------------------+
 
 0x20000000  +--------------------------------+
-            |  .data + .bss (~4 KiB)         |
-            |  system heap (~2 KiB)          |
+            |  .data + .bss + system heap    |
 0x20001800  +--------------------------------+
             |  user program region (8 KiB)   |  image + .bss loaded from
 0x20003800  +--------------------------------+  card, or just .data + .bss
-            |  main stack (6 KiB)            |  kernel and program share it
+            |  thread stacks, 2 x 1 KiB      |
+0x20004000  +--------------------------------+
+            |  shell stack (2560 B)          |  the program's main thread
+0x20004A00  +--------------------------------+
+            |  interrupt stack (1536 B)      |
 0x20005000  +--------------------------------+
 ```
 
@@ -789,8 +802,8 @@ ALL TESTS PASSED
   `?` on display.
 * There is no battery backed clock on the board, so file timestamps come from a
   software clock that starts at 2026-01-01 and is set with `date`.
-* One program at a time, sharing the main stack with the kernel — no
-  multitasking and no MPU isolation, which is what a system this size should be.
+* One program at a time. Its main thread is the shell's stack; any thread
+  it creates has a 1 KiB stack of its own. There is no MPU isolation.
 * A pin interrupt is one of sixteen hardware lines, and line *n* serves pin
   *n* of one port at a time, so PA0 and PB0 cannot both have one. Three
   timers serve both the periodic interrupts and PWM, so a program wanting
@@ -810,13 +823,15 @@ ALL TESTS PASSED
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 128 KiB of
   flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
   KiB instead of sixty. Installing a program into flash is the answer to the
-  first half of that, not the second — such a program gets 81792 bytes of code, but
-  the heap is still small and the stack is still shared.
+  first half of that, not the second — such a program gets 77696 bytes of code, but
+  the heap is still small and the main thread still uses the shell stack.
 * The Black Pill keeps a program in flash for the same console commands, not
   because 56 KiB of program RAM is too small. Its erase unit at the program
   region is a 64 KiB sector; the auto-start slot sits in the previous 16 KiB
-  sector so toggling the flag does not erase the image. The kernel is limited
-  to the first 48 KiB so it never shares a sector with that slot.
+  sector so toggling the flag does not erase the image. The kernel image is
+  limited to the first 48 KiB so it never shares a sector with that slot.
+  The thread scheduler is a second image at the start of the next free
+  sector, past the program, so flashing the kernel does not erase either.
 * One program in flash at a time, as with RAM. `install` erases and rewrites
   the region; `uninstall` erases it. `make flash` writes only the kernel and
   leaves an installed program alone, which is convenient but does mean a stale
@@ -828,5 +843,6 @@ ALL TESTS PASSED
   software clock loses about the duration of the install. Both follow from
   there being no read-while-write, and neither is worth putting the console
   interrupt handler in RAM to avoid.
-* `stop` typed at the prompt unloads the image and reports how the last run
-  ended; to interrupt a program that is actually running, press Ctrl-C.
+* `stop` with no name interrupts a program that is running, and at the
+  prompt unloads the image and reports how the last run ended. `stop` with
+  a thread name stops that thread. Ctrl-C stops the whole run.

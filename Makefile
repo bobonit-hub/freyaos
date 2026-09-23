@@ -59,11 +59,12 @@ LDFLAGS   := $(CPUFLAGS) -nostdlib -T $(LDSCRIPT) \
              -Wl,-Map=$(BUILD)/$(TARGET).map
 
 CSRC      := $(wildcard $(SRC_DIR)/*.c)
-ASRC      := $(wildcard $(SRC_DIR)/*.s)
+ASRC      := $(wildcard $(SRC_DIR)/*.s) $(wildcard $(SRC_DIR)/*.S)
 BCSRC     := $(wildcard $(BOARD_DIR)/*.c)
 BASRC     := $(wildcard $(BOARD_DIR)/*.s)
-OBJS      := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(CSRC)) \
-             $(patsubst $(SRC_DIR)/%.s,$(BUILD)/%.o,$(ASRC)) \
+OBJS      := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(filter %.c,$(CSRC))) \
+             $(patsubst $(SRC_DIR)/%.s,$(BUILD)/%.o,$(filter %.s,$(ASRC))) \
+             $(patsubst $(SRC_DIR)/%.S,$(BUILD)/%.o,$(filter %.S,$(ASRC))) \
              $(patsubst $(BOARD_DIR)/%.c,$(BUILD)/board/%.o,$(BCSRC)) \
              $(patsubst $(BOARD_DIR)/%.s,$(BUILD)/board/%.o,$(BASRC))
 DEPS      := $(OBJS:.o=.d)
@@ -88,7 +89,7 @@ APP_GC     :=
 endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink tetris log forth irq pwm i2c w1 flashprobe
+SAMPLES   := blink tetris log forth irq pwm i2c w1 flashprobe threads
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
 # whole of the Blue Pill's RAM window before its dictionary is counted.
@@ -162,6 +163,10 @@ $(BUILD)/%.o: $(SRC_DIR)/%.s | $(BUILD)
 	@echo "  AS    $<"
 	@$(CC) $(ASFLAGS) -c $< -o $@
 
+$(BUILD)/%.o: $(SRC_DIR)/%.S | $(BUILD)
+	@echo "  AS    $<"
+	@$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
 $(BUILD)/board/%.o: $(BOARD_DIR)/%.c | $(BUILD)
 	@echo "  CC    $<"
 	@$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
@@ -175,7 +180,8 @@ $(BUILD)/$(TARGET).elf: $(OBJS) $(LDSCRIPT)
 	@$(CC) $(LDFLAGS) $(OBJS) -lgcc -o $@
 
 $(BUILD)/$(TARGET).bin: $(BUILD)/$(TARGET).elf
-	@$(OBJCOPY) -O binary $< $@
+	@$(OBJCOPY) -O binary -R .kext $< $@
+	@$(OBJCOPY) -O binary -j .kext $< $(BUILD)/$(TARGET)-kext.bin
 	@echo "  BIN   $@"
 
 $(BUILD)/$(TARGET).hex: $(BUILD)/$(TARGET).elf
@@ -272,21 +278,35 @@ endif
 
 image: $(FLASH_IMAGE)
 
-flash: $(FLASH_IMAGE)
-	st-flash $(STFLASH_OPTS) --reset write $< 0x08000000
+# The thread scheduler is a second image (__kext_start).  It is written on
+# its own so the gap between the kernel and that address is not erased.
+flash: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin
+	@set -eu; \
+	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
+	test -n "$$addr"; \
+	st-flash $(STFLASH_OPTS) write $(FLASH_IMAGE) 0x08000000; \
+	st-flash $(STFLASH_OPTS) --reset write $(BUILD)/$(TARGET)-kext.bin $$addr
 
 ifeq ($(PROGRAM),)
 openocd: $(BUILD)/$(TARGET).elf
 	openocd $(OPENOCD_PRE) -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
 	        -c "program $< verify reset exit"
 else
-openocd: $(FLASH_IMAGE)
+openocd: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin
+	@set -eu; \
+	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
+	test -n "$$addr"; \
 	openocd $(OPENOCD_PRE) -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
-	        -c "program $(FLASH_IMAGE) verify reset exit 0x08000000"
+	        -c "program $(FLASH_IMAGE) verify 0x08000000" \
+	        -c "program $(BUILD)/$(TARGET)-kext.bin verify reset exit $$addr"
 endif
 
 # The chip's own ROM loader: $(BOOTLOADER_HINT)
-bootloader: $(FLASH_IMAGE)
+bootloader: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin
+	@set -eu; \
+	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
+	test -n "$$addr"; \
+	$(BOOTLOADER_KEXT); \
 	$(BOOTLOADER_CMD)
 
 clean:

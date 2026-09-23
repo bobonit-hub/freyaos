@@ -16,6 +16,8 @@ static char s_hist[HIST_DEPTH][LINE_MAX];
 static int  s_hist_count;
 static int  s_hist_pos;
 static int  s_status;               /* status of the last command, '$?' */
+static char s_poll_line[LINE_MAX];  /* a command typed during a run       */
+static int  s_poll_len;
 
 /* ------------------------------------------------------- line editing */
 static void erase_line(int len)
@@ -1097,9 +1099,35 @@ static int cmd_loglevel(int argc, char **argv)
     return 0;
 }
 
+static int cmd_threads(int argc, char **argv)
+{
+    if (argc > 1) return usage("threads");
+    thread_list();
+    return 0;
+}
+
 static int cmd_stop(int argc, char **argv)
 {
-    (void)argc; (void)argv;
+    int rc;
+
+    if (argc > 2) return usage("stop [thread]");
+
+    if (argc == 2) {
+        rc = thread_stop_name(argv[1]);
+        if (rc == FREYA_ERR_BUSY) {
+            kprintf("stop: %s cannot be stopped\r\n", argv[1]);
+            return -1;
+        }
+        if (rc != 0) {
+            kprintf("stop: no thread named %s\r\n", argv[1]);
+            return -1;
+        }
+        if (g_app.running && app_should_stop())
+            kprintf("stop requested\r\n");
+        else
+            kprintf("stopped %s\r\n", argv[1]);
+        return 0;
+    }
 
     if (g_app.running) {
         app_request_stop();
@@ -1646,7 +1674,8 @@ static const command_t s_cmds[] = {
 #ifdef FREYA_APP_FLASH_ADDR
     { "runflash", cmd_runflash, "runflash [args...]" },
 #endif
-    { "stop",     cmd_stop,     "stop" },
+    { "stop",     cmd_stop,     "stop [thread]" },
+    { "threads",  cmd_threads,  "threads" },
     { "status",   cmd_status,   "status" },
 #ifdef FREYA_APP_FLASH_ADDR
     { "install",  cmd_install,  "install <file>" },
@@ -1697,6 +1726,70 @@ static int cmd_help(int argc, char **argv)
 /* Runs one line and records its status, which the next line's '$?' and
  * the 'status' command read back.  An empty line changes nothing, the
  * way a shell leaves '$?' alone. */
+/* A line typed while a program is running.  Only the commands that look
+ * at threads are taken: anything else would re-enter the card or the
+ * loader under a thread that may be using them.  The line is assembled
+ * across polls, and one command is run per call so PendSV is not held
+ * across a long print. */
+void shell_poll_runtime(void)
+{
+    int c;
+
+    if (!g_app.running || uart_waiters() || uart_is_raw()) return;
+
+    for (;;) {
+        c = uart_getc_nb();
+        if (c < 0) return;
+
+        if (c == '\r' || c == '\n') {
+            char cmd[LINE_MAX];
+            char tmp[LINE_MAX];
+            char *argv[MAX_ARGS];
+            int argc;
+
+            uart_puts("\r\n");
+            s_poll_line[s_poll_len] = '\0';
+            s_poll_len = 0;
+            if (!s_poll_line[0]) return;
+
+            strncpy(tmp, s_poll_line, sizeof tmp - 1);
+            tmp[sizeof tmp - 1] = '\0';
+            argc = split_args(tmp, argv, MAX_ARGS);
+            if (argc < 1) return;
+            if (strcmp(argv[0], "threads") != 0 &&
+                strcmp(argv[0], "stop") != 0 &&
+                strcmp(argv[0], "help") != 0) {
+                kprintf("%s: a program is running - stop it first\r\n", argv[0]);
+                return;
+            }
+            hist_push(s_poll_line);
+            expand_status(s_poll_line, cmd, sizeof cmd);
+            shell_exec(cmd);
+            return;
+        }
+
+        if (c == 0x15) {                    /* Ctrl-U */
+            while (s_poll_len) {
+                uart_puts("\b \b");
+                s_poll_len--;
+            }
+            continue;
+        }
+        if (c == 8 || c == 0x7F) {
+            if (s_poll_len) {
+                s_poll_len--;
+                uart_puts("\b \b");
+            }
+            continue;
+        }
+        if (c < 0x20 || c > 0x7E) continue;
+        if (s_poll_len < LINE_MAX - 1) {
+            s_poll_line[s_poll_len++] = (char)c;
+            uart_putc((char)c);
+        }
+    }
+}
+
 int shell_exec(char *line)
 {
     char *argv[MAX_ARGS];

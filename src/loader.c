@@ -57,6 +57,7 @@ void app_guard_leave(void)
     if (--s_guard <= 0) {
         s_guard = 0;
         if (s_stop_requested && g_app.running) SCB->ICSR = PENDSV_SET;
+        thread_reconsider();
     }
 }
 
@@ -111,6 +112,7 @@ const char *app_stop_reason_str(int reason)
  */
 void app_abort_trampoline(void)
 {
+    irq_disable();                      /* current may not be the shell yet */
     g_app.running = 0;                  /* close the window for a second kill */
     g_app_stop_reason = FREYA_STOP_CTRLC;
     freya_longjmp(s_return_ctx, 1);
@@ -119,8 +121,13 @@ void app_abort_trampoline(void)
 void app_fault_trampoline(void)
 {
     g_app.running = 0;                  /* a dump fault is a kernel panic */
+    /* The dump waits on SysTick, so interrupts stay on for it, but a
+     * thread switch in the middle of the card transfer must not run. */
+    app_guard_enter();
     if (g_app_stop_reason == FREYA_STOP_BUSFAULT)
         ramdump_write();
+    app_guard_leave();
+    irq_disable();
     freya_longjmp(s_return_ctx, 1);
 }
 
@@ -151,6 +158,14 @@ static volatile uint32_t s_handler_ipsr;    /* the interrupt it runs in */
 int app_in_handler(void)
 {
     return s_in_handler;
+}
+
+/* A card transfer or a pin/timer handler owns the CPU until it finishes.
+ * Switching threads in either would resume the program on a stack the
+ * handler is still using, or leave the card mid-block. */
+int app_switch_blocked(void)
+{
+    return s_guard || s_in_handler;
 }
 
 static void app_handler_abort(void) __attribute__((noreturn));
@@ -203,11 +218,7 @@ static uint32_t api_cpu_hz(void)             { return g_clocks.hclk_hz; }
 
 static void api_delay(uint32_t ms)
 {
-    uint32_t start = sys_ticks();
-    while ((uint32_t)(sys_ticks() - start) < ms) {
-        if (s_stop_requested) return;
-        __wfi();
-    }
+    (void)thread_sleep(ms);
 }
 
 /* The heap is not reentrant, so a handler that preempted the thread
@@ -244,15 +255,18 @@ static int api_should_stop(void) { return s_stop_requested; }
 static void api_yield(void)
 {
     if (s_stop_requested) {
+        irq_disable();
         g_app_stop_reason = FREYA_STOP_CTRLC;
         freya_longjmp(s_return_ctx, 1);
     }
+    thread_yield();
 }
 
 /* The code is kept whole here and truncated to a byte once, where the
  * status is settled, so exit(-1) and exit(255) end up alike. */
 static void api_exit(int code)
 {
+    irq_disable();
     s_exit_code = code;
     g_app_stop_reason = FREYA_STOP_EXIT;
     freya_longjmp(s_return_ctx, 1);
@@ -303,9 +317,38 @@ static int api_irq_wait(uint32_t ms)
     while (g_irq_events == seen) {
         if (s_stop_requested) return -1;
         if (ms && (uint32_t)(sys_ticks() - start) >= ms) return -1;
+        thread_yield();
+        if (g_irq_events != seen) break;
         __wfi();
     }
     return 0;
+}
+
+static int api_thread_create(const char *name, int priority,
+                             freya_thread_fn fn, void *arg)
+{
+    return thread_create(name, priority, fn, arg);
+}
+
+static void api_thread_exit(void)
+{
+    if (thread_is_main()) api_exit(0);
+    thread_exit();
+}
+
+static void api_thread_yield(void)
+{
+    api_yield();
+}
+
+static int api_thread_sleep(uint32_t ms)
+{
+    return thread_sleep(ms);
+}
+
+static int api_thread_self(void)
+{
+    return thread_self();
 }
 
 static const freya_api_t s_api = {
@@ -377,6 +420,11 @@ static const freya_api_t s_api = {
     .w1_search       = w1_search,
     .w1_pullup       = w1_pullup,
     .w1_crc          = w1_crc,
+    .thread_create   = api_thread_create,
+    .thread_exit     = api_thread_exit,
+    .thread_yield    = api_thread_yield,
+    .thread_sleep    = api_thread_sleep,
+    .thread_self     = api_thread_self,
 };
 
 const freya_api_t *app_api(void)
@@ -1089,13 +1137,22 @@ int app_run(int argc, char **argv)
 
     if (freya_setjmp(s_return_ctx) == 0) {
         g_app.running = 1;
+        thread_run_begin(g_app.name[0] ? g_app.name : "main");
         ret = entry(app_api(), argc, argv);
+        irq_disable();              /* a worker must not run past the run */
         s_exit_code = ret;
         if (!g_app_stop_reason) g_app_stop_reason = FREYA_STOP_NONE;
     } else {
-        /* Unwound from exit(), Ctrl-C or a fault. */
+        /* Unwound from exit(), Ctrl-C or a fault.  The longjmp restored
+         * the shell stack; the thread that was running may be another. */
+        thread_after_abort();
         ret = s_exit_code;
     }
+
+    irq_disable();
+    thread_run_end();
+    g_app.running = 0;
+    irq_enable();
 
     /*
      * The status is the program's code only when the program itself ended
@@ -1104,7 +1161,6 @@ int app_run(int argc, char **argv)
      */
     status = freya_exit_status(g_app_stop_reason, ret);
 
-    g_app.running = 0;
     /* Nothing belonging to the program may still be able to run: its pin
      * and timer interrupts are dropped before the memory their handlers
      * were using is handed back, its PWM pins stop driving whatever they

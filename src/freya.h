@@ -36,7 +36,8 @@
  * character is lost and Ctrl-C always arrives; a program's pin and timer
  * handlers share one level below it, which keeps them from preempting
  * each other; SysTick and PendSV keep the bottom, so a program abort
- * always runs with the thread's exception frame on top of the stack.
+ * or a thread switch always runs with the thread's exception frame on
+ * top of that thread's stack.
  */
 #define IRQ_PRIO_CONSOLE   2
 #define IRQ_PRIO_HANDLER   14
@@ -46,6 +47,7 @@ extern char __data_start[], __data_end[], __bss_start[], __bss_end[];
 extern char __heap_start[], __heap_end[], __etext[], __kernel_flash_end[];
 extern char __app_ram_start[], __app_ram_end[];
 extern char __stack_top[], __stack_limit[], __ram_start[], __ram_end[];
+extern char __thread_stack_top[];      /* shell stack: PSP, below the IRQ stack */
 
 /* ------------------------------------------------------------- system */
 typedef struct {
@@ -97,6 +99,9 @@ int  uart_rx_ready(void);
 void uart_rx_flush(void);
 void uart_drain_tx(void);
 int  uart_getc_raw_timeout(uint32_t ms); /* bypasses Ctrl-C handling    */
+int  uart_getc_nb(void);               /* -1 when the ring is empty     */
+int  uart_is_raw(void);
+int  uart_waiters(void);               /* threads blocked in uart_getc  */
 void uart_set_raw(int raw);
 
 /* ------------------------------------------------------------- printf */
@@ -376,6 +381,7 @@ int  app_should_stop(void);
 extern volatile uint32_t g_irq_events;    /* handler events this run      */
 int  app_handler_call(freya_irq_fn fn, int source, void *arg);
 int  app_in_handler(void);                /* interrupt context, not thread */
+int  app_switch_blocked(void);            /* guard or handler: do not switch */
 int  app_handler_kill(uint32_t *frame);   /* 1 if this frame was redirected */
 const char *app_stop_reason_str(int reason);
 int  app_last_exit(freya_exit_t *st);         /* -1 if nothing ran      */
@@ -412,7 +418,36 @@ const char *log_level_str(int level);
 void ramdump_write(void);
 void ramdump_then_halt(void) __attribute__((noreturn));
 
+/* ------------------------------------------------------------ threads */
+/*
+ * Priority threads.  The shell is thread 0 and, while a program runs, it
+ * is that program's main thread.  Idle runs only when every other thread
+ * is blocked.  Names are unique.  A larger priority runs first.
+ */
+void     thread_init(void);
+void     thread_tick(void);             /* from SysTick                       */
+void     thread_yield(void);
+int      thread_sleep(uint32_t ms);     /* 0, -1 if stopping, FREYA_ERR_*     */
+void     thread_exit(void) __attribute__((noreturn));
+int      thread_self(void);
+int      thread_is_main(void);
+int      thread_create(const char *name, int priority,
+                       freya_thread_fn fn, void *arg);
+void     thread_list(void);
+int      thread_stop_name(const char *name);   /* 0, or FREYA_ERR_*           */
+void     thread_run_begin(const char *name);   /* main thread becomes the run */
+void     thread_run_end(void);                 /* drop threads the run made   */
+void     thread_after_abort(void);             /* longjmp landed on the shell */
+void     thread_reconsider(void);              /* guard lifted: switch or stop */
+int      thread_preempt_kind(void);            /* PendSV: 0 hold, 1 abort, 2 switch */
+uint32_t thread_switch(uint32_t saved_sp);
+
+/* Saved and restored by the PendSV shim around thread_switch(). */
+extern uint32_t thread_exc_save;
+extern uint32_t thread_exc_restore;
+
 /* -------------------------------------------------------------- shell */
+void shell_poll_runtime(void);          /* threads/stop while a program runs */
 void shell_run(void) __attribute__((noreturn));
 int  shell_exec(char *line);                  /* returns the status     */
 void console_banner(void);

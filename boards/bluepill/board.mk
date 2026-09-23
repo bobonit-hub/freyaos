@@ -11,6 +11,8 @@ OPENOCD_PRE    := -c "set FLASH_SIZE 0x20000"
 
 # The F103 has no USB bootloader; its ROM loader speaks the ST protocol on
 # USART1 (PA9/PA10).  Set BOOT0 high, tap NRST, then run this.
+BOOTLOADER_KEXT = stm32flash -w $(BUILD)/$(TARGET)-kext.bin -v -S $$addr \
+                             $(if $(PORT),$(PORT),/dev/ttyUSB0)
 BOOTLOADER_CMD  = stm32flash -w $(FLASH_IMAGE) -v -g 0x08000000 \
                              $(if $(PORT),$(PORT),/dev/ttyUSB0)
 BOOTLOADER_HINT := USART1 ROM loader (set BOOT0 high, tap NRST)

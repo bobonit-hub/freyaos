@@ -224,6 +224,21 @@ int  app_load(const char *path)        { (void)path; return -1; }
 int  app_install(const char *path)     { (void)path; return -1; }
 int  app_run(int argc, char **argv)    { (void)argc; (void)argv; return 0; }
 void app_request_stop(void)            { s_stop_requested = 1; }
+int  app_should_stop(void)             { return s_stop_requested; }
+int  uart_getc_nb(void)                { return -1; }
+int  uart_is_raw(void)                 { return 0; }
+int  uart_waiters(void)                { return 0; }
+void thread_list(void)
+{
+    kprintf("  id  pri  state    name\r\n");
+    kprintf("   0    0  running  shell\r\n");
+}
+int thread_stop_name(const char *name)
+{
+    if (name && (strcmp(name, "shell") == 0 || strcmp(name, "idle") == 0))
+        return FREYA_ERR_BUSY;
+    return FREYA_ERR_ARG;
+}
 void app_unload(void)
 {
     s_unloaded = 1;
@@ -376,7 +391,7 @@ static void expect_exact(const char *what, const char *text)
 static void check_summary_words(void)
 {
     static const char *const names[] = {
-        "sysinfo", "meminfo", "mount", "pwd", "df", "stop", "status",
+        "sysinfo", "meminfo", "mount", "pwd", "df", "threads", "status",
         "uninstall", "uptime", "clear", "reboot"
     };
     static const char *const gone[] = {
@@ -409,7 +424,7 @@ static void check_summary_words(void)
 int main(void)
 {
     static const char *const one_word[] = {
-        "sysinfo", "meminfo", "mount", "pwd", "df", "stop", "status",
+        "sysinfo", "meminfo", "mount", "pwd", "df", "threads", "status",
         "uninstall", "uptime", "clear", "reboot"
     };
     unsigned i;
@@ -426,6 +441,7 @@ int main(void)
     rc = run("help");
     expect_rc("help succeeds", rc, 0);
     expect_has("help introduces the list", "Freya commands:\r\n");
+    expect_has("help lists stop with its argument", "  stop [thread]\r\n");
     check_summary_words();
 
     printf("help <command>\n");
@@ -441,6 +457,10 @@ int main(void)
     expect_rc("help ls succeeds", rc, 0);
     expect_exact("help ls names the command, then its usage",
                  "ls\r\nls [-l] [path]\r\n");
+    rc = run("help stop");
+    expect_rc("help stop succeeds", rc, 0);
+    expect_exact("help stop names the command, then its usage",
+                 "stop\r\nstop [thread]\r\n");
     rc = run("help nosuch");
     expect_rc("help of an unknown command fails", rc, FREYA_EXIT_FAIL);
     expect_has("unknown command is named", "no such command: nosuch");
@@ -533,6 +553,19 @@ int main(void)
     if (s_stop_requested) pass("stop asked the loader to stop");
     else fail("stop did not ask the loader");
     g_app.running = 0;
+
+    rc = run("threads");
+    expect_rc("threads succeeds", rc, 0);
+    expect_has("threads names the shell", "shell");
+    expect_has("threads prints a header", "pri");
+
+    rc = run("stop nosuch");
+    expect_rc("stop of an unknown thread fails", rc, FREYA_EXIT_FAIL);
+    expect_has("stop names the missing thread", "no thread named nosuch");
+
+    rc = run("stop shell");
+    expect_rc("stop of the shell fails", rc, FREYA_EXIT_FAIL);
+    expect_has("stop refuses the shell", "shell cannot be stopped");
 
     rc = run("uninstall");
     expect_rc("uninstall of an empty region succeeds", rc, 0);

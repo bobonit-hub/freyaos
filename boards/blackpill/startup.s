@@ -173,6 +173,17 @@ Reset_Handler:
 6:  cmp   r0, r2
     bcc   5b
 
+    /* Interrupts keep MSP, at the top of this region.  Thread mode,
+     * the shell included, uses PSP, so a context switch never moves a
+     * stack a handler is still running on. */
+    ldr   r0, =__stack_top
+    msr   msp, r0
+    ldr   r0, =__thread_stack_top
+    msr   psp, r0
+    movs  r0, #2
+    msr   control, r0
+    isb
+
     bl    freya_main
 
     /* freya_main never returns; if it does, reset the MCU. */
@@ -219,18 +230,13 @@ fault_entry:
     ite   eq
     mrseq r0, msp
     mrsne r0, psp
+    /* A thread that used the FPU has s0-s15 and two words under r0. */
+    tst   lr, #0x10
+    it    eq
+    addeq r0, r0, #72
     b     freya_fault_handler
 
-/*
- * PendSV carries out a program abort.  It is configured at the lowest
- * priority, so when it runs no other handler is active and the frame on
- * top of the main stack belongs to the interrupted thread.
- */
-    .thumb_func
-    .global PendSV_Handler
-PendSV_Handler:
-    mrs   r0, msp
-    b     app_pendsv_handler
+/* PendSV lives in src/switch.S: it switches threads and aborts a run. */
 
 /* ------------------------------------------------------------------ */
     .section .text.Default_Handler, "ax", %progbits

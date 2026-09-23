@@ -10,9 +10,10 @@
  *
  *     int app_main(const freya_api_t *api, int argc, char **argv);
  *
- * The kernel is single tasking: while the program runs it owns the CPU.
- * Pressing Ctrl-C on the console, calling api->exit(), or returning from
- * app_main() hands control back to the Freya shell.
+ * One program runs at a time.  It may start threads; they share that run
+ * and are gone when the run ends.  Pressing Ctrl-C on the console, calling
+ * api->exit(), or returning from app_main() hands control back to the
+ * Freya shell and stops every thread of the run.
  */
 #ifndef FREYA_API_H
 #define FREYA_API_H
@@ -61,7 +62,9 @@
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
-#define FREYA_APP_FLASH_SIZE   (0x08020000UL - FREYA_APP_FLASH_ADDR)
+/* The last 4 KiB of the 128 KiB holds the kernel's thread extension, so
+ * an install does not erase the scheduler. */
+#define FREYA_APP_FLASH_SIZE   (0x0801F000UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)
@@ -70,9 +73,11 @@
 #elif defined(FREYA_BOARD_BLACKPILL)
 #define FREYA_APP_LOAD_ADDR    0x20010000UL     /* 128 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE  (56U * 1024U)
-/* Kernel occupies sectors 0..2 (48 KiB).  Sector 3 is unused except for
- * the 128-byte auto-start slot at its end, so an autostart erase never
- * shares a 64 KiB sector with a program image.  Sector 4 is the program. */
+/* Kernel image occupies sectors 0..2 (48 KiB).  Sector 3 is unused except
+ * for the 128-byte auto-start slot at its end, so an autostart erase never
+ * shares a sector with the kernel or with the program.  Sector 4 is the
+ * program.  The thread scheduler is a second image at the start of sector 5,
+ * so writing the kernel does not erase it. */
 #define FREYA_AUTOSTART_ALIGN  128U
 #define FREYA_AUTOSTART_ADDR   0x0800FF80UL     /* last 128 B of sector 3 */
 #define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
@@ -324,6 +329,28 @@ typedef struct {
  */
 typedef void (*freya_irq_fn)(int source, void *arg);
 
+/* ----------------------------------------------------------- threads */
+/*
+ * A thread is a name, a priority and a function.  The name is not
+ * optional: the console stops a thread by that name, so an empty one is
+ * refused.  Priorities are small integers, FREYA_PRIO_MIN up to
+ * FREYA_PRIO_MAX, and a larger number runs ahead of a smaller one.
+ * Equal priorities take turns.
+ *
+ * The program's own app_main() is a thread too, at FREYA_PRIO_NORMAL,
+ * for as long as the run lasts.  Threads a program creates die with the
+ * run — when app_main() returns, exit() is called, or the run is stopped.
+ * Each of those has FREYA_THREAD_STACK bytes of stack.  The call is
+ * refused with FREYA_ERR_BUSY when the board has no room for another one.
+ */
+#define FREYA_THREAD_NAME_MAX  16
+#define FREYA_THREAD_STACK     1024U
+#define FREYA_PRIO_MIN         0
+#define FREYA_PRIO_MAX         7
+#define FREYA_PRIO_NORMAL      1
+
+typedef void (*freya_thread_fn)(void *arg);
+
 /*
  * Service table handed to the program.  Fields are only ever appended,
  * and 'size' lets a program check what the running kernel provides.
@@ -452,6 +479,19 @@ typedef struct freya_api {
     int      (*w1_search)(int pin, void *rom);
     int      (*w1_pullup)(int pin, int on);
     int      (*w1_crc)(const void *buf, int len);
+
+    /* appended: threads.  thread_create() returns a thread id, or a
+     * FREYA_ERR_* .  thread_exit() does not return; called from the
+     * program's main thread it ends the run the way return would.
+     * thread_sleep() returns 0, -1 if the run was asked to stop, or
+     * FREYA_ERR_HANDLER from a handler.  thread_self() is the caller's
+     * id.  None of these may be called from a pin or timer handler. */
+    int      (*thread_create)(const char *name, int priority,
+                              freya_thread_fn fn, void *arg);
+    void     (*thread_exit)(void);
+    void     (*thread_yield)(void);
+    int      (*thread_sleep)(uint32_t ms);
+    int      (*thread_self)(void);
 } freya_api_t;
 
 /*

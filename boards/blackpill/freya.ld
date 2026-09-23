@@ -12,12 +12,19 @@
  *   0x0800C000 .. 0x0800FF7F   unused (rest of sector 3)
  *   0x0800FF80 .. 0x0800FFFF   auto-start flag + reserved          (128 B)
  *   0x08010000 .. 0x0801FFFF   program flash region              (64 KiB)
- *   0x08020000 .. 0x0807FFFF   unused
+ *   0x08020000 .. 0x08023FFF   kernel extension (threads)        (16 KiB)
+ *   0x08024000 .. 0x0807FFFF   unused
+ *
+ * The extension is a separate image.  It sits in sector 5 so that writing
+ * the kernel does not share an erase unit with the auto-start slot or with
+ * the program, and so the 48 KiB image stays inside sectors 0..2.
  *
  * RAM map:
- *   0x20000000 .. 0x2000FFFF   kernel .data/.bss + system heap   (64 KiB)
+ *   0x20000000 .. 0x2000EFFF   kernel .data/.bss + system heap   (60 KiB)
+ *   0x2000F000 .. 0x2000FFFF   thread stacks, 4 x 1 KiB           ( 4 KiB)
  *   0x20010000 .. 0x2001DFFF   user program image region         (56 KiB)
- *   0x2001E000 .. 0x2001FFFF   main stack (kernel + user)        ( 8 KiB)
+ *   0x2001E000 .. 0x2001F7FF   shell stack                        ( 6 KiB)
+ *   0x2001F800 .. 0x2001FFFF   interrupt stack                    ( 2 KiB)
  */
 
 ENTRY(Reset_Handler)
@@ -25,12 +32,19 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
+    KEXT  (rx)  : ORIGIN = 0x08020000, LENGTH = 16K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
 }
 
 __stack_size         = 8K;
+__irq_stack_size     = 2K;
+__worker_stack_size  = 1024;
+__worker_count       = 4;
 __app_ram_start      = 0x20010000;
 __app_ram_end        = 0x2001E000;
+__worker_stacks      = __app_ram_start - (__worker_count * __worker_stack_size);
+__thread_stack_top   = __stack_top - __irq_stack_size;
+__shell_stack_limit  = __stack_limit;
 __autostart_start    = 0x0800FF80;
 __autostart_end      = 0x08010000;
 __app_flash_start    = 0x08010000;
@@ -48,6 +62,33 @@ SECTIONS
         KEEP(*(.isr_vector))
         . = ALIGN(4);
     } > FLASH
+
+    /*
+     * Threads, the switch, and the console commands that talk to them.
+     * Claimed before .text so the wildcard below does not take them.
+     * A call across the two images is an ordinary branch.
+     */
+    .kext :
+    {
+        . = ALIGN(4);
+        __kext_start = .;
+        *thread.o(.text .text.*)
+        *thread.o(.rodata .rodata.*)
+        *switch.o(.text .text.*)
+        *shell.o(.text.cmd_stop)
+        *shell.o(.text.cmd_threads)
+        *shell.o(.text.shell_poll_runtime)
+        *shell.o(.rodata.cmd_stop*)
+        *shell.o(.rodata.cmd_threads*)
+        *shell.o(.rodata.shell_poll_runtime*)
+        . = ALIGN(4);
+        __kext_end = .;
+    } > KEXT
+
+    ASSERT(__kext_start == ORIGIN(KEXT),
+           "Freya: kernel extension does not start where it is flashed")
+    ASSERT(__kext_end <= ORIGIN(KEXT) + LENGTH(KEXT),
+           "Freya: kernel extension overflows its flash region")
 
     .text :
     {
@@ -91,13 +132,21 @@ SECTIONS
         __bss_end = .;
     } > RAM
 
-    /* Everything between here and the user program region is the system heap. */
+    /* Everything between here and the thread stacks is the system heap.
+     * The stacks sit in front of the program region so a thread does not
+     * take its stack out of the shell's. */
     . = ALIGN(8);
     __heap_start = .;
-    __heap_end   = __app_ram_start;
+    __heap_end   = __worker_stacks;
 
-    ASSERT(__heap_start < __app_ram_start,
-           "Freya: kernel .data/.bss overflow into the user program region")
+    ASSERT(__heap_start < __heap_end,
+           "Freya: kernel .data/.bss overflow into the thread stacks")
+    ASSERT(__worker_stacks + __worker_count * __worker_stack_size == __app_ram_start,
+           "Freya: thread stacks must end where the program region begins")
+    ASSERT(__shell_stack_limit < __thread_stack_top,
+           "Freya: no room for the shell stack")
+    ASSERT((__thread_stack_top & 7) == 0,
+           "Freya: thread stack top is not 8-byte aligned")
 
     /*
      * The F411 has no read-while-write.  Erase and program wait loops live

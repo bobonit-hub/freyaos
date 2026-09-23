@@ -29,7 +29,8 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `load <file>\|@flash` | load a program image into RAM, or bind the flash image |
 | `run [file\|@flash] [args...]` | run the loaded program |
 | `runflash [args...]` | run the program stored in internal flash |
-| `stop` | stop, or unload, the program |
+| `stop [thread]` | stop the program, or one thread by name |
+| `threads` | list threads: id, priority, state, name |
 | `status` | exit status of the last command and the last program |
 | `install <file>` | write a program into internal flash |
 | `saveflash [file]` | copy the installed program from flash onto the card (default `/<name>.xip.bin`) |
@@ -133,8 +134,12 @@ The pin is named the way `pin` names one. `search` prints every ROM and
 when its run ends instead. Reading a thermometer is `samples/w1`.
 [docs/w1.md](w1.md) has the worked transcript.
 
-Ctrl-C stops a running program, Ctrl-U clears the input line, and the up and
-down cursor keys walk the command history.
+Ctrl-C stops a running program and every thread it created. `stop` with no
+name does the same when a program is running, and unloads it otherwise;
+`stop <name>` stops that thread and leaves the run going. `threads` lists
+them. Ctrl-U clears the input line, and the up and down cursor keys walk
+the command history. While a program runs, only `threads`, `stop` and
+`help` are read from the console; anything else waits until the run ends.
 
 `$?` anywhere in a line becomes the exit status of the previous command: 0 when
 it worked, 1 when it failed, 127 for a word that is not a command, and for

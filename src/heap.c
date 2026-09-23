@@ -133,8 +133,12 @@ void heap_stats(uint32_t *total, uint32_t *used, uint32_t *free_bytes,
 uint32_t stack_used(void)
 {
     uint32_t sp;
-    __asm volatile ("mov %0, sp" : "=r"(sp));
-    return (uint32_t)(uintptr_t)__stack_top - sp;
+
+    /* Thread mode runs on PSP.  The figure is the shell stack, which is
+     * also the stack a program's main thread uses. */
+    __asm volatile ("mrs %0, psp" : "=r"(sp));
+    if (sp > (uint32_t)(uintptr_t)__thread_stack_top) return 0;
+    return (uint32_t)(uintptr_t)__thread_stack_top - sp;
 }
 
 /* Walks the 0xDEADBEEF fill written by the reset handler. */

@@ -131,6 +131,15 @@ echo "================= exit status ================="
 $CC $CFLAGS tests/host_exit_test.c -o "$OUT/hostexit"
 "$OUT/hostexit" || status=1
 
+# Thread names, priorities and stop.  The PendSV switch does not run on
+# the host; the table and the scheduling decision do.
+echo
+echo "================= threads ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_thread_test.c src/thread.c src/string.c src/print.c \
+    -o "$OUT/hostthread"
+"$OUT/hostthread" || status=1
+
 # The shell commands whose names are a single word, and help, which has
 # to print that name.  Registers the commands read are planted in the
 # host address space; the card and the clock are stubs.

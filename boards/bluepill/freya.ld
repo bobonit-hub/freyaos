@@ -11,14 +11,22 @@
  * it fits.  The size register on these parts often still reads 64 KiB.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
  *   0x0800C000 .. 0x0800C07F   auto-start flag + reserved          (128 B)
- *   0x0800C080 .. 0x0801FFFF   program flash region             (81792 B)
+ *   0x0800C080 .. 0x0801EFFF   program flash region             (77696 B)
+ *   0x0801F000 .. 0x0801FFFF   kernel extension (threads)          ( 4 KiB)
+ *
+ * The extension is its own image at the top of the 128 KiB.  The program
+ * region stops short of it, so install and uninstall never erase the
+ * scheduler, and the 48 KiB image still ends on the page before the
+ * auto-start slot.
  *
  * RAM map - the whole system has to fit in a fifth of what the Black Pill
  * offers, so the heap is small and the program region is sized for the
  * kind of program this board can run at all:
  *   0x20000000 .. 0x200017FF   kernel .data/.bss + system heap    ( 6 KiB)
  *   0x20001800 .. 0x200037FF   user program image region          ( 8 KiB)
- *   0x20003800 .. 0x20004FFF   main stack (kernel + user)         ( 6 KiB)
+ *   0x20003800 .. 0x20003FFF   thread stacks, 2 x 1 KiB           ( 2 KiB)
+ *   0x20004000 .. 0x200049FF   shell stack                      (2560 B)
+ *   0x20004A00 .. 0x20004FFF   interrupt stack                  (1536 B)
  *
  * A copied installed program shares that 8 KiB window between its image
  * (at the top) and its .data and .bss (at the bottom).  Larger images
@@ -30,16 +38,23 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
+    KEXT  (rx)  : ORIGIN = 0x0801F000, LENGTH = 4K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
 __stack_size         = 6K;
+__irq_stack_size     = 1536;
+__worker_stack_size  = 1024;
+__worker_count       = 2;
 __app_ram_start      = 0x20001800;
 __app_ram_end        = 0x20003800;
+__worker_stacks      = __stack_limit;
+__thread_stack_top   = __stack_top - __irq_stack_size;
+__shell_stack_limit  = __worker_stacks + __worker_count * __worker_stack_size;
 __autostart_start    = 0x0800C000;
 __autostart_end      = 0x0800C080;
 __app_flash_start    = 0x0800C080;
-__app_flash_end      = 0x08020000;
+__app_flash_end      = 0x0801F000;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;
@@ -53,6 +68,33 @@ SECTIONS
         KEEP(*(.isr_vector))
         . = ALIGN(4);
     } > FLASH
+
+    /*
+     * Threads, the switch, and the console commands that talk to them.
+     * Claimed before .text so the wildcard below does not take them.
+     * A call across the two images is an ordinary branch.
+     */
+    .kext :
+    {
+        . = ALIGN(4);
+        __kext_start = .;
+        *thread.o(.text .text.*)
+        *thread.o(.rodata .rodata.*)
+        *switch.o(.text .text.*)
+        *shell.o(.text.cmd_stop)
+        *shell.o(.text.cmd_threads)
+        *shell.o(.text.shell_poll_runtime)
+        *shell.o(.rodata.cmd_stop*)
+        *shell.o(.rodata.cmd_threads*)
+        *shell.o(.rodata.shell_poll_runtime*)
+        . = ALIGN(4);
+        __kext_end = .;
+    } > KEXT
+
+    ASSERT(__kext_start == ORIGIN(KEXT),
+           "Freya: kernel extension does not start where it is flashed")
+    ASSERT(__kext_end <= ORIGIN(KEXT) + LENGTH(KEXT),
+           "Freya: kernel extension overflows its flash region")
 
     .text :
     {
@@ -103,6 +145,10 @@ SECTIONS
 
     ASSERT(__heap_start < __app_ram_start,
            "Freya: kernel .data/.bss overflow into the user program region")
+    ASSERT(__shell_stack_limit < __thread_stack_top,
+           "Freya: no room for the shell stack")
+    ASSERT((__thread_stack_top & 7) == 0,
+           "Freya: thread stack top is not 8-byte aligned")
 
     /*
      * The flash erase and program routines have to execute from SRAM: the
