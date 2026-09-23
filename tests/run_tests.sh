@@ -12,6 +12,13 @@ cd "$(dirname "$0")/.."
 OUT=build/tests
 mkdir -p "$OUT"
 
+# The FAT images are hundreds of megabytes and only needed while a run
+# is in progress. Drop them on the way out, including after a failure.
+cleanup() {
+    rm -f "$OUT/fat16.img" "$OUT/fat32.img" "$OUT/interop.img" "$OUT/xmodem.img"
+}
+trap cleanup EXIT
+
 CC=${CC:-cc}
 
 # The sources under test pull in freya.h, which pulls in the board header;
