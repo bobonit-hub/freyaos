@@ -5,8 +5,10 @@
  * read through and a pointer to write through, so an access is one
  * table lookup whatever sits behind it:
  *
- *   0000 .. BFFF   RAM in the program's .bss, 48 KiB
- *   C000 .. F7FF   more RAM from the heap, a page at a time, if asked for
+ *   from 0000      MEM_BASE_KB of RAM in the program's .bss: 48 KiB,
+ *                  through BFFF, or 16 KiB through 3FFF for altair16
+ *   above that     more RAM from the heap, one page at a time, when
+ *   up to F7FF     --ram asks for more than the .bss holds
  *   F800 .. FBFF   the Turnkey Module's 1 KiB SRAM
  *   FC00 .. FFFF   the Turnkey Module's four 256-byte PROM sockets
  *
@@ -21,8 +23,13 @@
 #define MEM_PAGE        (1u << MEM_PAGE_SHIFT)
 #define MEM_PAGE_MASK   (MEM_PAGE - 1)
 
+/* samples/altair16 sets both before this file is included. */
+#ifndef MEM_BASE_KB
 #define MEM_BASE_KB     48u                 /* the .bss part            */
+#endif
+#ifndef MEM_MAX_KB
 #define MEM_MAX_KB      62u                 /* up to the Turnkey SRAM   */
+#endif
 #define MEM_TK_RAM      0xF800u
 #define MEM_PROM        0xFC00u
 #define MEM_PROM_SOCKET 256u
@@ -75,9 +82,9 @@ static void mem_release(void)
 
 /*
  * Maps the address space for ram_kb of main RAM and returns how much it
- * got: past 48 KiB the rest comes from the heap and stops at the first
- * page the heap cannot give.  The Turnkey SRAM is always there; the PROM
- * page starts out as four empty sockets.
+ * got: past MEM_BASE_KB the rest comes from the heap and stops at the
+ * first page the heap cannot give.  The Turnkey SRAM is always there;
+ * the PROM page starts out as four empty sockets.
  */
 static unsigned mem_init(unsigned ram_kb)
 {

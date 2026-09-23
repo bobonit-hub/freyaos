@@ -25,6 +25,8 @@
  * The 8080 is in i8080.c, memory in mem.c, the ports in io.c, the
  * console side in term.c and the card side in load.c.  The Makefile
  * builds a sample from main.c alone, so they are included here.
+ * samples/altair16 includes this file with 16 KiB of RAM, which fits
+ * the program region and so loads with 'run' as well as from flash.
  */
 #include <stddef.h>
 #include "freya_api.h"
@@ -222,6 +224,13 @@ static int boot_tape(const char *path, uint16_t hl)
 {
     int32_t at;
 
+    /* The keyed-in loader occupies HL-1 down to H:00.  Past the end of
+     * main RAM those stores vanish, and the CPU would start on FFh. */
+    if ((uint32_t)(uint16_t)(hl - 1) >= s_ram_kb * 1024u) {
+        g->printf("altair: the loader at %04X is past the %u KiB of RAM\r\n",
+                  hl, s_ram_kb);
+        return -1;
+    }
     if (tape_attach(path) < 0) {
         g->printf("altair: cannot open %s\r\n", path);
         return -1;

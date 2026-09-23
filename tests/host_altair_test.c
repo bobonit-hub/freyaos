@@ -530,6 +530,13 @@ static void test_io(void)
         check("down to H:00", 0xCC, mem_rd(0x0100));
         check("and leaves the rest in the teletype's reader", 1, s_tape_tty);
         tape_detach();
+        mem_init(16);
+        s_outn = 0;
+        check("a loader past the RAM is refused", -1, boot_tape(bin, 0x7EC2));
+        s_out[s_outn] = '\0';
+        check("and it names the 16 KiB", 1,
+              strstr(s_out, "loader at 7EC2 is past the 16 KiB of RAM") != NULL);
+        tape_detach();
         remove(hex);
         remove(bin);
     }

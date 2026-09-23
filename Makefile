@@ -90,10 +90,11 @@ endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
 SAMPLES   := blink tetris edit log forth irq pwm i2c spi w1 crypt flashprobe threads \
-             altair
-# A sample a board has no room for at all is not built there: the Altair
-# wants 48 KiB of RAM for the 8080 alone, and the Blue Pill has 20.
-SKIP_bluepill := altair
+             altair altair16
+# A sample a board has no room for at all is not built there.  The Altair
+# keeps the 8080's RAM in the program region: 48 KiB, or 16 KiB for
+# altair16.  The Blue Pill's window is 8 KiB.
+SKIP_bluepill := altair altair16
 SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
@@ -252,6 +253,11 @@ $(BUILD)/samples/%.bin: $(BUILD)/samples/%.elf
 # A sample in several files keeps main.c as the one the rule compiles,
 # and main.c includes the rest; this makes a change to any of them count.
 $(BUILD)/samples/altair.elf $(BUILD)/samples/altair.xip.elf: \
+	$(wildcard $(SMPL_DIR)/altair/*.c $(SMPL_DIR)/altair/*.h)
+
+# altair16 is the same sources with 16 KiB of RAM; its main.c includes them.
+$(BUILD)/samples/altair16.elf $(BUILD)/samples/altair16.xip.elf: \
+	$(SMPL_DIR)/altair16/main.c \
 	$(wildcard $(SMPL_DIR)/altair/*.c $(SMPL_DIR)/altair/*.h)
 
 # ----------------------------------------------------------------- misc

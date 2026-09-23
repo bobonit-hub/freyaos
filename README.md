@@ -373,7 +373,9 @@ in `samples/tetris/README.md`), `samples/edit` is a terminal text editor
 with a compiler and 122 words (`samples/forth/README.md`), and
 `samples/altair` is an Altair 8800b Turnkey that runs Altair BASIC and
 other original 8080 software from the card (`samples/altair/README.md`;
-Black Pill only, from flash). Every
+Black Pill only, from flash). `samples/altair16` is that machine with
+16 KiB of RAM, which fits the program region and so runs from RAM as
+well (`samples/altair16/README.md`). Every
 app and sample is also built as `.xip.bin` for `install`, and a sample too
 large for a board's program RAM region is built there as the flash image
 alone — which on the Blue Pill is what happens to `forth`, whose
@@ -759,7 +761,7 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth`, `altair` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16` |
 | `tests/` | host side tests |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
