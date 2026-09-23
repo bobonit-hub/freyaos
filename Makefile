@@ -89,7 +89,7 @@ APP_GC     :=
 endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink tetris log forth irq pwm i2c w1 flashprobe threads
+SAMPLES   := blink tetris edit log forth irq pwm i2c w1 flashprobe threads
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
 # whole of the Blue Pill's RAM window before its dictionary is counted.

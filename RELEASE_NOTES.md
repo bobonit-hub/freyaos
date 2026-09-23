@@ -52,6 +52,8 @@ calling the new entries.
   and conversion to or from an integer). Helpers the program does not
   call stay out of the image.
 * Host tests delete the FAT disk images when a run finishes (`make test`).
+* `samples/edit` is a terminal text editor for a file on the card.
+  See [samples/edit/README.md](samples/edit/README.md).
 
 # Freya 1.0.1 "Chupacabra"
 
@@ -171,7 +173,7 @@ Programs shipped with the tree:
 | Kind | Names |
 |---|---|
 | Apps | `hello`, `spin` |
-| Samples | `blink`, `log`, `irq`, `pwm`, `i2c`, `flashprobe`, `tetris`, `forth` |
+| Samples | `blink`, `log`, `irq`, `pwm`, `i2c`, `flashprobe`, `tetris`, `edit`, `forth` |
 
 `forth` is larger than the Blue Pill program RAM region, so on that board
 it is built as a flash image only.

@@ -339,7 +339,8 @@ reads a 1-Wire thermometer (`samples/w1/README.md`), `samples/flashprobe`
 finds out how much
 internal flash the chip really has (`samples/flashprobe/README.md`),
 `samples/tetris` is a console game (keys
-in `samples/tetris/README.md`), and `samples/forth` is an interactive Forth
+in `samples/tetris/README.md`), `samples/edit` is a terminal text editor
+(`samples/edit/README.md`), and `samples/forth` is an interactive Forth
 with a compiler and 122 words (`samples/forth/README.md`). Every
 app and sample is also built as `.xip.bin` for `install`, and a sample too
 large for a board's program RAM region is built there as the flash image
@@ -723,7 +724,7 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `w1`, `flashprobe`, `tetris`, `forth` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `w1`, `flashprobe`, `tetris`, `edit`, `forth` |
 | `tests/` | host side tests |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
