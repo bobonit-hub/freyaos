@@ -41,6 +41,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin, by the name a program uses for it |
 | `pwm [<pin> <hz> <duty%>\|<pin> off]` | list the PWM channels, or start and stop one |
 | `i2c [<bus> <hz>\|<bus> off\|<bus> scan\|<bus> <addr> …]` | list the I2C buses, or open, scan and talk to one |
+| `w1 [<pin>\|<pin> off\|<pin> search\|<pin> reset\|…]` | list open 1-Wire pins, or open one and talk to it |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
 
 ## Pins and PWM at the prompt
@@ -111,6 +112,26 @@ Bus 2's pins are the board's: PB10/PB11 on the Blue Pill, PB10/PB9 on the
 Black Pill. The rest of the command is opening a speed, scanning, a write, a
 read, or a write then a read, and closing again. [docs/i2c.md](i2c.md) has
 the worked transcript and the reasons a call is refused.
+
+## 1-Wire at the prompt
+
+`w1` is the 1-Wire service calls with a prompt in front of them — the same
+`src/w1.c` a program reaches through `api->w1_open()` and `api->w1_search()`.
+With no arguments it lists the pins that are open:
+
+```
+freya:/> w1 PB12
+PB12  1-Wire
+freya:/> w1
+  PB12
+pull the data pin up to 3.3 V
+usage: w1 [<pin> | <pin> off | <pin> reset | <pin> search]
+```
+
+The pin is named the way `pin` names one. `search` prints every ROM and
+`off` puts the pin back to an input. A pin a *program* opened is closed
+when its run ends instead. Reading a thermometer is `samples/w1`.
+[docs/w1.md](w1.md) has the worked transcript.
 
 Ctrl-C stops a running program, Ctrl-U clears the input line, and the up and
 down cursor keys walk the command history.

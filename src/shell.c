@@ -1292,15 +1292,22 @@ static int pin_fail(const char *cmd, int rc)
     switch (rc) {
     case FREYA_ERR_PIN:  why = "not a pin Freya hands out"; break;
     case FREYA_ERR_BUSY:
-        why = (strcmp(cmd, "i2c") == 0) ? "that bus or its pins are taken"
-                                        : "that timer is taken";
+        if (strcmp(cmd, "i2c") == 0) why = "that bus or its pins are taken";
+        else if (strcmp(cmd, "w1") == 0)
+            why = "that pin is taken, or every bus is open";
+        else why = "that timer is taken";
         break;
     case FREYA_ERR_ARG:
-        why = (strcmp(cmd, "i2c") == 0)
-              ? "speed, address or length out of range" : "out of range";
+        if (strcmp(cmd, "i2c") == 0)
+            why = "speed, address or length out of range";
+        else if (strcmp(cmd, "w1") == 0)
+            why = "not open, or the length is out of range";
+        else why = "out of range";
         break;
     case FREYA_ERR_NACK:    why = "no answer"; break;
-    case FREYA_ERR_TIMEOUT: why = "timed out"; break;
+    case FREYA_ERR_TIMEOUT:
+        why = (strcmp(cmd, "w1") == 0) ? "the line stayed low" : "timed out";
+        break;
     case FREYA_ERR_IO:      why = "bus error"; break;
     default:                why = "refused"; break;
     }
@@ -1536,6 +1543,78 @@ static int cmd_i2c(int argc, char **argv)
     return 0;
 }
 
+/* ----------------------------------------------------------- 1-Wire */
+/* Byte reads, writes and the strong pull-up are the program calls.
+ * The prompt opens a pin, checks presence and walks the ROMs. */
+#define W1_USAGE  "w1 [<pin> | <pin> off | <pin> reset | <pin> search]"
+
+static int cmd_w1(int argc, char **argv)
+{
+    w1_info_t in;
+    uint8_t rom[FREYA_W1_ROM_LEN];
+    int pin, i, n, rc;
+
+    if (argc < 2) {
+        for (i = 0; w1_info(i, &in) == 0; i++) {
+            kprintf("  ");
+            put_pin(in.pin);
+            kprintf("\r\n");
+        }
+        kprintf("pull the data pin up to 3.3 V\r\nusage: %s\r\n", W1_USAGE);
+        return 0;
+    }
+
+    pin = parse_pin(argv[1]);
+    if (pin < 0 || argc > 3) return usage(W1_USAGE);
+
+    if (argc == 2) {
+        rc = w1_open(pin);
+        if (rc != 0) return pin_fail("w1", rc);
+        put_pin(pin);
+        kprintf("  1-Wire\r\n");
+        return 0;
+    }
+    if (strcmp(argv[2], "off") == 0) {
+        if (w1_close(pin) != 0) {
+            kprintf("w1: not open\r\n");
+            return -1;
+        }
+        put_pin(pin);
+        kprintf(" off\r\n");
+        return 0;
+    }
+    if (strcmp(argv[2], "reset") == 0) {
+        rc = w1_reset(pin);
+        if (rc != 0) return pin_fail("w1", rc);
+        kprintf("presence\r\n");
+        return 0;
+    }
+    if (strcmp(argv[2], "search") != 0) return usage(W1_USAGE);
+
+    n = 0;
+    for (;;) {
+        if (uart_rx_ready() && uart_getc_timeout(0) == 0x03) {
+            uart_rx_flush();
+            kprintf("^C\r\n");
+            return -1;
+        }
+        rc = w1_search(pin, rom);
+        if (rc == FREYA_ERR_NACK) break;
+        if (rc != 0) return pin_fail("w1", rc);
+        for (i = 0; i < FREYA_W1_ROM_LEN; i++) {
+            if (i) kprintf(" ");
+            kprintf("%02x", rom[i]);
+        }
+        kprintf("\r\n");
+        n++;
+    }
+    if (!n) {
+        kprintf("no device\r\n");
+        return -1;
+    }
+    return 0;
+}
+
 /* ------------------------------------------------------ command table */
 typedef struct {
     const char *name;
@@ -1583,6 +1662,7 @@ static const command_t s_cmds[] = {
     { "pin",      cmd_pin,      PIN_USAGE },
     { "pwm",      cmd_pwm,      PWM_USAGE },
     { "i2c",      cmd_i2c,      I2C_USAGE },
+    { "w1",       cmd_w1,       W1_USAGE },
     { "echo",     cmd_echo,     "echo <text...>" },
     { "clear",    cmd_clear,    "clear" },
     { "reboot",   cmd_reboot,   "reboot" },

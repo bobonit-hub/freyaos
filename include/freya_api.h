@@ -270,23 +270,37 @@ typedef struct {
 #define FREYA_I2C_MAX_HZ     400000UL
 #define FREYA_I2C_MAX_LEN    255
 
+/* ------------------------------------------------------------- 1-Wire */
 /*
- * What the pin, timer, PWM, I2C and interrupt calls return.  Anything
- * else they hand back is the value asked for: a pin level, a handle, a
- * count.
+ * Standard speed on one open-drain pin.  A program names the pin; up
+ * to FREYA_W1_BUSES of them may be open at once.  A transfer longer
+ * than FREYA_W1_MAX_LEN is refused rather than split.  A ROM is eight
+ * bytes, family code first.  There is no overdrive: those slots are
+ * shorter than a one-microsecond delay can promise.
+ */
+#define FREYA_W1_BUSES       4
+#define FREYA_W1_ROM_LEN     8
+#define FREYA_W1_MAX_LEN     64
+
+/*
+ * What the pin, timer, PWM, I2C, 1-Wire and interrupt calls return.
+ * Anything else they hand back is the value asked for: a pin level, a
+ * handle, a count.
  */
 #define FREYA_ERR_PIN        -1   /* no such pin, one the kernel owns, or
                                    * one with no PWM channel behind it   */
 #define FREYA_ERR_BUSY       -2   /* that line is taken, every timer is,
                                    * or the timer runs at another rate   */
-#define FREYA_ERR_ARG        -3   /* mode, edge, period, frequency or
-                                   * duty cycle out of range             */
+#define FREYA_ERR_ARG        -3   /* mode, edge, period, frequency,
+                                   * duty cycle or length out of range   */
 #define FREYA_ERR_HANDLER    -4   /* not allowed from a handler          */
 #define FREYA_ERR_NACK       -5   /* an I2C address or byte was not
-                                   * acknowledged                        */
-#define FREYA_ERR_TIMEOUT    -6   /* an I2C transfer did not finish      */
-#define FREYA_ERR_IO         -7   /* an I2C bus error, or the run was
-                                   * asked to stop mid-transfer          */
+                                   * acknowledged, or no 1-Wire device
+                                   * pulled the line down                */
+#define FREYA_ERR_TIMEOUT    -6   /* an I2C transfer did not finish, or
+                                   * a 1-Wire line stayed low            */
+#define FREYA_ERR_IO         -7   /* a bus error, or the run was asked
+                                   * to stop mid-transfer                */
 
 /*
  * A pin or timer handler.  It runs in interrupt context, on the same
@@ -295,9 +309,10 @@ typedef struct {
  *
  * What a handler may do is decided by what it can preempt.  Console
  * output, the LED, ticks_ms(), the pin calls and the timer calls are all
- * safe.  malloc(), free(), the filesystem and the I2C calls are not -
- * they can be interrupted halfway through their own bookkeeping, or
- * they spin on a bus - so the kernel refuses them from a handler
+ * safe.  malloc(), free(), the filesystem and the I2C and 1-Wire
+ * calls are not - they can be interrupted halfway through their own
+ * bookkeeping, or they spin on a bus - so the kernel refuses them from
+ * a handler
  * instead of letting a program corrupt the heap or the card.  A handler
  * that faults, or one that never returns, is killed and ends the run
  * the way a fault in the program would; it
@@ -416,6 +431,27 @@ typedef struct freya_api {
     int      (*i2c_read)(int bus, int addr, void *buf, int len);
     int      (*i2c_transfer)(int bus, int addr, const void *tx, int txlen,
                              void *rx, int rxlen);
+
+    /* appended: 1-Wire master, standard speed, on a pin the program
+     * names.  The line is open drain and needs a pull-up to 3.3 V.
+     * w1_reset() is the presence pulse: 0 when a device answers,
+     * FREYA_ERR_NACK when the line rose and nobody pulled it down.
+     * w1_search() writes the next 8-byte ROM and returns 0, then
+     * FREYA_ERR_NACK when the walk is finished; the call after that
+     * starts over.  w1_pullup() drives the pin high so a
+     * parasite-powered device can draw current, and the next reset,
+     * read, write or search releases it.  w1_crc() is the CRC-8 over
+     * len bytes; a ROM or a scratchpad that includes its own CRC byte
+     * comes out 0.  Opening a pin this side already has open does
+     * nothing.  A bus a program opened is closed when the run ends. */
+    int      (*w1_open)(int pin);
+    int      (*w1_close)(int pin);
+    int      (*w1_reset)(int pin);
+    int      (*w1_write)(int pin, const void *buf, int len);
+    int      (*w1_read)(int pin, void *buf, int len);
+    int      (*w1_search)(int pin, void *rom);
+    int      (*w1_pullup)(int pin, int on);
+    int      (*w1_crc)(const void *buf, int len);
 } freya_api_t;
 
 /*

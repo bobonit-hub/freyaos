@@ -201,10 +201,10 @@ int pwm_open(int pin, uint32_t freq_hz, uint32_t duty)
     idx = pwm_lookup(pin);
     if (idx < 0) return idx;
 
-    /* An open I2C bus owns both of its pins.  Taking one of them as a
+    /* An open I2C bus or 1-Wire pin owns that line.  Taking it as a
      * compare output would pull it off the bus without either side
      * saying so. */
-    if (i2c_owns_pin(pin)) return FREYA_ERR_BUSY;
+    if (i2c_owns_pin(pin) || w1_owns_pin(pin)) return FREYA_ERR_BUSY;
 
     t = &s_tim[s_map[idx].timer];
 

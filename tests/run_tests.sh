@@ -155,11 +155,12 @@ $CC $CFLAGS tests/host_shell_test.c "$OUT/shell_host.o" src/print.c \
     -o "$OUT/hostshell"
 "$OUT/hostshell" || status=1
 
-# Pins, timers, PWM and I2C: the pin numbering a program uses, the two
-# timer dividers and the I2C half-period compiled for the host and asked
-# for every value they accept, and the board's pin tables.
+# Pins, timers, PWM, I2C and 1-Wire: the pin numbering a program uses,
+# the two timer dividers and the I2C half-period compiled for the host
+# and asked for every value they accept, the board's pin tables, and
+# the 1-Wire ROM search against ids planted in place of a pin.
 echo
-echo "================= pins, timers, PWM and I2C ================="
+echo "================= pins, timers, PWM, I2C and 1-Wire ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_irq_test.c -o "$OUT/hostirq"
 "$OUT/hostirq" || status=1

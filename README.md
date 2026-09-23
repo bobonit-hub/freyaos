@@ -93,6 +93,10 @@ Freya 1.0.1 "Chupacabra" for STM32F103C8T6
   slower when a microsecond cannot land on it. Bus 1 is PB6/PB7 on both
   boards; `i2c 1 scan` at the console and `samples/i2c` do the same thing
   ([docs/i2c.md](docs/i2c.md)).
+* Speaks 1-Wire at standard speed on any spare pin: presence, byte reads
+  and writes, and the ROM search. The data line needs a pull-up to 3.3 V.
+  `w1 PB12 search` at the console lists the ROMs, and `samples/w1` reads
+  a DS18B20 ([docs/w1.md](docs/w1.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
   size from 8 KiB to 81792 bytes; on the Black Pill the flash region is 64 KiB
@@ -131,6 +135,12 @@ need a pull-up to 3.3 V; 4.7 kΩ is the usual value. The Black Pill also turns
 on the pin's own weak pull-up; the Blue Pill cannot, so the resistors are
 required there. A pin that is already a PWM output is not also an I2C pin
 until that channel is turned off.
+
+1-Wire uses one spare pin, open drain, with a pull-up to 3.3 V. 4.7 kΩ is
+the usual value. The Black Pill also turns on the pin's own weak pull-up;
+the Blue Pill cannot, so the resistor is required there. A pin that is
+already a PWM output or an I2C line is not also a 1-Wire pin until that is
+turned off. Up to four pins may be open at once.
 
 The console runs at 921600 baud, the fastest rate every common adapter agrees
 on: a CP2101, a CP2102 and an FT232 all list it, where 1 Mbaud is already the
@@ -316,7 +326,9 @@ the `SAMPLES` variable and builds into `build/samples/`; `samples/blink` is a
 minimal starting point, `samples/log` writes one line at each log level,
 `samples/irq` blinks from a timer interrupt and counts button presses from a
 pin one (`samples/irq/README.md`), `samples/pwm` fades an LED and sweeps a
-servo (`samples/pwm/README.md`), `samples/flashprobe` finds out how much
+servo (`samples/pwm/README.md`), `samples/i2c` scans a bus, `samples/w1`
+reads a 1-Wire thermometer (`samples/w1/README.md`), `samples/flashprobe`
+finds out how much
 internal flash the chip really has (`samples/flashprobe/README.md`),
 `samples/tetris` is a console game (keys
 in `samples/tetris/README.md`), and `samples/forth` is an interactive Forth
@@ -665,6 +677,7 @@ is measured rather than guessed).
 | `src/timer.c` | the general purpose timers and their interrupts |
 | `src/pwm.c` | the compare channels of those timers, driving pins |
 | `src/i2c.c` | I2C master, on the buses the board header names |
+| `src/w1.c` | 1-Wire master, standard speed, on a pin a program names |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
 | `src/fs.c` | paths, working directory, descriptor table |
 | `src/xmodem.c` | the `download` receiver |
@@ -676,11 +689,12 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `flashprobe`, `tetris`, `forth` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `w1`, `flashprobe`, `tetris`, `forth` |
 | `tests/` | host side tests |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
 | `docs/i2c.md` | the I2C master API, the pins, and the `i2c` command |
+| `docs/w1.md` | the 1-Wire master API, the pin, and the `w1` command |
 | `docs/sd-slot.txt` | SD slot wiring for the Blue Pill and the Black Pill |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
@@ -736,7 +750,9 @@ a hand written table whose two temptations are naming a pin the kernel keeps
 and giving one timer channel to two pins. The I2C half-period gets the same
 treatment: each half of the clock is a whole number of microseconds, rounded
 up, so the bus is the rate that was asked for or a little slower and never
-faster, and bus 1 of the pin table is PB6/PB7 on either board.
+faster, and bus 1 of the pin table is PB6/PB7 on either board. The 1-Wire
+ROM search and its CRC-8 get the same treatment, against device ids planted
+on the host: that walk is the part that would be quietly wrong.
 
 The flash programming itself cannot be reached from the host, which is the main
 argument for keeping that driver small and its bounds check absolute. What can

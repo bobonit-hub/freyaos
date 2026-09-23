@@ -226,6 +226,31 @@ typedef struct {
 
 int      i2c_info(int idx, i2c_info_t *info);   /* -1 past the last bus   */
 
+/* ------------------------------------------------------------- 1-Wire */
+/*
+ * Master only, standard speed, polled, on a pin the caller names.  The
+ * line is open-drain GPIO, the same code on both chips.  A bus a
+ * program opened is closed when the run ends.  One opened at the
+ * console is not, and a program that wants that pin is told it is busy.
+ */
+int      w1_open(int pin);            /* 0, or FREYA_ERR_*            */
+int      w1_close(int pin);
+int      w1_reset(int pin);           /* 0 presence, NACK if nobody    */
+int      w1_write(int pin, const void *buf, int len);
+int      w1_read(int pin, void *buf, int len);
+int      w1_search(int pin, void *rom); /* next ROM, then NACK          */
+int      w1_pullup(int pin, int on);  /* strong high, for parasite power */
+int      w1_crc(const void *buf, int len); /* CRC-8, or FREYA_ERR_ARG   */
+int      w1_owns_pin(int pin);        /* 1 when an open bus uses it    */
+void     w1_release(void);            /* drop whatever a run left      */
+
+typedef struct {
+    int pin;
+    int pullup;
+} w1_info_t;
+
+int      w1_info(int idx, w1_info_t *info);    /* -1 past the last open */
+
 /* ---------------------------------------------------------------- SPI */
 void     spi_init(void);
 void     spi_set_speed(int fast);

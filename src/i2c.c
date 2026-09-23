@@ -302,7 +302,10 @@ int i2c_open(int bus, uint32_t hz)
     if (idx < 0 || hz < FREYA_I2C_MIN_HZ || hz > FREYA_I2C_MAX_HZ)
         return FREYA_ERR_ARG;
     if (s_i2c[idx].open && !caller_owns(idx)) return FREYA_ERR_BUSY;
-    if (pwm_pin_busy(s_i2c_bus[idx].scl) || pwm_pin_busy(s_i2c_bus[idx].sda))
+    /* A pin already driving PWM, or held as a 1-Wire bus, is not also
+     * a clock or a data line. */
+    if (pwm_pin_busy(s_i2c_bus[idx].scl) || pwm_pin_busy(s_i2c_bus[idx].sda) ||
+        w1_owns_pin(s_i2c_bus[idx].scl) || w1_owns_pin(s_i2c_bus[idx].sda))
         return FREYA_ERR_BUSY;
 
     sp = board_gpio_port(FREYA_PIN_PORT(s_i2c_bus[idx].scl));

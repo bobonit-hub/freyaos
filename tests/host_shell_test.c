@@ -276,6 +276,22 @@ int  i2c_transfer(int bus, int addr, const void *tx, int txlen,
     return 0;
 }
 
+int  w1_info(int idx, w1_info_t *info) { (void)idx; (void)info; return -1; }
+int  w1_open(int pin)                  { (void)pin; return 0; }
+int  w1_close(int pin)                 { (void)pin; return 0; }
+int  w1_reset(int pin)                 { (void)pin; return 0; }
+int  w1_write(int pin, const void *buf, int len)
+{
+    (void)pin; (void)buf; (void)len; return 0;
+}
+int  w1_read(int pin, void *buf, int len)
+{
+    (void)pin; (void)buf; (void)len; return 0;
+}
+int  w1_search(int pin, void *rom)     { (void)pin; (void)rom; return 0; }
+int  w1_pullup(int pin, int on)        { (void)pin; (void)on; return 0; }
+int  w1_crc(const void *buf, int len)  { (void)buf; (void)len; return 0; }
+
 int xmodem_receive_to_file(const char *path, uint32_t *received, int strip)
 {
     (void)path; (void)received; (void)strip; return -1;
@@ -428,6 +444,13 @@ int main(void)
     rc = run("help nosuch");
     expect_rc("help of an unknown command fails", rc, FREYA_EXIT_FAIL);
     expect_has("unknown command is named", "no such command: nosuch");
+    rc = run("help w1");
+    expect_rc("help w1 succeeds", rc, 0);
+    expect_has("help w1 names the command", "w1\r\n");
+    expect_has("help w1 shows the ROM search", "search");
+    rc = run("w1");
+    expect_rc("w1 with no pin succeeds", rc, 0);
+    expect_has("w1 asks for a pull-up", "pull the data pin up to 3.3 V");
 
     printf("commands\n");
     rc = run("status");

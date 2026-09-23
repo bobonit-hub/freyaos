@@ -15,7 +15,10 @@
  * written by hand: every pin in it has to be one a program may have, and
  * no two entries may name the same pin or the same timer channel.  The
  * I2C map is the same kind of table, and the half-period of its clock
- * is asked what frequency that delay would actually produce.
+ * is asked what frequency that delay would actually produce.  The
+ * 1-Wire ROM search is the same kind of thing that would be quietly
+ * wrong, so it is walked here against device ids planted in place of
+ * a pin, and the CRC-8 those ids end with is checked beside it.
  *
  * The kernel they expect around them is not here, so the few symbols
  * they refer to are defined below; nothing in the test calls the
@@ -50,6 +53,7 @@ void board_pin_af(GPIO_TypeDef *port, int pin, int af) { }
 #include "../src/timer.c"
 #include "../src/pwm.c"
 #include "../src/i2c.c"
+#include "../src/w1.c"
 
 static int checks, fails;
 
@@ -308,6 +312,156 @@ static void within(uint32_t hz, uint32_t us, unsigned ppm)
     check(what, 1, err <= ppm);
 }
 
+static int rom_is(const uint8_t *got, const uint8_t *want)
+{
+    for (int i = 0; i < FREYA_W1_ROM_LEN; i++)
+        if (got[i] != want[i]) return 0;
+    return 1;
+}
+
+static void expect_rom(const char *what, const uint8_t *got, const uint8_t *want)
+{
+    if (!rom_is(got, want)) {
+        printf("        got");
+        for (int i = 0; i < FREYA_W1_ROM_LEN; i++) printf(" %02x", got[i]);
+        printf("\n");
+    }
+    check(what, 1, rom_is(got, want));
+}
+
+static void close_pin(int pin)
+{
+    g_app.running = 0;
+    w1_close(pin);
+}
+
+/* The walk, the CRC and the slot table.  A pin here is the host model,
+ * which answers the bits a set of ROMs would. */
+static void w1_cases(void)
+{
+    static const uint8_t crc_vec[] = {
+        0x02, 0x1C, 0xB8, 0x01, 0x00, 0x00, 0x00
+    };
+    static const uint8_t devs[][FREYA_W1_ROM_LEN] = {
+        { 0x28, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x29 },
+        { 0x28, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x70 },
+        { 0x28, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x47 }
+    };
+    static const int pins[] = {
+        FREYA_PB(12), FREYA_PB(13), FREYA_PB(14), FREYA_PB(15), FREYA_PA(0)
+    };
+    uint8_t got[FREYA_W1_ROM_LEN], with_crc[8];
+    uint8_t bad[FREYA_W1_ROM_LEN];
+    uint8_t cmd;
+    w1_info_t info;
+    int i;
+
+    check("CRC-8 of the published vector is 0xA2",
+          0xA2, w1_crc(crc_vec, 7));
+    for (i = 0; i < 7; i++) with_crc[i] = crc_vec[i];
+    with_crc[7] = 0xA2;
+    check("and the vector plus that byte comes out 0", 0, w1_crc(with_crc, 8));
+    check("an empty buffer's CRC is 0", 0, w1_crc(NULL, 0));
+    check("a CRC with no bytes is refused", FREYA_ERR_ARG, w1_crc(NULL, 1));
+    for (i = 0; i < 3; i++)
+        check("each planted ROM includes its own CRC",
+              0, w1_crc(devs[i], FREYA_W1_ROM_LEN));
+
+    check("the console pins are not a 1-Wire pin",
+          FREYA_ERR_PIN, w1_open(FREYA_PA(2)));
+    check("nor the rest of the card", FREYA_ERR_PIN, w1_open(FREYA_PA(7)));
+    check("nor a pin past the ports", FREYA_ERR_PIN, w1_open(FREYA_PIN(5, 0)));
+    check("nor a negative pin", FREYA_ERR_PIN, w1_open(-1));
+
+    w1_host_load(NULL, 0);
+    check("an empty pin opens", 0, w1_open(FREYA_PB(12)));
+    check("and a reset finds nobody", FREYA_ERR_NACK, w1_reset(FREYA_PB(12)));
+    check("and a search finds nobody",
+          FREYA_ERR_NACK, w1_search(FREYA_PB(12), got));
+    check("a missing buffer is refused",
+          FREYA_ERR_ARG, w1_write(FREYA_PB(12), NULL, 1));
+    check("and so is a transfer past the maximum",
+          FREYA_ERR_ARG, w1_read(FREYA_PB(12), got, FREYA_W1_MAX_LEN + 1));
+    check("and so is a search with nowhere to put the ROM",
+          FREYA_ERR_ARG, w1_search(FREYA_PB(12), NULL));
+    check("a zero-length write is nothing", 0, w1_write(FREYA_PB(12), NULL, 0));
+    close_pin(FREYA_PB(12));
+    check("a pin that is not open cannot be reset",
+          FREYA_ERR_ARG, w1_reset(FREYA_PB(12)));
+    check("nor closed", FREYA_ERR_ARG, w1_close(FREYA_PB(12)));
+
+    w1_host_load(devs, 3);
+    check("the bus opens", 0, w1_open(FREYA_PB(12)));
+    check("a reset finds the devices", 0, w1_reset(FREYA_PB(12)));
+    check("the first ROM is the zero branch",
+          0, w1_search(FREYA_PB(12), got));
+    expect_rom("which is the id whose next bit is 0", got, devs[1]);
+    check("the second ROM is the other branch of that bit",
+          0, w1_search(FREYA_PB(12), got));
+    expect_rom("which is the lower of the two that remain", got, devs[0]);
+    check("the third ROM is the last device",
+          0, w1_search(FREYA_PB(12), got));
+    expect_rom("which is the id that took every one", got, devs[2]);
+    check("the walk then ends", FREYA_ERR_NACK, w1_search(FREYA_PB(12), got));
+    check("and the next call starts over", 0, w1_search(FREYA_PB(12), got));
+    expect_rom("back at the zero branch", got, devs[1]);
+    close_pin(FREYA_PB(12));
+
+    for (i = 0; i < FREYA_W1_ROM_LEN; i++) bad[i] = devs[0][i];
+    bad[7] = 0;
+    w1_host_load(&bad, 1);
+    check("a corrupt id still opens", 0, w1_open(FREYA_PB(12)));
+    check("and the search refuses it", FREYA_ERR_IO, w1_search(FREYA_PB(12), got));
+    check("and the next walk starts clean, and refuses it again",
+          FREYA_ERR_IO, w1_search(FREYA_PB(12), got));
+    close_pin(FREYA_PB(12));
+
+    w1_host_load(&devs[0], 1);
+    check("one device opens", 0, w1_open(FREYA_PB(12)));
+    check("Read ROM starts with a reset", 0, w1_reset(FREYA_PB(12)));
+    cmd = 0x33;
+    check("and the command byte", 0, w1_write(FREYA_PB(12), &cmd, 1));
+    check("and the eight bytes come back", 0, w1_read(FREYA_PB(12), got, 8));
+    expect_rom("which are that device", got, devs[0]);
+    check("the strong pull-up takes", 0, w1_pullup(FREYA_PB(12), 1));
+    check("and the pin reports it",
+          1, w1_info(0, &info) == 0 && info.pin == FREYA_PB(12) && info.pullup);
+    check("a reset releases it", 0, w1_reset(FREYA_PB(12)));
+    check("so the pin is open drain again",
+          1, w1_info(0, &info) == 0 && !info.pullup);
+
+    g_app.running = 1;
+    check("a program cannot close the console's pin",
+          FREYA_ERR_BUSY, w1_close(FREYA_PB(12)));
+    check("nor reset it", FREYA_ERR_BUSY, w1_reset(FREYA_PB(12)));
+    g_app.running = 0;
+    close_pin(FREYA_PB(12));
+
+    w1_host_load(devs, 1);
+    for (i = 0; i < 4; i++)
+        check("each of the four buses opens", 0, w1_open(pins[i]));
+    check("the fifth is told they are full", FREYA_ERR_BUSY, w1_open(pins[4]));
+    check("opening one that is already open does not take another",
+          0, w1_open(pins[0]));
+    check("so there are still four", -1, w1_info(4, &info));
+    check("and the first is the first pin",
+          pins[0], w1_info(0, &info) == 0 ? info.pin : -1);
+    check("that pin is owned", 1, w1_owns_pin(pins[0]));
+    check("a pin that was not opened is not", 0, w1_owns_pin(FREYA_PB(1)));
+    g_app.running = 1;
+    w1_release();
+    check("a console bus survives the end of a run", 1, w1_owns_pin(pins[0]));
+    g_app.running = 0;
+    for (i = 0; i < 4; i++) close_pin(pins[i]);
+    check("and once closed it is free", 0, w1_owns_pin(pins[0]));
+
+    g_app.running = 1;
+    check("a program can open a pin", 0, w1_open(FREYA_PB(12)));
+    w1_release();
+    check("and the end of the run closes it", 0, w1_owns_pin(FREYA_PB(12)));
+    g_app.running = 0;
+}
+
 int main(void)
 {
     const uint32_t f4 = 96000000U;      /* Black Pill, and its HSI fallback */
@@ -423,6 +577,9 @@ int main(void)
     i2c_sweep();
     i2c_map();
 
+    /* -------------------------------------------------------- 1-Wire */
+    w1_cases();
+
     /* ------------------------------------------- the table a program sees */
     memset(&api, 0, sizeof(api));
     api.size = sizeof(freya_api_t);
@@ -430,6 +587,7 @@ int main(void)
     check("and the timer calls", 1, FREYA_API_HAS(&api, timer_open) ? 1 : 0);
     check("and the PWM calls", 1, FREYA_API_HAS(&api, pwm_freq) ? 1 : 0);
     check("and the I2C calls", 1, FREYA_API_HAS(&api, i2c_transfer) ? 1 : 0);
+    check("and the 1-Wire calls", 1, FREYA_API_HAS(&api, w1_crc) ? 1 : 0);
     api.size = __builtin_offsetof(freya_api_t, exit_reason_str) +
                sizeof(api.exit_reason_str);
     check("a kernel from before them says so", 0,
@@ -442,6 +600,10 @@ int main(void)
     api.size = __builtin_offsetof(freya_api_t, pwm_freq) + sizeof(api.pwm_freq);
     check("a kernel with PWM but not I2C says that too", 0,
           FREYA_API_HAS(&api, i2c_open) ? 1 : 0);
+    api.size = __builtin_offsetof(freya_api_t, i2c_transfer) +
+               sizeof(api.i2c_transfer);
+    check("a kernel with I2C but not 1-Wire says that too", 0,
+          FREYA_API_HAS(&api, w1_open) ? 1 : 0);
 
     printf("\n%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;
