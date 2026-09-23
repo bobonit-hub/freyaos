@@ -48,6 +48,11 @@ calling the new entries.
   byte reads and writes, a ROM search, and a strong pull-up. Up to four
   pins may be open at once. `w1 PB12 search` lists the devices, and
   `samples/w1` reads a DS18B20. See [docs/w1.md](docs/w1.md).
+* A program can encrypt and decrypt with XTEA in CTR mode. The key is
+  16 bytes and the nonce is 8. The same call does both, and a message
+  longer than 4096 bytes is handed over in pieces. `crypt` at the
+  console takes hex, and `samples/crypt` checks the published block
+  vector or encrypts a file. See [docs/crypt.md](docs/crypt.md).
 * A program can speak SPI as a master. The card keeps SPI1. Bus 1 is
   SPI2 on both boards: SCK PB13, MISO PB14, MOSI PB15. Chip select is a
   pin the program drives. The clock is the fastest power-of-two division

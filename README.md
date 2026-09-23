@@ -103,6 +103,10 @@ Freya 1.1 "UFOnaut" for STM32F103C8T6
   division of the bus clock that does not exceed the rate asked for,
   from 187.5 kHz to 24 MHz. `spi 1 1000000` at the console and
   `samples/spi` do the same thing ([docs/spi.md](docs/spi.md)).
+* Encrypts and decrypts with XTEA in CTR mode. The key is 16 bytes and the
+  nonce is 8; the same call does both, and a message longer than 4096 bytes
+  is handed over in pieces. `crypt` at the console and `samples/crypt` do
+  the same thing ([docs/crypt.md](docs/crypt.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
   size from 8 KiB to 71552 bytes; on the Black Pill the flash region is 64 KiB
@@ -277,6 +281,7 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (default off) |
 | `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
+| `crypt [<key> <nonce> <hex>]` | XTEA-CTR: the same call encrypts and decrypts |
 | `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin: `pin PB5 out 1`, `pin PB0 up` |
 | `pwm [<pin> <hz> <duty%>]` | list the PWM channels, or start one: `pwm PB6 1000 25`, `pwm PB6 off` |
 | `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
@@ -351,7 +356,9 @@ minimal starting point, `samples/log` writes one line at each log level,
 pin one (`samples/irq/README.md`), `samples/pwm` fades an LED and sweeps a
 servo (`samples/pwm/README.md`), `samples/i2c` scans a bus, `samples/spi`
 loops SPI back to itself (`samples/spi/README.md`), `samples/w1`
-reads a 1-Wire thermometer (`samples/w1/README.md`), `samples/flashprobe`
+reads a 1-Wire thermometer (`samples/w1/README.md`), `samples/crypt`
+checks XTEA-CTR and encrypts a file (`samples/crypt/README.md`),
+`samples/flashprobe`
 finds out how much
 internal flash the chip really has (`samples/flashprobe/README.md`),
 `samples/tetris` is a console game (keys
@@ -373,7 +380,7 @@ subnormals. A program that never uses `float` does not carry that code.
 freya:/> run hello.bin
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program RAM region
-  api version 2, table size 200 bytes
+  api version 3, table size 316 bytes
   code at 0x20001840, data at 0x20001c7c
   initialised data survived the load: .data ok, .bss clear
 ...
@@ -389,7 +396,7 @@ The service table (`include/freya_api.h`) gives a program console I/O and
 `open`, `read`, `write`, `seek`, `close`, `unlink`, `mkdir`, `rename`,
 `opendir`, `readdir`, `closedir`, the exit status of the run before it:
 `exit`, `last_exit`, `exit_reason_str`, the pins, the timers, PWM and the
-interrupts, and a file log: `log`, `get_log_level`,
+interrupts, XTEA in CTR mode (`crypt`), and a file log: `log`, `get_log_level`,
 `set_log_level`. Log lines are `YYYY-MM-DD HH:MM:SS LEVEL message` in
 `/freya.log` at the root of the card. The file is capped at 1 MiB; when it
 fills, it is renamed to `/freya.log.old` (replacing any previous copy) and a
@@ -567,7 +574,7 @@ most of the 128 KiB of flash sits idle. So the board reserves 71552 bytes
 at the top of flash — the rest of page 48 after a 128-byte auto-start slot,
 then pages 49 to 117 — for one program image. The last 10 KiB holds the
 kernel extension (the thread scheduler, the shell's script interpreter and
-the SPI master), which is flashed as its own image. The size register on
+the SPI master and the cipher), which is flashed as its own image. The size register on
 these parts often still reads 64 KiB; the region runs through the 128 KiB
 anyway. The Black Pill does not need
 the size (it already has 56 KiB of program RAM) but it keeps the same
@@ -585,7 +592,7 @@ installed /hello.xip.bin at 0x0800c080: 1.2 KiB in 2 pages
 freya:/> run @flash
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program flash region
-  api version 2, table size 200 bytes
+  api version 3, table size 316 bytes
   code at 0x0800c0c0, data at 0x20001800
   initialised data survived the load: .data ok, .bss clear
 ```
@@ -729,6 +736,7 @@ is measured rather than guessed).
 | `src/pwm.c` | the compare channels of those timers, driving pins |
 | `src/i2c.c` | I2C master, on the buses the board header names |
 | `src/w1.c` | 1-Wire master, standard speed, on a pin a program names |
+| `src/crypt.c` | XTEA in CTR mode, for a program and for `crypt` |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
 | `src/fs.c` | paths, working directory, descriptor table |
 | `src/xmodem.c` | the `download` receiver |
@@ -740,13 +748,14 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `flashprobe`, `tetris`, `edit`, `forth` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth` |
 | `tests/` | host side tests |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
 | `docs/i2c.md` | the I2C master API, the pins, and the `i2c` command |
 | `docs/spi.md` | the SPI master API, the pins, and the `spi` command |
 | `docs/w1.md` | the 1-Wire master API, the pin, and the `w1` command |
+| `docs/crypt.md` | the XTEA-CTR API and the `crypt` command |
 | `docs/sd-slot.txt` | SD slot wiring for the Blue Pill and the Black Pill |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
@@ -810,6 +819,11 @@ PB13/PB14/PB15 on either board. The 1-Wire
 ROM search and its CRC-8 get the same treatment, against device ids planted
 on the host: that walk is the part that would be quietly wrong.
 
+XTEA is checked the same way. `src/crypt.c` is compiled unchanged and the
+published block vector pins the 32 rounds and the big-endian words. CTR is
+then checked against that block: a split message, a counter that carries,
+and a piece that starts in the middle of a block.
+
 The flash programming itself cannot be reached from the host, which is the main
 argument for keeping that driver small and its bounds check absolute. What can
 be checked off the board is the part most likely to be quietly wrong: a last
@@ -827,8 +841,9 @@ the kernel compares them at boot, and this compares them at build time.
 18 checks, 0 failures     XMODEM
 79 checks, 0 failures     forth
 26 checks, 0 failures     exit status
-166 checks, 0 failures    pins, timers, PWM, I2C, 1-Wire and SPI
-35 checks, 0 failures     program image layout
+168 checks, 0 failures    pins, timers, PWM, I2C, 1-Wire and SPI
+42 checks, 0 failures     XTEA
+39 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```
 

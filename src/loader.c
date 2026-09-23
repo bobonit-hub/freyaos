@@ -430,6 +430,7 @@ static const freya_api_t s_api = {
     .spi_transfer    = spi_transfer,
     .spi_write       = spi_write,
     .spi_read        = spi_read,
+    .crypt           = crypt_apply,
 };
 
 const freya_api_t *app_api(void)

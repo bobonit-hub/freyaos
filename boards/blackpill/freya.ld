@@ -12,7 +12,7 @@
  *   0x0800C000 .. 0x0800FF7F   unused (rest of sector 3)
  *   0x0800FF80 .. 0x0800FFFF   auto-start flag + reserved          (128 B)
  *   0x08010000 .. 0x0801FFFF   program flash region              (64 KiB)
- *   0x08020000 .. 0x08023FFF   kernel extension (threads)        (16 KiB)
+ *   0x08020000 .. 0x08023FFF   kernel extension (threads, SPI, XTEA) (16 KiB)
  *   0x08024000 .. 0x0807FFFF   unused
  *
  * The extension is a separate image.  It sits in sector 5 so that writing
@@ -65,8 +65,9 @@ SECTIONS
 
     /*
      * Threads, the switch, the console commands that talk to them, and
-     * the SPI master.  Claimed before .text so the wildcard below does
-     * not take them.  The 48 KiB image has no room left for SPI.
+     * the SPI master and the cipher.  Claimed before .text so the
+     * wildcard below does not take them.  The 48 KiB image has no room
+     * left for SPI or XTEA.
      * A call across the two images is an ordinary branch.
      */
     .kext :
@@ -80,6 +81,8 @@ SECTIONS
         *shell.o(.text.cmd_threads)
         *shell.o(.text.cmd_spi)
         *spi.o(.text.spi_*)
+        *shell.o(.text.cmd_crypt)
+        *crypt.o(.text .text.*)
         *shell.o(.text.shell_poll_runtime)
         *shell.o(.text.kext_script)
         *shell.o(.text.kext_script.*)
@@ -90,6 +93,8 @@ SECTIONS
         *shell.o(.rodata.cmd_threads*)
         *shell.o(.rodata.cmd_spi*)
         *spi.o(.rodata.spi_*)
+        *shell.o(.rodata.cmd_crypt*)
+        *crypt.o(.rodata .rodata.*)
         *shell.o(.rodata.shell_poll_runtime*)
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)

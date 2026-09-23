@@ -222,7 +222,7 @@ the middle of the heap's or FAT's own bookkeeping, or spin on a bus — so
 **the kernel refuses them from a handler** rather than let a program corrupt
 the card or the heap: `malloc()` returns `NULL`, the file calls return an
 error, `api->log()` writes to the console instead of the card, and an I2C,
-SPI or 1-Wire call returns `FREYA_ERR_HANDLER`. `w1_crc()` is arithmetic and may be called. `pin_irq_attach`, `pin_irq_detach`, `timer_open` and `timer_close`
+SPI or 1-Wire call returns `FREYA_ERR_HANDLER`. `w1_crc()` and `crypt()` are arithmetic and may be called. `pin_irq_attach`, `pin_irq_detach`, `timer_open` and `timer_close`
 are refused too, with `FREYA_ERR_HANDLER`: they rearrange the tables the
 interrupt itself is walking.
 

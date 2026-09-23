@@ -12,7 +12,7 @@
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
  *   0x0800C000 .. 0x0800C07F   auto-start flag + reserved          (128 B)
  *   0x0800C080 .. 0x0801D7FF   program flash region             (71552 B)
- *   0x0801D800 .. 0x0801FFFF   kernel extension (threads, SPI)    (10 KiB)
+ *   0x0801D800 .. 0x0801FFFF   kernel extension (threads, SPI, XTEA) (10 KiB)
  *
  * The extension is its own image at the top of the 128 KiB.  The program
  * region stops short of it, so install and uninstall never erase it,
@@ -70,8 +70,9 @@ SECTIONS
 
     /*
      * Threads, the switch, the console commands that talk to them, and
-     * the SPI master.  Claimed before .text so the wildcard below does
-     * not take them.  The extension is 10 KiB so SPI fits beside them.
+     * the SPI master and the cipher.  Claimed before .text so the
+     * wildcard below does not take them.  The extension is 10 KiB so
+     * SPI and XTEA fit beside the scheduler.
      * A call across the two images is an ordinary branch.
      */
     .kext :
@@ -85,6 +86,8 @@ SECTIONS
         *shell.o(.text.cmd_threads)
         *shell.o(.text.cmd_spi)
         *spi.o(.text.spi_*)
+        *shell.o(.text.cmd_crypt)
+        *crypt.o(.text .text.*)
         *shell.o(.text.shell_poll_runtime)
         *shell.o(.text.kext_script)
         *shell.o(.text.kext_script.*)
@@ -95,6 +98,8 @@ SECTIONS
         *shell.o(.rodata.cmd_threads*)
         *shell.o(.rodata.cmd_spi*)
         *spi.o(.rodata.spi_*)
+        *shell.o(.rodata.cmd_crypt*)
+        *crypt.o(.rodata .rodata.*)
         *shell.o(.rodata.shell_poll_runtime*)
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)

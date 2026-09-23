@@ -711,6 +711,7 @@ int main(void)
     check("and the I2C calls", 1, FREYA_API_HAS(&api, i2c_transfer) ? 1 : 0);
     check("and the 1-Wire calls", 1, FREYA_API_HAS(&api, w1_crc) ? 1 : 0);
     check("and the SPI calls", 1, FREYA_API_HAS(&api, spi_transfer) ? 1 : 0);
+    check("and the crypt calls", 1, FREYA_API_HAS(&api, crypt) ? 1 : 0);
     api.size = __builtin_offsetof(freya_api_t, exit_reason_str) +
                sizeof(api.exit_reason_str);
     check("a kernel from before them says so", 0,
@@ -731,6 +732,9 @@ int main(void)
                sizeof(api.thread_self);
     check("a kernel with threads but not SPI says that too", 0,
           FREYA_API_HAS(&api, spi_open) ? 1 : 0);
+    api.size = __builtin_offsetof(freya_api_t, spi_read) + sizeof(api.spi_read);
+    check("a kernel with SPI but not crypt says that too", 0,
+          FREYA_API_HAS(&api, crypt) ? 1 : 0);
 
     printf("\n%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;

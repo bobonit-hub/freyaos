@@ -1902,6 +1902,71 @@ static int cmd_w1(int argc, char **argv)
     return 0;
 }
 
+/* ------------------------------------------------------------ crypt */
+/* XTEA-CTR.  Key, nonce and data are hex, with no 0x and no spaces in
+ * a word.  The same command decrypts.  The command and its helpers share
+ * one section so the linker can put them in the kernel extension; the
+ * 48 KiB image has no room for them. */
+#define CRYPT_USAGE  "crypt [<key> <nonce> <hex>]"
+#define CRYPT_CMD_MAX  64
+#define CRYPT_TEXT __attribute__((section(".text.cmd_crypt")))
+
+static int CRYPT_TEXT crypt_hexval(int c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* exact > 0 requires that many bytes.  exact == 0 takes up to max. */
+static int CRYPT_TEXT
+crypt_parse_hex(const char *s, uint8_t *out, int max, int exact)
+{
+    int n = 0;
+
+    while (s[0]) {
+        int hi, lo;
+
+        if (n >= max) return -1;
+        hi = crypt_hexval((unsigned char)s[0]);
+        lo = s[1] ? crypt_hexval((unsigned char)s[1]) : -1;
+        if (hi < 0 || lo < 0) return -1;
+        out[n++] = (uint8_t)((hi << 4) | lo);
+        s += 2;
+    }
+    if (exact && n != exact) return -1;
+    return n;
+}
+
+static int cmd_crypt(int argc, char **argv)
+{
+    uint8_t key[FREYA_CRYPT_KEY_LEN];
+    uint8_t nonce[FREYA_CRYPT_NONCE_LEN];
+    uint8_t buf[CRYPT_CMD_MAX];
+    int n, i, rc;
+
+    if (argc == 1) {
+        kprintf("XTEA-CTR, 16-byte key, 8-byte nonce\r\nusage: %s\r\n",
+                CRYPT_USAGE);
+        return 0;
+    }
+    if (argc != 4) return usage(CRYPT_USAGE);
+    if (crypt_parse_hex(argv[1], key, FREYA_CRYPT_KEY_LEN,
+                        FREYA_CRYPT_KEY_LEN) < 0 ||
+        crypt_parse_hex(argv[2], nonce, FREYA_CRYPT_NONCE_LEN,
+                        FREYA_CRYPT_NONCE_LEN) < 0)
+        return usage(CRYPT_USAGE);
+    n = crypt_parse_hex(argv[3], buf, CRYPT_CMD_MAX, 0);
+    if (n <= 0) return usage(CRYPT_USAGE);
+
+    rc = crypt_apply(key, nonce, 0, buf, buf, n);
+    if (rc != 0) return -1;
+    for (i = 0; i < n; i++) kprintf("%02x", buf[i]);
+    kprintf("\r\n");
+    return 0;
+}
+
 /* ------------------------------------------------------ command table */
 typedef struct {
     const char *name;
@@ -1952,6 +2017,7 @@ static const command_t s_cmds[] = {
     { "i2c",      cmd_i2c,      I2C_USAGE },
     { "spi",      cmd_spi,      SPI_USAGE },
     { "w1",       cmd_w1,       W1_USAGE },
+    { "crypt",    cmd_crypt,    CRYPT_USAGE },
     { "echo",     cmd_echo,     "echo <text...>" },
     { "sleep",    cmd_sleep,    "sleep <ms>" },
     { "source",   cmd_source,   "source " PROG_ARG },

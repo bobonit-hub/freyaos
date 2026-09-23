@@ -565,6 +565,25 @@ int main(void)
     rc = run("spi");
     expect_rc("spi with no bus succeeds", rc, 0);
     expect_has("spi names chip select", "chip select is a pin you drive");
+    rc = run("help crypt");
+    expect_rc("help crypt succeeds", rc, 0);
+    expect_exact("help crypt names the command, then its usage",
+                 "crypt\r\ncrypt [<key> <nonce> <hex>]\r\n");
+    rc = run("crypt");
+    expect_rc("crypt with no arguments succeeds", rc, 0);
+    expect_has("crypt names the cipher", "XTEA-CTR");
+    rc = run("crypt 000102030405060708090a0b0c0d0e0f "
+             "4142434445464748 0000000000000000");
+    expect_rc("crypt of the published vector succeeds", rc, 0);
+    expect_exact("crypt prints the published ciphertext",
+                 "497df3d072612cb5\r\n");
+    rc = run("crypt 000102030405060708090A0B0C0D0E0F "
+             "4142434445464748 497df3d072612cb5");
+    expect_rc("crypt decrypts with the same command", rc, 0);
+    expect_exact("crypt restores the zeros", "0000000000000000\r\n");
+    rc = run("crypt 00 4142434445464748 00");
+    expect_rc("a short key fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a short key prints the usage", "usage: crypt");
 
     printf("commands\n");
     rc = run("status");

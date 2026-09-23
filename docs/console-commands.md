@@ -44,6 +44,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `i2c [<bus> <hz>\|<bus> off\|<bus> scan\|<bus> <addr> …]` | list the I2C buses, or open, scan and talk to one |
 | `spi [<bus> <hz> [mode]\|<bus> off\|<bus> x <byte>…]` | list the SPI buses, or open one and shift bytes |
 | `w1 [<pin>\|<pin> off\|<pin> search\|<pin> reset\|…]` | list open 1-Wire pins, or open one and talk to it |
+| `crypt [<key> <nonce> <hex>]` | XTEA-CTR: the same call encrypts and decrypts |
 | `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
 | `source <file>\|@flash` | run a shell script from a file, or from program flash |
 | `if <command>` ... `else` ... `end` | run the following commands when that command's status is 0 |
@@ -157,6 +158,20 @@ The pin is named the way `pin` names one. `search` prints every ROM and
 `off` puts the pin back to an input. A pin a *program* opened is closed
 when its run ends instead. Reading a thermometer is `samples/w1`.
 [docs/w1.md](w1.md) has the worked transcript.
+
+## crypt at the prompt
+
+`crypt` is the cipher with a prompt in front of it — the same `src/crypt.c`
+a program reaches through `api->crypt()`. With no arguments it names the
+cipher and prints the usage. Otherwise the key is 32 hex digits, the nonce
+is 16 and the data is one hex word, with no `0x`. The same command decrypts:
+
+```
+freya:/> crypt 000102030405060708090a0b0c0d0e0f 4142434445464748 0000000000000000
+497df3d072612cb5
+```
+
+A file is `samples/crypt`. [docs/crypt.md](crypt.md) is the call.
 
 Ctrl-C stops a running program and every thread it created. It also
 stops a `sleep` or a `loop`, and throws away a script that is still

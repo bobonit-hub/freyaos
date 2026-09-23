@@ -161,7 +161,7 @@ $CC $CFLAGS -c src/shell.c -o "$OUT/shell_host.o" \
     -D__kernel_flash_end=freya_test_kernel_flash_end
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_shell_test.c "$OUT/shell_host.o" src/print.c \
-    -o "$OUT/hostshell"
+    src/crypt.c -o "$OUT/hostshell"
 "$OUT/hostshell" || status=1
 
 # Single precision on the Cortex-M3: the helpers in src/softfp.c against
@@ -197,6 +197,14 @@ echo "================= pins, timers, PWM, I2C, 1-Wire and SPI =================
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_irq_test.c -o "$OUT/hostirq"
 "$OUT/hostirq" || status=1
+
+# XTEA in CTR mode.  The published block vector, and the counter a
+# split message has to keep, compiled unchanged from src/crypt.c.
+echo
+echo "================= XTEA ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_crypt_test.c src/crypt.c -o "$OUT/hostcrypt"
+"$OUT/hostcrypt" || status=1
 
 # ---------------------------------------------------------------------
 # Program image layout.

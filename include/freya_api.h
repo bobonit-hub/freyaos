@@ -63,8 +63,8 @@
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
 /* The last 10 KiB of the 128 KiB holds the kernel extension (threads,
- * the shell's script interpreter and the SPI master), so an install
- * does not erase it. */
+ * the shell's script interpreter, the SPI master and the cipher), so
+ * an install does not erase it. */
 #define FREYA_APP_FLASH_SIZE   (0x0801D800UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
@@ -309,8 +309,25 @@ typedef struct {
 #define FREYA_SPI_MAX_HZ     24000000UL
 #define FREYA_SPI_MAX_LEN    4096
 
+/* --------------------------------------------------------------- XTEA */
 /*
- * What the pin, timer, PWM, I2C, 1-Wire, SPI and interrupt calls return.
+ * 32 rounds, a 16-byte key and an 8-byte block, used in CTR mode.  A
+ * block is two big-endian words, which is the order the bytes have in
+ * hex.  The nonce is the counter at byte 0, as a big-endian 64-bit
+ * number, and each following block adds one.  A length past
+ * FREYA_CRYPT_MAX_LEN is refused rather than split; the next piece is
+ * the same call with off advanced by what was already done.  The same
+ * call encrypts and decrypts.
+ */
+#define FREYA_CRYPT_ROUNDS     32
+#define FREYA_CRYPT_KEY_LEN    16
+#define FREYA_CRYPT_NONCE_LEN  8
+#define FREYA_CRYPT_BLOCK      8
+#define FREYA_CRYPT_MAX_LEN    4096
+
+/*
+ * What the pin, timer, PWM, I2C, 1-Wire, SPI, crypt and interrupt calls
+ * return.
  * Anything else they hand back is the value asked for: a pin level, a
  * handle, a count.
  */
@@ -336,11 +353,11 @@ typedef struct {
  * that called it and 'arg' to whatever was registered beside it.
  *
  * What a handler may do is decided by what it can preempt.  Console
- * output, the LED, ticks_ms(), the pin calls and the timer calls are all
- * safe.  malloc(), free(), the filesystem and the I2C, SPI and 1-Wire
- * calls are not - they can be interrupted halfway through their own
- * bookkeeping, or they spin on a bus - so the kernel refuses them from
- * a handler
+ * output, the LED, ticks_ms(), the pin calls, the timer calls and
+ * crypt() are all safe.  malloc(), free(), the filesystem and the I2C,
+ * SPI and 1-Wire calls are not - they can be interrupted halfway
+ * through their own bookkeeping, or they spin on a bus - so the kernel
+ * refuses them from a handler
  * instead of letting a program corrupt the heap or the card.  A handler
  * that faults, or one that never returns, is killed and ends the run
  * the way a fault in the program would; it
@@ -530,6 +547,15 @@ typedef struct freya_api {
     int      (*spi_transfer)(int bus, const void *tx, void *rx, int len);
     int      (*spi_write)(int bus, const void *buf, int len);
     int      (*spi_read)(int bus, void *buf, int len);
+
+    /* appended: XTEA in CTR mode.  The key is FREYA_CRYPT_KEY_LEN
+     * bytes and the nonce is FREYA_CRYPT_NONCE_LEN.  off is the index
+     * of the first byte of this piece, so a longer message is split by
+     * the caller and the counter does not restart.  The same call
+     * encrypts and decrypts.  in and out may be the same buffer.
+     * Nothing is kept between calls, so a handler may use this. */
+    int      (*crypt)(const void *key, const void *nonce, uint32_t off,
+                      const void *in, void *out, int len);
 } freya_api_t;
 
 /*

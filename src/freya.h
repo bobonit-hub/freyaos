@@ -292,6 +292,17 @@ typedef struct {
 
 int      spi_info(int idx, spi_info_t *info);   /* -1 past the last bus   */
 
+/* --------------------------------------------------------------- XTEA */
+/*
+ * XTEA, 32 rounds, CTR.  crypt_block() encrypts one 8-byte block.
+ * crypt_apply() is that cipher as a keystream: the same call encrypts
+ * and decrypts, and off is the first byte's position in the message.
+ * Neither keeps the key.  A handler may call them.
+ */
+int      crypt_block(const void *key, const void *in, void *out);
+int      crypt_apply(const void *key, const void *nonce, uint32_t off,
+                     const void *in, void *out, int len);
+
 /* ------------------------------------------------------------ SD card */
 enum { SD_TYPE_NONE = 0, SD_TYPE_MMC, SD_TYPE_SD1, SD_TYPE_SD2, SD_TYPE_SDHC };
 
