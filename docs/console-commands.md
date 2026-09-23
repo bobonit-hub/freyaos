@@ -42,6 +42,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin, by the name a program uses for it |
 | `pwm [<pin> <hz> <duty%>\|<pin> off]` | list the PWM channels, or start and stop one |
+| `adc <pin\|temp\|vref>` | take one raw 12-bit ADC sample |
 | `i2c [<bus> <hz>\|<bus> off\|<bus> scan\|<bus> <addr> …]` | list the I2C buses, or open, scan and talk to one |
 | `spi [<bus> <hz> [mode]\|<bus> off\|<bus> x <byte>…]` | list the SPI buses, or open one and shift bytes |
 | `w1 [<pin>\|<pin> off\|<pin> search\|<pin> reset\|…]` | list open 1-Wire pins, or open one and talk to it |
@@ -77,6 +78,11 @@ output first if no mode was given. Either way the command finishes by reading
 the pin back, so what it prints is what the pin really is:
 
 ```
+
+`adc PA0` takes one analog conversion and leaves PA0 in analog mode.
+`adc temp` and `adc vref` read the internal sources. Values are raw counts
+from 0 to 4095; [adc.md](adc.md) describes the pin set, conflicts, and
+conversion to voltage.
 freya:/> pin PB5 out
 PB5 = 0
 freya:/> pin PB5 1

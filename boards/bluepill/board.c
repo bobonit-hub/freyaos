@@ -233,6 +233,56 @@ void board_exti_select(int port, int pin)
                         ((uint32_t)port << sh);
 }
 
+/* --------------------------------------------------------------- ADC */
+int board_adc_read(int channel)
+{
+    static int ready;
+    uint32_t timeout;
+    uint32_t shift;
+
+    if (!ready) {
+        RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
+        (void)RCC->APB2ENR;
+        ADC1->CR2 = ADC_CR2_ADON;
+        sys_delay_us(2);
+
+        ADC1->CR2 |= ADC_CR2_RSTCAL;
+        for (timeout = 100000; timeout && (ADC1->CR2 & ADC_CR2_RSTCAL); timeout--) { }
+        if (ADC1->CR2 & ADC_CR2_RSTCAL) return FREYA_ERR_TIMEOUT;
+        ADC1->CR2 |= ADC_CR2_CAL;
+        for (timeout = 100000; timeout && (ADC1->CR2 & ADC_CR2_CAL); timeout--) { }
+        if (ADC1->CR2 & ADC_CR2_CAL) return FREYA_ERR_TIMEOUT;
+        ready = 1;
+    }
+
+    if (channel == BOARD_ADC_TEMP_CHANNEL || channel == BOARD_ADC_VREF_CHANNEL) {
+        if (!(ADC1->CR2 & ADC_CR2_TSVREFE)) {
+            ADC1->CR2 |= ADC_CR2_TSVREFE;
+            sys_delay_us(10);
+        }
+    }
+
+    /* 239.5 ADC cycles gives high-impedance inputs and the internal
+     * sensors enough acquisition time. */
+    if (channel < 10) {
+        shift = (uint32_t)channel * 3U;
+        ADC1->SMPR2 = (ADC1->SMPR2 & ~(7UL << shift)) |
+                      (ADC_SAMPLE_LONG << shift);
+    } else {
+        shift = ((uint32_t)channel - 10U) * 3U;
+        ADC1->SMPR1 = (ADC1->SMPR1 & ~(7UL << shift)) |
+                      (ADC_SAMPLE_LONG << shift);
+    }
+    ADC1->SQR1 &= ~(0xFUL << 20);        /* one conversion */
+    ADC1->SQR3 = (uint32_t)channel;
+    ADC1->SR = 0;
+    ADC1->CR2 |= ADC_CR2_EXTSEL_SW | ADC_CR2_EXTTRIG | ADC_CR2_SWSTART;
+
+    for (timeout = 100000; timeout && !(ADC1->SR & ADC_SR_EOC); timeout--) { }
+    if (!(ADC1->SR & ADC_SR_EOC)) return FREYA_ERR_TIMEOUT;
+    return (int)(ADC1->DR & FREYA_ADC_MAX);
+}
+
 /* ----------------------------------------------------------------- LED */
 void led_init(void)
 {

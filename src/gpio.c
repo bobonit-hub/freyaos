@@ -217,6 +217,11 @@ uint32_t gpio_irq_count(int pin)
     return (line < 0) ? 0 : s_line[line].count;
 }
 
+int gpio_irq_owns_pin(int pin)
+{
+    return pin_line(pin) >= 0;
+}
+
 void gpio_irq_release(void)
 {
     uint32_t pm = irq_save();

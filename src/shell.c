@@ -1507,6 +1507,7 @@ static int cmd_led(int argc, char **argv)
  */
 #define PIN_USAGE  "pin <pin> [in|up|down|out|od|analog] [0|1|toggle]"
 #define PWM_USAGE  "pwm [<pin> <hz> <duty%> | <pin> off]"
+#define ADC_USAGE  "adc <pin|temp|vref>"
 
 /* The modes in the order the ABI numbers them, FREYA_PIN_IN first. */
 static const char *const s_pin_modes[] = {
@@ -1543,6 +1544,8 @@ static int pin_fail(const char *cmd, int rc)
             why = "that bus or its pins are taken";
         else if (strcmp(cmd, "w1") == 0)
             why = "that pin is taken, or every bus is open";
+        else if (strcmp(cmd, "adc") == 0)
+            why = "that pin is taken";
         else why = "that timer is taken";
         break;
     case FREYA_ERR_ARG:
@@ -1684,6 +1687,25 @@ static int cmd_pwm(int argc, char **argv)
     kprintf("  %s CH%d  %u Hz ", in.timer, in.ch, in.freq_hz);
     put_duty(in.duty);
     kprintf("\r\n");
+    return 0;
+}
+
+/* One raw conversion from a pin or one of the chip's internal sources. */
+static int cmd_adc(int argc, char **argv)
+    __attribute__((section(".text.cmd_adc")));
+static int cmd_adc(int argc, char **argv)
+{
+    int source, value;
+
+    if (argc != 2) return usage(ADC_USAGE);
+    if (strcmp(argv[1], "temp") == 0) source = FREYA_ADC_TEMP;
+    else if (strcmp(argv[1], "vref") == 0) source = FREYA_ADC_VREF;
+    else source = parse_pin(argv[1]);
+    if (source < 0) return usage(ADC_USAGE);
+
+    value = adc_read(source);
+    if (value < 0) return pin_fail("adc", value);
+    kprintf("%s = %d / %d\r\n", argv[1], value, FREYA_ADC_MAX);
     return 0;
 }
 
@@ -2054,6 +2076,7 @@ static const command_t s_cmds[] = {
     { "led",      cmd_led,      "led on|off|blink" },
     { "pin",      cmd_pin,      PIN_USAGE },
     { "pwm",      cmd_pwm,      PWM_USAGE },
+    { "adc",      cmd_adc,      ADC_USAGE },
     { "i2c",      cmd_i2c,      I2C_USAGE },
     { "spi",      cmd_spi,      SPI_USAGE },
     { "w1",       cmd_w1,       W1_USAGE },

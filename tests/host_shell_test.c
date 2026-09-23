@@ -362,6 +362,7 @@ int  pwm_open(int pin, uint32_t hz, uint32_t duty)
 {
     (void)pin; (void)hz; (void)duty; return -1;
 }
+int  adc_read(int source)               { (void)source; return FREYA_ADC_MAX; }
 
 int  i2c_info(int idx, i2c_info_t *info) { (void)idx; (void)info; return -1; }
 int  i2c_close(int bus)                { (void)bus; return 0; }
@@ -415,7 +416,8 @@ static void plant_mmio(void)
     static const uintptr_t pages[] = {
         0xE000E000UL,   /* SCB */
         0xE0042000UL,   /* DBGMCU_IDCODE */
-        0x1FFF7000UL    /* unique id and flash size */
+        (uintptr_t)UID_BASE & ~(uintptr_t)0xFFFU
+                         /* unique id and flash size */
     };
     unsigned i;
 
@@ -427,12 +429,26 @@ static void plant_mmio(void)
             exit(1);
         }
     }
-    SCB->CPUID = 0x410FC241UL;
+    SCB->CPUID =
+#if defined(FREYA_BOARD_BLUEPILL)
+        0x410FC231UL;
+#else
+        0x410FC241UL;
+#endif
+#if defined(FREYA_BOARD_BLUEPILL)
+    *(volatile uint32_t *)0xE0042000UL = 0x10006410UL;
+#else
     *(volatile uint32_t *)0xE0042000UL = 0x10006411UL;
-    ((volatile uint32_t *)0x1FFF7A10UL)[0] = 0x11111111UL;
-    ((volatile uint32_t *)0x1FFF7A10UL)[1] = 0x22222222UL;
-    ((volatile uint32_t *)0x1FFF7A10UL)[2] = 0x33333333UL;
-    *(volatile uint16_t *)0x1FFF7A22UL = 512;
+#endif
+    ((volatile uint32_t *)UID_BASE)[0] = 0x11111111UL;
+    ((volatile uint32_t *)UID_BASE)[1] = 0x22222222UL;
+    ((volatile uint32_t *)UID_BASE)[2] = 0x33333333UL;
+    *(volatile uint16_t *)FLASHSIZE_BASE =
+#if defined(FREYA_BOARD_BLUEPILL)
+        64;
+#else
+        512;
+#endif
 }
 
 static int run(const char *cmd)
@@ -535,10 +551,17 @@ int main(void)
     int rc;
 
     plant_mmio();
+#if defined(FREYA_BOARD_BLUEPILL)
+    g_clocks.sysclk_hz = 72000000;
+    g_clocks.hclk_hz = 72000000;
+    g_clocks.pclk1_hz = 36000000;
+    g_clocks.pclk2_hz = 72000000;
+#else
     g_clocks.sysclk_hz = 96000000;
     g_clocks.hclk_hz = 96000000;
     g_clocks.pclk1_hz = 48000000;
     g_clocks.pclk2_hz = 96000000;
+#endif
     g_clocks.clock_source = 1;
 
     printf("help\n");
@@ -614,12 +637,20 @@ int main(void)
 
     rc = run("sysinfo");
     expect_rc("sysinfo succeeds", rc, 0);
+#if defined(FREYA_BOARD_BLUEPILL)
+    expect_has("sysinfo names the board", "Blue Pill");
+    expect_has("sysinfo reads the CPUID", "410fc231");
+    expect_has("sysinfo reads the device id", "0x410");
+    expect_has("sysinfo reads the flash size", "128 KiB internal");
+    expect_has("sysinfo reports the clock", "72000000 Hz");
+#else
     expect_has("sysinfo names the board", "Black Pill");
     expect_has("sysinfo reads the CPUID", "410fc241");
     expect_has("sysinfo reads the device id", "0x411");
-    expect_has("sysinfo reads the unique id", "11111111-22222222-33333333");
     expect_has("sysinfo reads the flash size", "512 KiB internal");
     expect_has("sysinfo reports the clock", "96000000 Hz");
+#endif
+    expect_has("sysinfo reads the unique id", "11111111-22222222-33333333");
     expect_has("sysinfo reports the reset", "power-on");
     expect_has("sysinfo before mount", "not mounted");
     expect_has("sysinfo with nothing loaded", "none loaded");

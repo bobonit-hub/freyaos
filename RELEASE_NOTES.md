@@ -40,10 +40,12 @@ calling the new entries.
 * The scheduler and the script interpreter live in a kernel extension, a
   second flash image, so the 48 KiB kernel still does not share an erase
   unit with the auto-start slot. On the Blue Pill that extension is the
-  last 10 KiB of the 128 KiB (it grew by 2 KiB so the SPI master fits
-  beside the scheduler), and the program flash region is 71552 bytes,
-  through `0x0801D7FF`. On the Black Pill the extension is 16 KiB at the
+  last 11 KiB of the 128 KiB, and the program flash region is 70528 bytes,
+  through `0x0801D3FF`. On the Black Pill the extension is 16 KiB at the
   start of sector 5, and the program region stays 64 KiB.
+* Programs can take synchronous 12-bit ADC1 samples from the common analog
+  pins, the internal temperature sensor, and Vref. `adc PA0`, `adc temp`,
+  and `samples/adc` use the same appended service-table call.
 * A program can speak 1-Wire at standard speed on a spare pin: presence,
   byte reads and writes, a ROM search, and a strong pull-up. Up to four
   pins may be open at once. `w1 PB12 search` lists the devices, and

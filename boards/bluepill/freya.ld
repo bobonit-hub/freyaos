@@ -11,8 +11,8 @@
  * it fits.  The size register on these parts often still reads 64 KiB.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
  *   0x0800C000 .. 0x0800C07F   auto-start flag + reserved          (128 B)
- *   0x0800C080 .. 0x0801D7FF   program flash region             (71552 B)
- *   0x0801D800 .. 0x0801FFFF   kernel extension (threads, SPI, XTEA) (10 KiB)
+ *   0x0800C080 .. 0x0801D3FF   program flash region             (70528 B)
+ *   0x0801D400 .. 0x0801FFFF   kernel extension              (11 KiB)
  *
  * The extension is its own image at the top of the 128 KiB.  The program
  * region stops short of it, so install and uninstall never erase it,
@@ -37,7 +37,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x0801D800, LENGTH = 10K
+    KEXT  (rx)  : ORIGIN = 0x0801D400, LENGTH = 11K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
@@ -53,7 +53,7 @@ __shell_stack_limit  = __worker_stacks + __worker_count * __worker_stack_size;
 __autostart_start    = 0x0800C000;
 __autostart_end      = 0x0800C080;
 __app_flash_start    = 0x0800C080;
-__app_flash_end      = 0x0801D800;
+__app_flash_end      = 0x0801D400;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;
@@ -71,7 +71,7 @@ SECTIONS
     /*
      * Threads, the switch, the console commands that talk to them, and
      * the SPI master and the cipher.  Claimed before .text so the
-     * wildcard below does not take them.  The extension is 10 KiB so
+     * wildcard below does not take them.  The extension is 11 KiB so
      * SPI and XTEA fit beside the scheduler.
      * A call across the two images is an ordinary branch.
      */
@@ -86,6 +86,10 @@ SECTIONS
         *shell.o(.text.cmd_threads)
         *shell.o(.text.cmd_spi)
         *spi.o(.text.spi_*)
+        *adc.o(.text .text.*)
+        *board.o(.text.board_adc_read)
+        *shell.o(.text.cmd_adc)
+        *shell.o(.text.pin_fail*)
         *shell.o(.text.cmd_crypt)
         *crypt.o(.text .text.*)
         /* Socket power is left for .text.  This extension has no room
@@ -101,6 +105,9 @@ SECTIONS
         *shell.o(.rodata.cmd_threads*)
         *shell.o(.rodata.cmd_spi*)
         *spi.o(.rodata.spi_*)
+        *adc.o(.rodata .rodata.*)
+        *shell.o(.rodata.cmd_adc*)
+        *shell.o(.rodata.pin_fail*)
         *shell.o(.rodata.cmd_crypt*)
         *crypt.o(.rodata .rodata.*)
         *shell.o(.rodata.shell_poll_runtime*)

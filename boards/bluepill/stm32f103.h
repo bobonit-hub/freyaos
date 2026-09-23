@@ -59,6 +59,7 @@ typedef struct {
 #define RCC_APB2ENR_IOPAEN  (1UL << 2)
 #define RCC_APB2ENR_IOPBEN  (1UL << 3)
 #define RCC_APB2ENR_IOPCEN  (1UL << 4)
+#define RCC_APB2ENR_ADC1EN  (1UL << 9)
 #define RCC_APB2ENR_SPI1EN  (1UL << 12)
 #define RCC_APB2ENR_USART1EN (1UL << 14)
 #define RCC_APB1ENR_TIM2EN  (1UL << 0)
@@ -143,6 +144,36 @@ static inline void gpio_config(GPIO_TypeDef *port, int pin, uint32_t cfg)
 
     *cr = (*cr & ~(0xFUL << shift)) | ((cfg & 0xFUL) << shift);
 }
+
+/* ---------------------------------------------------------------- ADC */
+typedef struct {
+    __IO uint32_t SR;
+    __IO uint32_t CR1;
+    __IO uint32_t CR2;
+    __IO uint32_t SMPR1;
+    __IO uint32_t SMPR2;
+    __IO uint32_t JOFR[4];
+    __IO uint32_t HTR;
+    __IO uint32_t LTR;
+    __IO uint32_t SQR1;
+    __IO uint32_t SQR2;
+    __IO uint32_t SQR3;
+    __IO uint32_t JSQR;
+    __IO uint32_t JDR[4];
+    __IO uint32_t DR;
+} ADC_TypeDef;
+
+#define ADC1                ((ADC_TypeDef *)0x40012400UL)
+
+#define ADC_SR_EOC          (1UL << 1)
+#define ADC_CR2_ADON        (1UL << 0)
+#define ADC_CR2_CAL         (1UL << 2)
+#define ADC_CR2_RSTCAL      (1UL << 3)
+#define ADC_CR2_EXTSEL_SW   (7UL << 17)
+#define ADC_CR2_EXTTRIG     (1UL << 20)
+#define ADC_CR2_SWSTART     (1UL << 22)
+#define ADC_CR2_TSVREFE     (1UL << 23)
+#define ADC_SAMPLE_LONG     7UL
 
 /* ---------------------------------------------------------- AFIO / EXTI */
 /* Sixteen external interrupt lines, one per pin number; AFIO->EXTICR

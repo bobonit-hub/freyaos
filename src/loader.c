@@ -441,6 +441,7 @@ static const freya_api_t s_api = {
     .crypt           = crypt_apply,
     .console_raw     = api_console_raw,
     .power           = board_power,
+    .adc_read        = adc_read,
 };
 
 const freya_api_t *app_api(void)

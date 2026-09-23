@@ -62,10 +62,10 @@
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
-/* The last 10 KiB of the 128 KiB holds the kernel extension (threads,
+/* The last 11 KiB of the 128 KiB holds the kernel extension (threads,
  * the shell's script interpreter, the SPI master and the cipher), so
  * an install does not erase it. */
-#define FREYA_APP_FLASH_SIZE   (0x0801D800UL - FREYA_APP_FLASH_ADDR)
+#define FREYA_APP_FLASH_SIZE   (0x0801D400UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)
@@ -309,6 +309,17 @@ typedef struct {
 #define FREYA_SPI_MAX_HZ     24000000UL
 #define FREYA_SPI_MAX_LEN    4096
 
+/* ---------------------------------------------------------------- ADC */
+/*
+ * One synchronous 12-bit conversion.  An external source is a pin;
+ * temperature and the internal reference use values outside the packed
+ * pin range.  Both internal sources return raw ADC counts, not engineering
+ * units, because their calibration constants differ between chips.
+ */
+#define FREYA_ADC_MAX        4095
+#define FREYA_ADC_TEMP       0x100
+#define FREYA_ADC_VREF       0x101
+
 /* --------------------------------------------------------------- XTEA */
 /*
  * 32 rounds, a 16-byte key and an 8-byte block, used in CTR mode.  A
@@ -326,7 +337,7 @@ typedef struct {
 #define FREYA_CRYPT_MAX_LEN    4096
 
 /*
- * What the pin, timer, PWM, I2C, 1-Wire, SPI, crypt and interrupt calls
+ * What the pin, timer, PWM, I2C, 1-Wire, SPI, ADC, crypt and interrupt calls
  * return.
  * Anything else they hand back is the value asked for: a pin level, a
  * handle, a count.
@@ -342,7 +353,7 @@ typedef struct {
 #define FREYA_ERR_NACK       -5   /* an I2C address or byte was not
                                    * acknowledged, or no 1-Wire device
                                    * pulled the line down                */
-#define FREYA_ERR_TIMEOUT    -6   /* an I2C or SPI transfer did not
+#define FREYA_ERR_TIMEOUT    -6   /* an I2C, SPI or ADC operation did not
                                    * finish, or a 1-Wire line stayed low */
 #define FREYA_ERR_IO         -7   /* a bus error, or the run was asked
                                    * to stop mid-transfer                */
@@ -355,7 +366,7 @@ typedef struct {
  * What a handler may do is decided by what it can preempt.  Console
  * output, the LED, ticks_ms(), the pin calls, the timer calls and
  * crypt() are all safe.  malloc(), free(), the filesystem, power() and
- * the I2C, SPI and 1-Wire calls are not - they can be interrupted
+ * the I2C, SPI, 1-Wire and ADC calls are not - they can be interrupted
  * halfway through their own bookkeeping, or they spin on a bus - so the
  * kernel refuses them from a handler
  * instead of letting a program corrupt the heap or the card.  A handler
@@ -576,6 +587,11 @@ typedef struct freya_api {
      * card stays unidentified until the next mount.  A pin or timer
      * handler is refused. */
     int      (*power)(int domain, int on);
+
+    /* appended: one polled, 12-bit ADC conversion.  source is an
+     * ADC-capable pin, FREYA_ADC_TEMP or FREYA_ADC_VREF.  An external
+     * pin is put in analog mode and left there. */
+    int      (*adc_read)(int source);              /* 0..FREYA_ADC_MAX */
 } freya_api_t;
 
 /*

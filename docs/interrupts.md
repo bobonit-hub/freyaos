@@ -218,12 +218,12 @@ serve several, and `arg` is whatever was registered beside it.
 What a handler may do follows from what it can preempt. Console output, the
 LED, `ticks_ms()`, the pin calls and `timer_start` / `timer_stop` /
 `timer_period` / the counters are all safe. `malloc()`, `free()` and the
-filesystem and the I2C, SPI and 1-Wire calls are not — a handler can land in
+filesystem and the I2C, SPI, 1-Wire and ADC calls are not — a handler can land in
 the middle of the heap's or FAT's own bookkeeping, or spin on a bus — so
 **the kernel refuses them from a handler** rather than let a program corrupt
 the card or the heap: `malloc()` returns `NULL`, the file calls return an
 error, `api->log()` writes to the console instead of the card, and an I2C,
-SPI or 1-Wire call returns `FREYA_ERR_HANDLER`. `w1_crc()` and `crypt()` are arithmetic and may be called. `pin_irq_attach`, `pin_irq_detach`, `timer_open` and `timer_close`
+SPI, 1-Wire or ADC call returns `FREYA_ERR_HANDLER`. `w1_crc()` and `crypt()` are arithmetic and may be called. `pin_irq_attach`, `pin_irq_detach`, `timer_open` and `timer_close`
 are refused too, with `FREYA_ERR_HANDLER`: they rearrange the tables the
 interrupt itself is walking.
 

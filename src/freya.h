@@ -154,6 +154,7 @@ int      gpio_pin_toggle(int pin);
 int      gpio_irq_attach(int pin, int edge, freya_irq_fn fn, void *arg);
 int      gpio_irq_detach(int pin);
 uint32_t gpio_irq_count(int pin);
+int      gpio_irq_owns_pin(int pin);       /* 1 when that pin has EXTI   */
 void     gpio_irq_release(void);          /* drop whatever a run left     */
 
 /* ------------------------------------------------------------- timers */
@@ -292,6 +293,14 @@ typedef struct {
 } spi_info_t;
 
 int      spi_info(int idx, spi_info_t *info);   /* -1 past the last bus   */
+
+/* ---------------------------------------------------------------- ADC */
+/*
+ * One polled conversion from an external pin or an internal source.
+ * Channel numbering and the ADC register layout belong to the board.
+ */
+int      adc_read(int source);             /* raw 12-bit value, or error */
+int      adc_lookup(int source);           /* hardware channel, or PIN   */
 
 /* --------------------------------------------------------------- XTEA */
 /*

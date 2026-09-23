@@ -79,6 +79,7 @@ typedef struct {
 #define RCC_APB1ENR_SPI2EN  (1UL << 14)
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB1ENR_PWREN   (1UL << 28)
+#define RCC_APB2ENR_ADC1EN  (1UL << 8)
 #define RCC_APB2ENR_SPI1EN  (1UL << 12)
 #define RCC_APB2ENR_SYSCFGEN (1UL << 14)
 
@@ -153,6 +154,41 @@ typedef struct {
 #define GPIOA               ((GPIO_TypeDef *)0x40020000UL)
 #define GPIOB               ((GPIO_TypeDef *)0x40020400UL)
 #define GPIOC               ((GPIO_TypeDef *)0x40020800UL)
+
+/* ---------------------------------------------------------------- ADC */
+typedef struct {
+    __IO uint32_t SR;
+    __IO uint32_t CR1;
+    __IO uint32_t CR2;
+    __IO uint32_t SMPR1;
+    __IO uint32_t SMPR2;
+    __IO uint32_t JOFR[4];
+    __IO uint32_t HTR;
+    __IO uint32_t LTR;
+    __IO uint32_t SQR1;
+    __IO uint32_t SQR2;
+    __IO uint32_t SQR3;
+    __IO uint32_t JSQR;
+    __IO uint32_t JDR[4];
+    __IO uint32_t DR;
+} ADC_TypeDef;
+
+typedef struct {
+    __IO uint32_t CSR;
+    __IO uint32_t CCR;
+    __IO uint32_t CDR;
+} ADC_Common_TypeDef;
+
+#define ADC1                ((ADC_TypeDef *)0x40012000UL)
+#define ADC_COMMON          ((ADC_Common_TypeDef *)0x40012300UL)
+
+#define ADC_SR_EOC          (1UL << 1)
+#define ADC_CR2_ADON        (1UL << 0)
+#define ADC_CR2_SWSTART     (1UL << 30)
+#define ADC_CCR_ADCPRE_DIV4 (1UL << 16)
+#define ADC_CCR_ADCPRE_MASK (3UL << 16)
+#define ADC_CCR_TSVREFE     (1UL << 23)
+#define ADC_SAMPLE_LONG     7UL
 
 /* ------------------------------------------------------- SYSCFG / EXTI */
 /* Sixteen external interrupt lines, one per pin number; SYSCFG->EXTICR

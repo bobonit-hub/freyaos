@@ -42,6 +42,10 @@ void sys_delay_us(uint32_t us) { (void)us; }
 int  app_in_handler(void) { return 0; }
 int  app_should_stop(void) { return 0; }
 int  app_handler_call(freya_irq_fn fn, int source, void *arg) { return 0; }
+void app_guard_enter(void) { }
+void app_guard_leave(void) { }
+int  gpio_irq_owns_pin(int pin) { (void)pin; return 0; }
+int  board_adc_read(int channel) { (void)channel; return FREYA_ADC_MAX; }
 
 /* Masking interrupts is one instruction the host does not have; the
  * definitions in the board header go unused once these take their place. */
@@ -63,6 +67,7 @@ void board_spi_mux(SPI_TypeDef *spi, int sck, int miso, int mosi, int af)
 #include "../src/i2c.c"
 #include "../src/w1.c"
 #include "../src/spi.c"
+#include "../src/adc.c"
 
 static int checks, fails;
 
@@ -702,6 +707,23 @@ int main(void)
     spi_sweep(32000000);
     spi_map();
 
+    /* ----------------------------------------------------------- ADC */
+    check("PA0 maps to ADC channel 0", 0, adc_lookup(FREYA_PA(0)));
+    check("PB1 maps to ADC channel 9", 9, adc_lookup(FREYA_PB(1)));
+    check("PC5 maps to ADC channel 15", 15, adc_lookup(FREYA_PC(5)));
+    check("a digital-only pin is refused by ADC",
+          FREYA_ERR_PIN, adc_lookup(FREYA_PB(12)));
+    check("the temperature source uses the board channel",
+          BOARD_ADC_TEMP_CHANNEL, adc_lookup(FREYA_ADC_TEMP));
+    check("the reference source uses the board channel",
+          BOARD_ADC_VREF_CHANNEL, adc_lookup(FREYA_ADC_VREF));
+    check("an internal conversion can return the full 12-bit value",
+          FREYA_ADC_MAX, adc_read(FREYA_ADC_VREF));
+    s_chan[pwm_lookup(FREYA_PA(0))].open = 1;
+    check("ADC refuses a pin while PWM owns it",
+          FREYA_ERR_BUSY, adc_read(FREYA_PA(0)));
+    s_chan[pwm_lookup(FREYA_PA(0))].open = 0;
+
     /* ------------------------------------------- the table a program sees */
     memset(&api, 0, sizeof(api));
     api.size = sizeof(freya_api_t);
@@ -712,6 +734,7 @@ int main(void)
     check("and the 1-Wire calls", 1, FREYA_API_HAS(&api, w1_crc) ? 1 : 0);
     check("and the SPI calls", 1, FREYA_API_HAS(&api, spi_transfer) ? 1 : 0);
     check("and the crypt calls", 1, FREYA_API_HAS(&api, crypt) ? 1 : 0);
+    check("and the ADC call", 1, FREYA_API_HAS(&api, adc_read) ? 1 : 0);
     api.size = __builtin_offsetof(freya_api_t, exit_reason_str) +
                sizeof(api.exit_reason_str);
     check("a kernel from before them says so", 0,
@@ -735,6 +758,9 @@ int main(void)
     api.size = __builtin_offsetof(freya_api_t, spi_read) + sizeof(api.spi_read);
     check("a kernel with SPI but not crypt says that too", 0,
           FREYA_API_HAS(&api, crypt) ? 1 : 0);
+    api.size = __builtin_offsetof(freya_api_t, power) + sizeof(api.power);
+    check("a kernel with power but not ADC says that too", 0,
+          FREYA_API_HAS(&api, adc_read) ? 1 : 0);
 
     printf("\n%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;

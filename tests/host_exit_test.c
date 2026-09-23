@@ -100,10 +100,13 @@ int main(void)
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
     api.size = sizeof(freya_api_t);
-    check("power is the last call in the table",
+    check("ADC is the last call in the table",
           (int)sizeof(freya_api_t),
-          (int)(__builtin_offsetof(freya_api_t, power) +
-                sizeof(api.power)));
+          (int)(__builtin_offsetof(freya_api_t, adc_read) +
+                sizeof(api.adc_read)));
+    api.size = __builtin_offsetof(freya_api_t, adc_read);
+    check("a kernel from before ADC does not offer it",
+          0, FREYA_API_HAS(&api, adc_read) ? 1 : 0);
     api.size = __builtin_offsetof(freya_api_t, power);
     check("a kernel from before power does not offer it",
           0, FREYA_API_HAS(&api, power) ? 1 : 0);

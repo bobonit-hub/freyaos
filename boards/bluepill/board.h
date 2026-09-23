@@ -102,6 +102,18 @@
     { { SPI2, 1, FREYA_PB(13), FREYA_PB(14), FREYA_PB(15), 5 } }
 #define BOARD_SPI_NAMES { "SPI2" }
 
+/* --------------------------------------------------------------- ADC */
+/* ADC1 channels common to both supported boards and not kept by Freya.
+ * The internal temperature sensor is channel 16 on the F1; Vref is 17. */
+#define BOARD_ADC_MAP \
+    { { FREYA_PA(0), 0 }, { FREYA_PA(1), 1 }, \
+      { FREYA_PB(0), 8 }, { FREYA_PB(1), 9 }, \
+      { FREYA_PC(0), 10 }, { FREYA_PC(1), 11 }, \
+      { FREYA_PC(2), 12 }, { FREYA_PC(3), 13 }, \
+      { FREYA_PC(4), 14 }, { FREYA_PC(5), 15 } }
+#define BOARD_ADC_TEMP_CHANNEL  16
+#define BOARD_ADC_VREF_CHANNEL  17
+
 /* --------------------------------------------------------------- hooks */
 void board_clock_init(void);            /* clock tree, fills g_clocks    */
 void board_uart_pins(void);             /* console pins and USART clock  */
@@ -115,6 +127,7 @@ GPIO_TypeDef *board_gpio_port(int port);          /* NULL: no such port  */
 void          board_pin_mode(GPIO_TypeDef *port, int pin, int mode);
 void          board_exti_select(int port, int pin);
 void          board_pin_af(GPIO_TypeDef *port, int pin, int af);  /* PWM  */
+int           board_adc_read(int channel);
 
 /* led_init(), led_set() and led_toggle() are declared in freya.h and
  * implemented per board. */
