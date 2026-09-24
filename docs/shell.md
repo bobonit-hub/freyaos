@@ -8,8 +8,12 @@ and to a script run with `source`. The commands themselves are listed in
 
 A value is an integer, a float, a byte, a bool, empty, none, a string
 of at most 31 characters, an auto array, or a dict.
-An expression produces one value. A command produces a status, which
-`$?` reads back.
+An expression produces one value. Typed on its own, it is printed:
+`2 + 2` prints `4`, `"Sun"` prints `"Sun"`, and `(2 + 2) % 10` prints
+`4`. A command produces a status, which `$?` reads back. A command can
+also be written as a call, `help()`, `echo("hi")`, `pwd()`. The call
+runs the command and does not print an extra value. A name that is
+already a function, such as `date()` or `adc()`, stays that function.
 
 ## Lines
 

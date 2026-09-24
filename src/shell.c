@@ -3410,6 +3410,10 @@ static int s_fn_nret;
 /* 1 when the expression just parsed was a call and nothing else, so
  * every value it returned is still in s_fn_retv. */
 static int s_bare_call;
+/* 1 when that call was a shell command.  The command prints its own
+ * text and leaves none, which the prompt does not print again. */
+static int s_cmd_call;
+static int s_cmd_rc;
 
 static void KEXT rets_drop(void)
 {
@@ -3426,6 +3430,7 @@ static void KEXT end_bare(void)
 {
     if (s_bare_call) rets_drop();
     s_bare_call = 0;
+    s_cmd_call = 0;
 }
 
 static void KEXT args_drop(fn_arg_t *args, int n)
@@ -5692,6 +5697,68 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
     return 0;
 }
 
+/* A shell command written as a call: help(), echo("hi"), pwd().
+ * 1 when it ran, 0 when this name is not a command, -1 on failure.
+ * The value is none; the command has already printed what it prints. */
+static int KEXT cmd_as_fn(const char *name, fn_arg_t *args, int argc, val_t *out)
+{
+    char store[LINE_MAX];
+    char piece[LINE_MAX];
+    char *argv[MAX_ARGS];
+    int o = 0, i, nlen;
+    const command_t *cmd = NULL;
+
+    if (strcmp(name, "fn") == 0 && argc == 0) {
+        fn_list();
+        out->type = V_NIL;
+        out->i = 0;
+        out->f = 0.f;
+        out->s[0] = '\0';
+        s_cmd_call = 1;
+        s_cmd_rc = 0;
+        return 1;
+    }
+    for (i = 0; i < (int)ARRAY_SIZE(s_cmds); i++) {
+        if (strcmp(s_cmds[i].name, name) == 0) {
+            cmd = &s_cmds[i];
+            break;
+        }
+    }
+    if (!cmd || cmd->fn == cmd_script) return 0;
+    if (argc + 1 > MAX_ARGS) return vfail("too many arguments");
+
+    nlen = (int)strlen(name);
+    if (o + nlen + 1 > LINE_MAX) return vfail("bad expression");
+    memcpy(store + o, name, (size_t)nlen + 1U);
+    argv[0] = store + o;
+    o += nlen + 1;
+    for (i = 0; i < argc; i++) {
+        val_t v;
+        int n;
+
+        memset(&v, 0, sizeof v);
+        v.type = args[i].type;
+        if (type_hold_i(args[i].type) || is_coll(args[i].type)) v.i = args[i].u.i;
+        else if (args[i].type == V_FLT) v.f = args[i].u.f;
+        else if (args[i].type == V_STR) memcpy(v.s, args[i].u.s, VAR_STR);
+        val_text(&v, piece, (int)sizeof piece);
+        n = (int)strlen(piece);
+        if (o + n + 1 > LINE_MAX) return vfail("string too long");
+        memcpy(store + o, piece, (size_t)n + 1U);
+        argv[i + 1] = store + o;
+        o += n + 1;
+    }
+    i = cmd->fn(argc + 1, argv);
+    if (i < 0) return -1;
+    out->type = V_NIL;
+    out->i = 0;
+    out->f = 0.f;
+    out->s[0] = '\0';
+    s_cmd_call = 1;
+    s_cmd_rc = i;
+    return 1;
+}
+
 static int KEXT parse_call(const char *name, int nlen, const char **pp, val_t *out)
 {
     const char *beg[FN_ARGS], *end[FN_ARGS];
@@ -5810,9 +5877,21 @@ static int KEXT parse_call(const char *name, int nlen, const char **pp, val_t *o
             } else {
                 slot = fn_slot(nb, nlen, 0);
                 if (!slot) {
-                    args_drop(args, argc);
-                    kprintf("%s: no such function: %s\r\n", s_vwho, nb);
-                    rc = -1;
+                    int c = cmd_as_fn(nb, argc ? args : NULL, argc, out);
+
+                    if (c < 0) {
+                        args_drop(args, argc);
+                        rc = -1;
+                    } else if (c > 0) {
+                        args_drop(args, argc);
+                        val_arg(&s_fn_retv[0], out);
+                        s_fn_nret = 1;
+                        s_bare_call = 1;
+                    } else {
+                        args_drop(args, argc);
+                        kprintf("%s: no such function: %s\r\n", s_vwho, nb);
+                        rc = -1;
+                    }
                 } else if (fn_invoke(slot->body, argc ? args : NULL, argc, out) != 0) {
                     args_drop(args, argc);
                     rc = -1;
@@ -6720,6 +6799,108 @@ static int KEXT cond_eval(const char *s)
     return v.i ? 1 : 0;
 }
 
+/* A line that is an expression, not a command word.  help() is one;
+ * echo hi is not.  true, false, empty and none are values. */
+static int KEXT looks_like_expr(const char *s)
+{
+    int n = 0;
+
+    while (*s == ' ' || *s == '\t') s++;
+    if (!*s) return 0;
+    if (*s == '"' || *s == '(' || *s == '$' || *s == '+' || *s == '-' ||
+        *s == '~' || *s == '.' || (*s >= '0' && *s <= '9'))
+        return 1;
+    if (!name_char(*s, 1)) return 0;
+    while (name_char(s[n], 0)) n++;
+    {
+        const char *t = s + n;
+
+        while (*t == ' ' || *t == '\t') t++;
+        if (*t == '(') return 1;
+        if (*t) return 0;
+    }
+    if (n == 4 && (strncmp(s, "true", 4) == 0 || strncmp(s, "none", 4) == 0))
+        return 1;
+    if (n == 5 && (strncmp(s, "false", 5) == 0 || strncmp(s, "empty", 5) == 0))
+        return 1;
+    return 0;
+}
+
+/* The same text 'set' prints for a value, without the name. */
+static void KEXT val_show(const val_t *v)
+{
+    char buf[LINE_MAX];
+
+    if (v->type == V_BYTE) {
+        kprintf("%db\r\n", (int)v->i);
+        return;
+    }
+    if (v->type == V_STR) {
+        kprintf("\"%s\"\r\n", v->s);
+        return;
+    }
+    if (is_coll(v->type)) {
+        if (coll_text(v->i, buf, (int)sizeof buf) != 0)
+            kprintf("...\r\n");
+        else
+            kprintf("%s\r\n", buf);
+        return;
+    }
+    val_text(v, buf, (int)sizeof buf);
+    kprintf("%s\r\n", buf);
+}
+
+/* Evaluate one expression and print it.  A command call prints only
+ * what the command prints.  Several values from one call each get a line. */
+static int KEXT expr_show(const char *line)
+{
+    const char *s = line;
+    val_t v;
+    int i, cmd;
+
+    s_vwho = "expr";
+    s_cmd_call = 0;
+    s_cmd_rc = 0;
+    memset(&v, 0, sizeof v);
+    if (parse_expr(&s, &v) != 0) {
+        val_drop(&v);
+        return -1;
+    }
+    vskip(&s);
+    if (*s) {
+        val_drop(&v);
+        rets_drop();
+        return vfail("bad expression");
+    }
+    cmd = s_bare_call && s_cmd_call;
+    if (!cmd) {
+        if (s_bare_call && s_fn_nret > 1) {
+            for (i = 0; i < s_fn_nret; i++) {
+                val_t one;
+
+                if (ret_one(&one, &s_fn_retv[i]) != 0) {
+                    val_drop(&v);
+                    rets_drop();
+                    return -1;
+                }
+                val_show(&one);
+                val_drop(&one);
+            }
+        } else {
+            val_show(&v);
+        }
+    }
+    val_drop(&v);
+    rets_drop();
+    s_bare_call = 0;
+    if (cmd) {
+        i = s_cmd_rc;
+        s_cmd_call = 0;
+        return i;
+    }
+    return 0;
+}
+
 static int KEXT run_command(const char *line)
 {
     char buf[LINE_MAX];
@@ -6728,6 +6909,8 @@ static int KEXT run_command(const char *line)
 
     if (word_is(line, "set", NULL))
         return s_status = status_of(set_exec(line));
+    if (looks_like_expr(line))
+        return s_status = status_of(expr_show(line));
     if (expand_status(line, buf, (int)sizeof buf) != 0)
         return s_status;
     argc = split_args(buf, argv, MAX_ARGS);
@@ -7488,11 +7671,19 @@ void shell_poll_runtime(void)
             tmp[sizeof tmp - 1] = '\0';
             argc = split_args(tmp, argv, MAX_ARGS);
             if (argc < 1) return;
-            if (strcmp(argv[0], "threads") != 0 &&
-                strcmp(argv[0], "stop") != 0 &&
-                strcmp(argv[0], "help") != 0) {
-                kprintf("%s: a program is running - stop it first\r\n", argv[0]);
-                return;
+            {
+                const char *w = argv[0];
+                int help_ok = strncmp(w, "help", 4) == 0 &&
+                    (w[4] == '\0' || w[4] == '(');
+                int thr_ok = strncmp(w, "threads", 7) == 0 &&
+                    (w[7] == '\0' || w[7] == '(');
+                int stop_ok = strncmp(w, "stop", 4) == 0 &&
+                    (w[4] == '\0' || w[4] == '(' || w[4] == ' ');
+
+                if (!help_ok && !thr_ok && !stop_ok) {
+                    kprintf("%s: a program is running - stop it first\r\n", argv[0]);
+                    return;
+                }
             }
             hist_push(s_poll_line);
             shell_exec(s_poll_line);

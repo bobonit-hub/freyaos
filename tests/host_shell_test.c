@@ -1051,6 +1051,36 @@ int main(void)
     expect_rc("unknown command is 127", rc, FREYA_EXIT_NOTFOUND);
     expect_has("unknown command is named", "command not found");
 
+    printf("expressions\n");
+    rc = run("2+2");
+    expect_rc("an expression succeeds", rc, 0);
+    expect_exact("2+2 prints 4", "4\r\n");
+    rc = run("(2+2)%10");
+    expect_rc("a grouped expression succeeds", rc, 0);
+    expect_exact("(2+2)%10 prints 4", "4\r\n");
+    rc = run("\"Sun\"");
+    expect_rc("a string expression succeeds", rc, 0);
+    expect_exact("a string prints quoted", "\"Sun\"\r\n");
+    rc = run("true");
+    expect_rc("a bool expression succeeds", rc, 0);
+    expect_exact("true prints true", "true\r\n");
+    rc = run("65b");
+    expect_rc("a byte expression succeeds", rc, 0);
+    expect_exact("a byte prints with b", "65b\r\n");
+    rc = run("help()");
+    expect_rc("help() succeeds", rc, 0);
+    expect_has("help() lists commands", "Freya commands");
+    expect_lacks("help() prints no extra value", "none");
+    rc = run("echo(\"Sun\")");
+    expect_rc("echo() succeeds", rc, 0);
+    expect_exact("echo() prints its argument", "Sun\r\n");
+    rc = run("pwd()");
+    expect_rc("pwd() succeeds", rc, 0);
+    expect_exact("pwd() prints the directory", "/data\r\n");
+    rc = run("nosuch()");
+    expect_rc("an unknown call fails", rc, FREYA_EXIT_FAIL);
+    expect_has("an unknown call is not a function", "no such function");
+
     rc = run("sleep");
     expect_rc("sleep without a time fails", rc, FREYA_EXIT_FAIL);
     expect_has("sleep usage", "usage: sleep <ms>");
