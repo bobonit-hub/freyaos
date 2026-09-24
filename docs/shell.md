@@ -9,20 +9,21 @@ and to a script run with `source`. The commands themselves are listed in
 A value is an integer, a float, a byte, a bool, empty, none, a string
 of at most 31 characters, an auto array, or a dict.
 An expression produces one value. Typed on its own, it is printed:
-`2 + 2` prints `4`, `"Sun"` prints `"Sun"`, and `(2 + 2) % 10` prints
-`4`. A command produces a status, which `$?` reads back. A command can
-also be written as a call, `help()`, `echo("hi")`, `pwd()`. The call
-runs the command and does not print an extra value. A name that is
-already a function, such as `date()` or `adc()`, stays that function.
+`3 + 2` prints `5`, `"Sun"` prints `"Sun"`, and `(2 + 2) % 10` prints
+`4`. Console commands use function syntax: `help()`, `sysinfo()`,
+`ls("-l", "/")`. Their arguments are expression values, so text is quoted.
+A command produces a status, which `$?` reads back. The statement forms
+`set`, `fn`, `return`, `if`, `else`, `loop`, `break`, and `end` are shell
+language syntax rather than console commands and do not take parentheses.
 
 ## Lines
 
 `;` separates commands on one line. A new line separates them the same
-way. Quotes hide a semicolon, so `echo "a;b"` is one command. A command
+way. Quotes hide a semicolon, so `echo("a;b")` is one command. A command
 is at most 159 characters.
 
 A `#` at the start of a statement, or after a space, comments out the
-rest of that statement. Quotes hide it, so `echo "a # b"` prints the
+rest of that statement. Quotes hide it, so `echo("a # b")` prints the
 hash. A line that is only a comment is skipped.
 
 `$?` anywhere in a command becomes the status of the previous command,
@@ -31,8 +32,8 @@ how many arguments the current function call received, and `$1` .. `$32`
 are those arguments. All of these are expanded when the command runs, so
 each pass of a loop sees the values the previous command left. A name
 that is not set, or an argument that was not passed, is an error. The
-expansion happens before the line is split, so `echo $n` and
-`write /runs.txt $?` both work.
+expansion happens before the line is split, so `echo($n)` and
+`write("/runs.txt", $?)` both work.
 
 `set` and a comparison used as an `if` condition do not go through that
 expansion. They parse `$name`, `$?` and `$1` as values inside the

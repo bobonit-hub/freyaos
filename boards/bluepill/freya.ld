@@ -84,8 +84,6 @@ SECTIONS
         *thread.o(.text .text.*)
         *thread.o(.rodata .rodata.*)
         *switch.o(.text .text.*)
-        *shell.o(.text.cmd_stop)
-        *shell.o(.text.cmd_threads)
         *shell.o(.text.cmd_spi)
         *spi.o(.text.spi_*)
         *adc.o(.text .text.*)

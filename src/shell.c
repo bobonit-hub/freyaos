@@ -43,6 +43,12 @@ static char s_poll_line[LINE_MAX];  /* a command typed during a run       */
 static int  s_poll_len;
 static int  s_script_stop;          /* Ctrl-C while a script or sleep runs */
 static int  s_exec_depth;           /* shell_exec frames currently active  */
+#ifdef FREYA_HOST
+int shell_test_console_call_only;
+#define s_console_call_only shell_test_console_call_only
+#else
+static int  s_console_call_only;    /* direct console commands need name() */
+#endif
 
 /* Script threads share this interpreter.  Declarations; the scheduler
  * is with the script runner. */
@@ -2225,54 +2231,54 @@ typedef struct {
 } command_t;
 
 static const command_t s_cmds[] = {
-    { "help",     cmd_help,     "help [command]" },
-    { "sysinfo",  cmd_sysinfo,  "sysinfo" },
-    { "meminfo",  cmd_meminfo,  "meminfo" },
-    { "mount",    cmd_mount,    "mount" },
-    { "power",    cmd_power,    POWER_USAGE },
-    { "ls",       cmd_ls,       "ls [-l] [path]" },
-    { "cd",       cmd_cd,       "cd [path]" },
-    { "pwd",      cmd_pwd,      "pwd" },
-    { "mkdir",    cmd_mkdir,    "mkdir <dir>..." },
-    { "rm",       cmd_rm,       "rm [-r] <path>..." },
-    { "rename",   cmd_rename,   "rename <old> <new>" },
-    { "download", cmd_download, "download <file> [--raw] [--size <bytes>]" },
-    { "upload",   cmd_upload,   "upload <file>" },
-    { "cat",      cmd_cat,      "cat <file>" },
-    { "write",    cmd_write,    "write <file> <text...>" },
-    { "hexdump",  cmd_hexdump,  "hexdump <file> [off] [len]" },
-    { "flashdump",cmd_flashdump,"flashdump [file]" },
-    { "df",       cmd_df,       "df" },
-    { "load",     cmd_load,     "load " PROG_ARG },
-    { "run",      cmd_run,      "run [" PROG_ARG "] [args]" },
+    { "help",     cmd_help,     "help([\"command\"])" },
+    { "sysinfo",  cmd_sysinfo,  "sysinfo()" },
+    { "meminfo",  cmd_meminfo,  "meminfo()" },
+    { "mount",    cmd_mount,    "mount()" },
+    { "power",    cmd_power,    "power([\"sd\" [, \"on\"|\"off\"]])" },
+    { "ls",       cmd_ls,       "ls([\"-l\"] [, \"path\"])" },
+    { "cd",       cmd_cd,       "cd([\"path\"])" },
+    { "pwd",      cmd_pwd,      "pwd()" },
+    { "mkdir",    cmd_mkdir,    "mkdir(\"dir\" [, ...])" },
+    { "rm",       cmd_rm,       "rm([\"-r\",] \"path\" [, ...])" },
+    { "rename",   cmd_rename,   "rename(\"old\", \"new\")" },
+    { "download", cmd_download, "download(\"file\" [, \"--raw\"|\"--size\", bytes])" },
+    { "upload",   cmd_upload,   "upload(\"file\")" },
+    { "cat",      cmd_cat,      "cat(\"file\")" },
+    { "write",    cmd_write,    "write(\"file\", value [, ...])" },
+    { "hexdump",  cmd_hexdump,  "hexdump(\"file\" [, offset [, length]])" },
+    { "flashdump",cmd_flashdump,"flashdump([\"file\"])" },
+    { "df",       cmd_df,       "df()" },
+    { "load",     cmd_load,     "load(\"file\")" },
+    { "run",      cmd_run,      "run([\"file\" [, arg ...]])" },
 #ifdef FREYA_APP_FLASH_ADDR
-    { "runflash", cmd_runflash, "runflash [args...]" },
+    { "runflash", cmd_runflash, "runflash([arg [, ...]])" },
 #endif
-    { "stop",     cmd_stop,     "stop [thread]" },
-    { "threads",  cmd_threads,  "threads" },
-    { "status",   cmd_status,   "status" },
+    { "stop",     cmd_stop,     "stop([\"thread\"])" },
+    { "threads",  cmd_threads,  "threads()" },
+    { "status",   cmd_status,   "status()" },
 #ifdef FREYA_APP_FLASH_ADDR
-    { "install",  cmd_install,  "install <file>" },
-    { "saveflash",cmd_saveflash,"saveflash [file]" },
-    { "uninstall",cmd_uninstall,"uninstall" },
-    { "autostart",cmd_autostart,"autostart [on|off]" },
-    { "ramdump",  cmd_ramdump,  "ramdump [on|off]" },
+    { "install",  cmd_install,  "install(\"file\")" },
+    { "saveflash",cmd_saveflash,"saveflash([\"file\"])" },
+    { "uninstall",cmd_uninstall,"uninstall()" },
+    { "autostart",cmd_autostart,"autostart([\"on\"|\"off\"])" },
+    { "ramdump",  cmd_ramdump,  "ramdump([\"on\"|\"off\"])" },
 #endif
-    { "date",     cmd_date,     "date [YYYY-MM-DD HH:MM:SS]" },
-    { "loglevel", cmd_loglevel, "loglevel [level]" },
-    { "uptime",   cmd_uptime,   "uptime" },
-    { "led",      cmd_led,      "led on|off|blink" },
-    { "pin",      cmd_pin,      PIN_USAGE },
-    { "pwm",      cmd_pwm,      PWM_USAGE },
-    { "adc",      cmd_adc,      ADC_USAGE },
-    { "i2c",      cmd_i2c,      I2C_USAGE },
-    { "spi",      cmd_spi,      SPI_USAGE },
-    { "w1",       cmd_w1,       W1_USAGE },
-    { "crypt",    cmd_crypt,    CRYPT_USAGE },
-    { "echo",     cmd_echo,     "echo <text...>" },
-    { "sleep",    cmd_sleep,    "sleep <ms>" },
-    { "yield",    cmd_yield,    "yield" },
-    { "source",   cmd_source,   "source " PROG_ARG },
+    { "date",     cmd_date,     "date([\"YYYY-MM-DD HH:MM:SS\"])" },
+    { "loglevel", cmd_loglevel, "loglevel([\"level\"])" },
+    { "uptime",   cmd_uptime,   "uptime()" },
+    { "led",      cmd_led,      "led(\"on\"|\"off\"|\"blink\")" },
+    { "pin",      cmd_pin,      "pin([\"pin\" [, \"mode\"|level [, level]]])" },
+    { "pwm",      cmd_pwm,      "pwm([\"pin\" [, hz [, duty]]])" },
+    { "adc",      cmd_adc,      "adc([\"pin\"|\"temp\"|\"vref\"])" },
+    { "i2c",      cmd_i2c,      "i2c([bus [, hz|\"off\"|\"scan\"|addr, ...]])" },
+    { "spi",      cmd_spi,      "spi([bus [, hz|\"off\"|\"x\", ...]])" },
+    { "w1",       cmd_w1,       "w1([\"pin\"|\"off\"|\"search\"|...])" },
+    { "crypt",    cmd_crypt,    "crypt([\"key\", \"nonce\", \"hex\"])" },
+    { "echo",     cmd_echo,     "echo([value [, ...]])" },
+    { "sleep",    cmd_sleep,    "sleep(ms)" },
+    { "yield",    cmd_yield,    "yield()" },
+    { "source",   cmd_source,   "source(\"file\"|\"@flash\")" },
     { "set",      cmd_script,   "set [<name> [, <name>]... <expr>]" },
     { "unset",    cmd_unset,    "unset <name>" },
     { "fn",       cmd_script,   "fn [<name>]" },
@@ -2282,8 +2288,8 @@ static const command_t s_cmds[] = {
     { "end",      cmd_script,   "end" },
     { "loop",     cmd_script,   "loop <count>" },
     { "break",    cmd_script,   "break" },
-    { "clear",    cmd_clear,    "clear" },
-    { "reboot",   cmd_reboot,   "reboot" },
+    { "clear",    cmd_clear,    "clear()" },
+    { "reboot",   cmd_reboot,   "reboot()" },
 };
 
 /* 'if', 'else', 'end', 'loop', 'fn' and 'return' are syntax, handled
@@ -2301,11 +2307,7 @@ static int cmd_help(int argc, char **argv)
     if (argc > 1) {
         for (unsigned i = 0; i < ARRAY_SIZE(s_cmds); i++) {
             if (strcmp(s_cmds[i].name, argv[1]) == 0) {
-                /* The name is what you type.  A usage line that is not
-                 * just that name follows it; the name is never omitted. */
-                kprintf("%s\r\n", s_cmds[i].name);
-                if (strcmp(s_cmds[i].help, s_cmds[i].name) != 0)
-                    kprintf("%s\r\n", s_cmds[i].help);
+                kprintf("%s\r\n", s_cmds[i].help);
                 return 0;
             }
         }
@@ -2313,9 +2315,11 @@ static int cmd_help(int argc, char **argv)
         return -1;
     }
 
-    kprintf("Freya commands:\r\n");
+    kprintf("Freya commands (use function syntax):\r\n");
     for (unsigned i = 0; i < ARRAY_SIZE(s_cmds); i++)
-        kprintf("  %s\r\n", s_cmds[i].help);
+        if (s_cmds[i].fn != cmd_script)
+            kprintf("  %s\r\n", s_cmds[i].help);
+    kprintf("Shell syntax: set, fn, return, if, else, loop, break, end.\r\n");
     kprintf("Ctrl-C stops a program, Ctrl-U clears the line, "
             "cursor keys walk history.\r\n");
     return 0;
@@ -3410,8 +3414,8 @@ static int s_fn_nret;
 /* 1 when the expression just parsed was a call and nothing else, so
  * every value it returned is still in s_fn_retv. */
 static int s_bare_call;
-/* 1 when that call was a shell command.  The command prints its own
- * text and leaves none, which the prompt does not print again. */
+/* A top-level expression call may name a console command. */
+static int s_root_call;
 static int s_cmd_call;
 static int s_cmd_rc;
 
@@ -5697,63 +5701,43 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
     return 0;
 }
 
-/* A shell command written as a call: help(), echo("hi"), pwd().
- * 1 when it ran, 0 when this name is not a command, -1 on failure.
- * The value is none; the command has already printed what it prints. */
+/* Run a console command from a top-level name(value, ...) expression.
+ * Values become the argv text expected by the existing handlers. */
 static int KEXT cmd_as_fn(const char *name, fn_arg_t *args, int argc, val_t *out)
 {
-    char store[LINE_MAX];
-    char piece[LINE_MAX];
+    char store[LINE_MAX], text[LINE_MAX];
     char *argv[MAX_ARGS];
-    int o = 0, i, nlen;
     const command_t *cmd = NULL;
+    int i, used = 0;
 
-    if (strcmp(name, "fn") == 0 && argc == 0) {
-        fn_list();
-        out->type = V_NIL;
-        out->i = 0;
-        out->f = 0.f;
-        out->s[0] = '\0';
-        s_cmd_call = 1;
-        s_cmd_rc = 0;
-        return 1;
-    }
-    for (i = 0; i < (int)ARRAY_SIZE(s_cmds); i++) {
-        if (strcmp(s_cmds[i].name, name) == 0) {
+    for (i = 0; i < (int)ARRAY_SIZE(s_cmds); i++)
+        if (s_cmds[i].fn != cmd_script && strcmp(s_cmds[i].name, name) == 0) {
             cmd = &s_cmds[i];
             break;
         }
-    }
-    if (!cmd || cmd->fn == cmd_script) return 0;
+    if (!cmd) return 0;
     if (argc + 1 > MAX_ARGS) return vfail("too many arguments");
-
-    nlen = (int)strlen(name);
-    if (o + nlen + 1 > LINE_MAX) return vfail("bad expression");
-    memcpy(store + o, name, (size_t)nlen + 1U);
-    argv[0] = store + o;
-    o += nlen + 1;
+    argv[0] = (char *)cmd->name;
     for (i = 0; i < argc; i++) {
         val_t v;
         int n;
 
         memset(&v, 0, sizeof v);
         v.type = args[i].type;
-        if (type_hold_i(args[i].type) || is_coll(args[i].type)) v.i = args[i].u.i;
-        else if (args[i].type == V_FLT) v.f = args[i].u.f;
-        else if (args[i].type == V_STR) memcpy(v.s, args[i].u.s, VAR_STR);
-        val_text(&v, piece, (int)sizeof piece);
-        n = (int)strlen(piece);
-        if (o + n + 1 > LINE_MAX) return vfail("string too long");
-        memcpy(store + o, piece, (size_t)n + 1U);
-        argv[i + 1] = store + o;
-        o += n + 1;
+        if (type_hold_i(v.type) || is_coll(v.type)) v.i = args[i].u.i;
+        else if (v.type == V_FLT) v.f = args[i].u.f;
+        else if (v.type == V_STR) memcpy(v.s, args[i].u.s, VAR_STR);
+        val_text(&v, text, (int)sizeof text);
+        n = (int)strlen(text) + 1;
+        if (used + n > LINE_MAX) return vfail("string too long");
+        memcpy(store + used, text, (size_t)n);
+        argv[i + 1] = store + used;
+        used += n;
     }
     i = cmd->fn(argc + 1, argv);
     if (i < 0) return -1;
+    memset(out, 0, sizeof *out);
     out->type = V_NIL;
-    out->i = 0;
-    out->f = 0.f;
-    out->s[0] = '\0';
     s_cmd_call = 1;
     s_cmd_rc = i;
     return 1;
@@ -5762,10 +5746,11 @@ static int KEXT cmd_as_fn(const char *name, fn_arg_t *args, int argc, val_t *out
 static int KEXT parse_call(const char *name, int nlen, const char **pp, val_t *out)
 {
     const char *beg[FN_ARGS], *end[FN_ARGS];
-    int argc = 0, mark, i;
+    int argc = 0, mark, i, root = s_root_call;
     shell_fn_t *slot;
     char nb[VAR_NAME];
 
+    s_root_call = 0;
     memcpy(nb, name, (size_t)nlen);
     nb[nlen] = '\0';
     if (s_fn_depth >= FN_NEST || s_fn_stack + (int)sizeof beg > FN_STACK)
@@ -5848,7 +5833,10 @@ static int KEXT parse_call(const char *name, int nlen, const char **pp, val_t *o
             end_bare();
         }
         if (rc == 0) {
-            int b = fn_builtin(nb, nlen, argc ? args : NULL, argc, out);
+            int b = root ? cmd_as_fn(nb, argc ? args : NULL, argc, out) : 0;
+
+            if (b == 0)
+                b = fn_builtin(nb, nlen, argc ? args : NULL, argc, out);
 
             if (b < 0) {
                 args_drop(args, argc);
@@ -5877,21 +5865,9 @@ static int KEXT parse_call(const char *name, int nlen, const char **pp, val_t *o
             } else {
                 slot = fn_slot(nb, nlen, 0);
                 if (!slot) {
-                    int c = cmd_as_fn(nb, argc ? args : NULL, argc, out);
-
-                    if (c < 0) {
-                        args_drop(args, argc);
-                        rc = -1;
-                    } else if (c > 0) {
-                        args_drop(args, argc);
-                        val_arg(&s_fn_retv[0], out);
-                        s_fn_nret = 1;
-                        s_bare_call = 1;
-                    } else {
-                        args_drop(args, argc);
-                        kprintf("%s: no such function: %s\r\n", s_vwho, nb);
-                        rc = -1;
-                    }
+                    args_drop(args, argc);
+                    kprintf("%s: no such function: %s\r\n", s_vwho, nb);
+                    rc = -1;
                 } else if (fn_invoke(slot->body, argc ? args : NULL, argc, out) != 0) {
                     args_drop(args, argc);
                     rc = -1;
@@ -6799,8 +6775,7 @@ static int KEXT cond_eval(const char *s)
     return v.i ? 1 : 0;
 }
 
-/* A line that is an expression, not a command word.  help() is one;
- * echo hi is not.  true, false, empty and none are values. */
+/* A line that is an expression, not a command word. */
 static int KEXT looks_like_expr(const char *s)
 {
     int n = 0;
@@ -6850,8 +6825,8 @@ static void KEXT val_show(const val_t *v)
     kprintf("%s\r\n", buf);
 }
 
-/* Evaluate one expression and print it.  A command call prints only
- * what the command prints.  Several values from one call each get a line. */
+/* Evaluate one expression and print it.  Several values from one call
+ * each get a line. */
 static int KEXT expr_show(const char *line)
 {
     const char *s = line;
@@ -6859,13 +6834,15 @@ static int KEXT expr_show(const char *line)
     int i, cmd;
 
     s_vwho = "expr";
+    s_root_call = 1;
     s_cmd_call = 0;
-    s_cmd_rc = 0;
     memset(&v, 0, sizeof v);
     if (parse_expr(&s, &v) != 0) {
+        s_root_call = 0;
         val_drop(&v);
         return -1;
     }
+    s_root_call = 0;
     vskip(&s);
     if (*s) {
         val_drop(&v);
@@ -6873,31 +6850,24 @@ static int KEXT expr_show(const char *line)
         return vfail("bad expression");
     }
     cmd = s_bare_call && s_cmd_call;
-    if (!cmd) {
-        if (s_bare_call && s_fn_nret > 1) {
-            for (i = 0; i < s_fn_nret; i++) {
-                val_t one;
+    if (!cmd && s_bare_call && s_fn_nret > 1) {
+        for (i = 0; i < s_fn_nret; i++) {
+            val_t one;
 
-                if (ret_one(&one, &s_fn_retv[i]) != 0) {
-                    val_drop(&v);
-                    rets_drop();
-                    return -1;
-                }
-                val_show(&one);
-                val_drop(&one);
+            if (ret_one(&one, &s_fn_retv[i]) != 0) {
+                val_drop(&v);
+                rets_drop();
+                return -1;
             }
-        } else {
-            val_show(&v);
+            val_show(&one);
+            val_drop(&one);
         }
-    }
+    } else if (!cmd) val_show(&v);
     val_drop(&v);
     rets_drop();
     s_bare_call = 0;
-    if (cmd) {
-        i = s_cmd_rc;
-        s_cmd_call = 0;
-        return i;
-    }
+    s_cmd_call = 0;
+    if (cmd) return s_cmd_rc;
     return 0;
 }
 
@@ -6917,10 +6887,16 @@ static int KEXT run_command(const char *line)
     if (argc == 0) return s_status;
 
     for (unsigned i = 0; i < ARRAY_SIZE(s_cmds); i++) {
+        if (strcmp(s_cmds[i].name, argv[0]) != 0) continue;
+        if (s_console_call_only && s_exec_depth == 1 && s_fn_depth == 0 &&
+            s_cmds[i].fn != cmd_script) {
+            kprintf("%s: use %s(...)\r\n", argv[0], argv[0]);
+            return s_status = FREYA_EXIT_FAIL;
+        }
         if (strcmp(s_cmds[i].name, argv[0]) == 0)
             return s_status = status_of(s_cmds[i].fn(argc, argv));
     }
-    kprintf("%s: command not found (try 'help')\r\n", argv[0]);
+    kprintf("%s: command not found (try 'help()')\r\n", argv[0]);
     return s_status = FREYA_EXIT_NOTFOUND;
 }
 
@@ -7671,22 +7647,16 @@ void shell_poll_runtime(void)
             tmp[sizeof tmp - 1] = '\0';
             argc = split_args(tmp, argv, MAX_ARGS);
             if (argc < 1) return;
-            {
-                const char *w = argv[0];
-                int help_ok = strncmp(w, "help", 4) == 0 &&
-                    (w[4] == '\0' || w[4] == '(');
-                int thr_ok = strncmp(w, "threads", 7) == 0 &&
-                    (w[7] == '\0' || w[7] == '(');
-                int stop_ok = strncmp(w, "stop", 4) == 0 &&
-                    (w[4] == '\0' || w[4] == '(' || w[4] == ' ');
-
-                if (!help_ok && !thr_ok && !stop_ok) {
-                    kprintf("%s: a program is running - stop it first\r\n", argv[0]);
-                    return;
-                }
+            if (strcmp(argv[0], "threads()") != 0 &&
+                strncmp(argv[0], "stop(", 5) != 0 &&
+                strncmp(argv[0], "help(", 5) != 0) {
+                kprintf("%s: a program is running - stop it first\r\n", argv[0]);
+                return;
             }
             hist_push(s_poll_line);
+            s_console_call_only = 1;
             shell_exec(s_poll_line);
+            s_console_call_only = 0;
             return;
         }
 
@@ -7753,7 +7723,7 @@ void console_banner(void)
     uart_puts(art);
     kprintf("Freya %s \"%s\" for %s - built %s\r\n",
             FREYA_VERSION, FREYA_CODENAME, BOARD_MCU, FREYA_BUILD_ID);
-    kprintf("%u MHz, %s reset. Type 'help'.\r\n\r\n",
+    kprintf("%u MHz, %s reset. Type 'help()'.\r\n\r\n",
             g_clocks.hclk_hz / 1000000UL, sys_reset_cause_str());
 }
 
@@ -7782,14 +7752,20 @@ void shell_run(void)
             st = script_check(line, walk);
             if (st < 0) continue;
             if (st == 0) {
+                s_console_call_only = 1;
                 shell_exec(line);
+                s_console_call_only = 0;
                 continue;
             }
         }
         if (script_append(line) != 0) continue;
         st = script_check(s_script, walk);
         if (st > 0) continue;
-        if (st == 0) shell_exec(s_script);
+        if (st == 0) {
+            s_console_call_only = 1;
+            shell_exec(s_script);
+            s_console_call_only = 0;
+        }
         script_discard();
     }
 }

@@ -735,6 +735,18 @@ static int run(const char *cmd)
     return shell_exec(line);
 }
 
+extern int shell_test_console_call_only;
+
+static int run_console(const char *cmd)
+{
+    int rc;
+
+    shell_test_console_call_only = 1;
+    rc = run(cmd);
+    shell_test_console_call_only = 0;
+    return rc;
+}
+
 static void pass(const char *what)
 {
     checks++;
@@ -780,14 +792,12 @@ static void expect_lacks(const char *what, const char *needle)
     else fail(what);
 }
 
-/* Every listed command is one word: a line of the summary has no space
- * in the name.  Usage lines that still carry arguments are not in this
- * set; those commands print their name from the command table instead. */
+/* Commands with no arguments are still shown as calls. */
 static void check_summary_words(void)
 {
     static const char *const names[] = {
         "sysinfo", "meminfo", "mount", "pwd", "df", "threads", "status",
-        "uninstall", "uptime", "clear", "reboot", "else", "end"
+        "uninstall", "uptime", "clear", "reboot"
     };
     static const char *const gone[] = {
         "CPU, clocks, reset, card, fs",
@@ -806,7 +816,7 @@ static void check_summary_words(void)
 
     for (i = 0; i < sizeof names / sizeof names[0]; i++) {
         char line[32];
-        snprintf(line, sizeof line, "  %s\r\n", names[i]);
+        snprintf(line, sizeof line, "  %s()\r\n", names[i]);
         if (strstr(s_out, line)) pass(names[i]);
         else fail(names[i]);
     }
@@ -820,7 +830,7 @@ int main(void)
 {
     static const char *const one_word[] = {
         "sysinfo", "meminfo", "mount", "pwd", "df", "threads", "status",
-        "uninstall", "uptime", "clear", "reboot", "else", "end"
+        "uninstall", "uptime", "clear", "reboot"
     };
     unsigned i;
     int rc;
@@ -842,52 +852,52 @@ int main(void)
     printf("help\n");
     rc = run("help");
     expect_rc("help succeeds", rc, 0);
-    expect_has("help introduces the list", "Freya commands:\r\n");
-    expect_has("help lists stop with its argument", "  stop [thread]\r\n");
-    expect_has("help lists sleep", "  sleep <ms>\r\n");
-    expect_has("help lists if", "  if <command>\r\n");
-    expect_has("help lists loop", "  loop <count>\r\n");
-    expect_has("help lists power", "  power [sd [on|off]]\r\n");
+    expect_has("help introduces call syntax",
+               "Freya commands (use function syntax):\r\n");
+    expect_has("help lists stop as a call", "  stop([\"thread\"])\r\n");
+    expect_has("help lists sleep as a call", "  sleep(ms)\r\n");
+    expect_has("help separates shell syntax", "Shell syntax: set, fn");
+    expect_has("help lists power as a call", "  power([\"sd\"");
     check_summary_words();
 
     printf("help <command>\n");
     for (i = 0; i < sizeof one_word / sizeof one_word[0]; i++) {
         char cmd[32], want[32];
         snprintf(cmd, sizeof cmd, "help %s", one_word[i]);
-        snprintf(want, sizeof want, "%s\r\n", one_word[i]);
+        snprintf(want, sizeof want, "%s()\r\n", one_word[i]);
         rc = run(cmd);
         expect_rc(cmd, rc, 0);
         expect_exact(cmd, want);
     }
     rc = run("help ls");
     expect_rc("help ls succeeds", rc, 0);
-    expect_exact("help ls names the command, then its usage",
-                 "ls\r\nls [-l] [path]\r\n");
+    expect_exact("help ls shows call syntax",
+                 "ls([\"-l\"] [, \"path\"])\r\n");
     rc = run("help stop");
     expect_rc("help stop succeeds", rc, 0);
-    expect_exact("help stop names the command, then its usage",
-                 "stop\r\nstop [thread]\r\n");
+    expect_exact("help stop shows call syntax",
+                 "stop([\"thread\"])\r\n");
     rc = run("help nosuch");
     expect_rc("help of an unknown command fails", rc, FREYA_EXIT_FAIL);
     expect_has("unknown command is named", "no such command: nosuch");
     rc = run("help w1");
     expect_rc("help w1 succeeds", rc, 0);
-    expect_has("help w1 names the command", "w1\r\n");
+    expect_has("help w1 names the command", "w1(");
     expect_has("help w1 shows the ROM search", "search");
     rc = run("w1");
     expect_rc("w1 with no pin succeeds", rc, 0);
     expect_has("w1 asks for a pull-up", "pull the data pin up to 3.3 V");
     rc = run("help spi");
     expect_rc("help spi succeeds", rc, 0);
-    expect_has("help spi names the command", "spi\r\n");
-    expect_has("help spi shows a transfer", "x <byte>");
+    expect_has("help spi names the command", "spi(");
+    expect_has("help spi shows a transfer", "\"x\"");
     rc = run("spi");
     expect_rc("spi with no bus succeeds", rc, 0);
     expect_has("spi names chip select", "chip select is a pin you drive");
     rc = run("help crypt");
     expect_rc("help crypt succeeds", rc, 0);
-    expect_exact("help crypt names the command, then its usage",
-                 "crypt\r\ncrypt [<key> <nonce> <hex>]\r\n");
+    expect_exact("help crypt shows call syntax",
+                 "crypt([\"key\", \"nonce\", \"hex\"])\r\n");
     rc = run("crypt");
     expect_rc("crypt with no arguments succeeds", rc, 0);
     expect_has("crypt names the cipher", "XTEA-CTR");
@@ -1052,9 +1062,9 @@ int main(void)
     expect_has("unknown command is named", "command not found");
 
     printf("expressions\n");
-    rc = run("2+2");
+    rc = run("3+2");
     expect_rc("an expression succeeds", rc, 0);
-    expect_exact("2+2 prints 4", "4\r\n");
+    expect_exact("3+2 prints 5", "5\r\n");
     rc = run("(2+2)%10");
     expect_rc("a grouped expression succeeds", rc, 0);
     expect_exact("(2+2)%10 prints 4", "4\r\n");
@@ -1069,14 +1079,23 @@ int main(void)
     expect_exact("a byte prints with b", "65b\r\n");
     rc = run("help()");
     expect_rc("help() succeeds", rc, 0);
-    expect_has("help() lists commands", "Freya commands");
+    expect_has("help() lists function commands", "use function syntax");
     expect_lacks("help() prints no extra value", "none");
-    rc = run("echo(\"Sun\")");
-    expect_rc("echo() succeeds", rc, 0);
-    expect_exact("echo() prints its argument", "Sun\r\n");
-    rc = run("pwd()");
-    expect_rc("pwd() succeeds", rc, 0);
-    expect_exact("pwd() prints the directory", "/data\r\n");
+    rc = run("sysinfo()");
+    expect_rc("sysinfo() succeeds", rc, 0);
+    expect_has("sysinfo() runs the command", "CPU");
+    rc = run("meminfo()");
+    expect_rc("meminfo() succeeds", rc, 0);
+    expect_has("meminfo() runs the command", "Flash ");
+    rc = run("help(\"meminfo\")");
+    expect_rc("help(\"meminfo\") succeeds", rc, 0);
+    expect_exact("command arguments are expression values", "meminfo()\r\n");
+    rc = run_console("meminfo");
+    expect_rc("legacy console command syntax fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("legacy syntax points to the call", "meminfo: use meminfo(...)\r\n");
+    rc = run_console("meminfo()");
+    expect_rc("function console command syntax succeeds", rc, 0);
+    expect_has("the console call runs meminfo", "Flash ");
     rc = run("nosuch()");
     expect_rc("an unknown call fails", rc, FREYA_EXIT_FAIL);
     expect_has("an unknown call is not a function", "no such function");
@@ -1182,8 +1201,8 @@ int main(void)
     expect_exact("source usage", "usage: source <file>|@flash\r\n");
     rc = run("help source");
     expect_rc("help source succeeds", rc, 0);
-    expect_exact("help source names the command, then its usage",
-                 "source\r\nsource <file>|@flash\r\n");
+    expect_exact("help source shows call syntax",
+                 "source(\"file\"|\"@flash\")\r\n");
 
     fat_unmount();
     rc = run("source /t.sh");
@@ -2527,7 +2546,7 @@ int main(void)
 
     rc = run("help yield");
     expect_rc("help yield succeeds", rc, 0);
-    expect_exact("help yield names the command", "yield\r\n");
+    expect_exact("help yield shows call syntax", "yield()\r\n");
 
     printf("collection ownership\n");
     run("unset a");

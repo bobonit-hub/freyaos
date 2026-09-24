@@ -1,4 +1,4 @@
-# Freya 2.0 "Reptiloid"
+# Freya 2.0.1 "Reptiloid"
 
 24 September 2026
 
@@ -6,7 +6,7 @@ Reptiloid follows UFOnaut. The console banner and `sysinfo` print the
 version and this name:
 
 ```
-Freya 2.0 "Reptiloid" for STM32F411CEU6
+Freya 2.0.1 "Reptiloid" for STM32F411CEU6
 ```
 
 The program ABI is still version 3. SPI, XTEA, the raw console, board
@@ -103,7 +103,7 @@ functions, and the calls below. See [docs/shell.md](docs/shell.md).
 * The kernel extension grew to hold the shell language, the SPI master,
   XMODEM and the cipher. On the Blue Pill it is the last 43 KiB of the
   128 KiB, and the program flash region is 37760 bytes, through
-  `0x080153FF`. On the Black Pill it is 40 KiB at the start of sector 5,
+  `0x080153FF`. On the Black Pill it is 42 KiB at the start of sector 5,
   and the program region stays 64 KiB.
 * Programs can take synchronous 12-bit ADC1 samples from the common analog
   pins, the internal temperature sensor, and Vref. `adc PA0`, `adc temp`,

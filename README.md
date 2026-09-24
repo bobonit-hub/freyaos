@@ -5,7 +5,7 @@ STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
 metal on the STM32F411CEU6 "Black Pill" and the STM32F103C8T6 "Blue Pill".
 No HAL, no CMSIS, no third party libraries: Freya brings the chip up itself,
 talks to the hardware through its own register definitions, and lives
-entirely in internal flash. This is release 2.0, "Reptiloid". The notes
+entirely in internal flash. This is release 2.0.1, "Reptiloid". The notes
 are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 Freya gives you a serial console, a real FAT filesystem on an SD card, and the
@@ -23,8 +23,8 @@ cycle and needs no card at all.
  |_|  |_|  \___|\__, |\__,_|
                  __/ |
                 |___/
-Freya 2.0 "Reptiloid" for STM32F411CEU6
-96 MHz, power-on reset. Type 'help'.
+Freya 2.0.1 "Reptiloid" for STM32F411CEU6
+96 MHz, power-on reset. Type 'help()'.
 
 [boot] clocks     : HSE 25 MHz crystal + PLL, sysclk 96 MHz, flash 3 WS
 [boot] console    : USART2 921600 8N1 on PA2/PA3
@@ -56,7 +56,7 @@ The Blue Pill boots the same way, on three quarters of the clock and a fifth of
 the RAM:
 
 ```
-Freya 2.0 "Reptiloid" for STM32F103C8T6
+Freya 2.0.1 "Reptiloid" for STM32F103C8T6
 72 MHz, power-on reset. Type 'help'.
 
 [boot] clocks     : HSE 8 MHz crystal + PLL, sysclk 72 MHz, flash 2 WS
@@ -732,7 +732,7 @@ Black Pill:
 0x08010000  +--------------------------------+
             |  program flash region          |  64 KiB, sector 4
 0x08020000  +--------------------------------+
-            |  kernel extension              |  40 KiB, start of sector 5
+            |  kernel extension              |  42 KiB, start of sector 5
 0x08080000  +--------------------------------+
 
 0x20000000  +--------------------------------+

@@ -12,9 +12,9 @@
  *   0x0800C000 .. 0x0800FF7F   unused (rest of sector 3)
  *   0x0800FF80 .. 0x0800FFFF   auto-start flag + reserved          (128 B)
  *   0x08010000 .. 0x0801FFFF   program flash region              (64 KiB)
- *   0x08020000 .. 0x08029FFF   kernel extension (threads, SPI, XTEA,
- *                                  shell functions)                 (40 KiB)
- *   0x08025000 .. 0x0807FFFF   unused
+ *   0x08020000 .. 0x0802A7FF   kernel extension (threads, SPI, XTEA,
+ *                                  shell functions)                 (42 KiB)
+ *   0x0802A800 .. 0x0807FFFF   unused
  *
  * The extension is a separate image.  It sits in sector 5 so that writing
  * the kernel does not share an erase unit with the auto-start slot or with
@@ -33,7 +33,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x08020000, LENGTH = 40K
+    KEXT  (rx)  : ORIGIN = 0x08020000, LENGTH = 42K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
 }
 
@@ -99,6 +99,15 @@ SECTIONS
         *shell.o(.text.shell_poll_runtime)
         *shell.o(.text.cmd_loglevel)
         *shell.o(.rodata.cmd_loglevel*)
+        *shell.o(.text.cmd_meminfo)
+        *shell.o(.rodata.cmd_meminfo*)
+        *shell.o(.text.cmd_uptime)
+        *shell.o(.rodata.cmd_uptime*)
+        *shell.o(.text.cmd_clear)
+        *shell.o(.rodata.cmd_clear*)
+        *shell.o(.text.cmd_pwd)
+        *shell.o(.text.cmd_reboot)
+        *shell.o(.rodata.cmd_reboot*)
         *shell.o(.text.kext_script)
         *shell.o(.text.kext_script.*)
         *loader.o(.text.kext_script)

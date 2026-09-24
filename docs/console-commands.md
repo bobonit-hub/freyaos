@@ -12,53 +12,53 @@ Every command Freya implements.  The Black Pill now has the same list.
 
 | Command | What it does |
 |---|---|
-| `help [command]` | list commands, or describe one |
-| `sysinfo` | CPU, unique id, clocks, reset cause, uptime, log level, auto-start and ram-dump flags, card, filesystem |
-| `meminfo` | flash and RAM usage: .data, .bss, heap, program region, stack |
-| `mount` | initialise the card and mount the filesystem |
-| `power [sd [on\|off]]` | show the socket supply, or switch it |
-| `ls [-l] [path]` | list a directory; `-l` adds sizes, dates and attributes |
-| `cd [path]`, `pwd` | move around |
-| `mkdir <dir>...` | create directories |
-| `rm [-r] <path>...` | remove files, empty directories, or whole trees |
-| `rename <old> <new>` | rename or move a file or directory (no data copy) |
-| `download <file> [--raw] [--size <bytes>]` | receive a file over XMODEM; `--size` stores that many bytes and drops the padding |
-| `upload <file>` | send a file over XMODEM; the first line gives the exact size |
-| `cat <file>` | print a file |
-| `write <file> <text...>` | append a line to a file |
-| `hexdump <file> [off] [len]` | dump a file in hex |
-| `flashdump [file]` | write internal flash to a file on the card (default `/freya.flash`) |
-| `df` | capacity, free and used space |
-| `load <file>\|@flash` | load a program image into RAM, or bind the flash image |
-| `run [file\|@flash] [args...]` | run the loaded program |
-| `runflash [args...]` | run the program stored in internal flash |
-| `stop [thread]` | stop the program, or one thread by name |
-| `threads` | list threads: id, priority, state, name |
-| `status` | exit status of the last command and the last program |
-| `install <file>` | write a program, or a shell script, into internal flash |
-| `saveflash [file]` | copy the installed program or script from flash onto the card |
-| `uninstall` | erase the program flash region |
-| `autostart [on\|off]` | run the flash program or script automatically at boot |
-| `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (default off) |
-| `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
-| `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
-| `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin, by the name a program uses for it |
-| `pwm [<pin> <hz> <duty%>\|<pin> off]` | list the PWM channels, or start and stop one |
-| `adc <pin\|temp\|vref>` | take one raw 12-bit ADC sample |
-| `i2c [<bus> <hz>\|<bus> off\|<bus> scan\|<bus> <addr> …]` | list the I2C buses, or open, scan and talk to one |
-| `spi [<bus> <hz> [mode]\|<bus> off\|<bus> x <byte>…]` | list the SPI buses, or open one and shift bytes |
-| `w1 [<pin>\|<pin> off\|<pin> search\|<pin> reset\|…]` | list open 1-Wire pins, or open one and talk to it |
-| `crypt [<key> <nonce> <hex>]` | XTEA-CTR: the same call encrypts and decrypts |
-| `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
-| `yield` | let a script thread run |
-| `source <file>\|@flash` | run a shell script from a file, or from program flash |
+| `help(["command"])` | list commands, or describe one |
+| `sysinfo()` | CPU, unique id, clocks, reset cause, uptime, log level, auto-start and ram-dump flags, card, filesystem |
+| `meminfo()` | flash and RAM usage: .data, .bss, heap, program region, stack |
+| `mount()` | initialise the card and mount the filesystem |
+| `power(["sd" [, "on"\|"off"]])` | show the socket supply, or switch it |
+| `ls(["-l"] [, "path"])` | list a directory; `-l` adds sizes, dates and attributes |
+| `cd(["path"])`, `pwd()` | move around |
+| `mkdir("dir" [, ...])` | create directories |
+| `rm(["-r",] "path" [, ...])` | remove files, empty directories, or whole trees |
+| `rename("old", "new")` | rename or move a file or directory (no data copy) |
+| `download("file" [, "--raw"\|"--size", bytes])` | receive a file over XMODEM; `--size` stores that many bytes and drops the padding |
+| `upload("file")` | send a file over XMODEM; the first line gives the exact size |
+| `cat("file")` | print a file |
+| `write("file", value [, ...])` | append a line to a file |
+| `hexdump("file" [, offset [, length]])` | dump a file in hex |
+| `flashdump(["file"])` | write internal flash to a file on the card (default `/freya.flash`) |
+| `df()` | capacity, free and used space |
+| `load("file"\|"@flash")` | load a program image into RAM, or bind the flash image |
+| `run(["file"\|"@flash" [, arg ...]])` | run the loaded program |
+| `runflash([arg [, ...]])` | run the program stored in internal flash |
+| `stop(["thread"])` | stop the program, or one thread by name |
+| `threads()` | list threads: id, priority, state, name |
+| `status()` | exit status of the last command and the last program |
+| `install("file")` | write a program, or a shell script, into internal flash |
+| `saveflash(["file"])` | copy the installed program or script from flash onto the card |
+| `uninstall()` | erase the program flash region |
+| `autostart(["on"\|"off"])` | run the flash program or script automatically at boot |
+| `ramdump(["on"\|"off"])` | write SRAM to `/freya.ram` after a BusFault (default off) |
+| `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps |
+| `loglevel(["level"])` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
+| `pin(["pin" [, "mode"\|level [, level]]])` | list pins, or read or drive one |
+| `pwm(["pin" [, hz [, duty]]])` | list the PWM channels, or start and stop one |
+| `adc(["pin"\|"temp"\|"vref"])` | take one raw 12-bit ADC sample |
+| `i2c([bus [, hz\|"off"\|"scan"\|addr, ...]])` | list the I2C buses, or open, scan and talk to one |
+| `spi([bus [, hz\|"off"\|"x", ...]])` | list the SPI buses, or open one and shift bytes |
+| `w1(["pin"\|"off"\|"search"\|...])` | list open 1-Wire pins, or open one and talk to it |
+| `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts |
+| `sleep(ms)` | wait that many milliseconds; Ctrl-C returns early |
+| `yield()` | let a script thread run |
+| `source("file"\|"@flash")` | run a shell script from a file, or from program flash |
 | `set [<name> [, <name>]... <expr>]` | list variables, or store one or more values |
 | `unset <name>` | remove a variable |
 | `fn [<name>]` | list functions, or define one up to `end` |
 | `return <expr> [, <expr>]...` | leave the function with those values |
 | `if <command>` ... `else` ... `end` | run the following commands when that command's status is 0 |
 | `loop <count>` ... `end` | repeat the commands up to `end` |
-| `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
+| `uptime()`, `led(...)`, `echo(...)`, `clear()`, `reboot()` | the usual small change |
 
 ## Socket power
 
