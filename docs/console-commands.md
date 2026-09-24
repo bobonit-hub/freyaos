@@ -49,6 +49,10 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `crypt [<key> <nonce> <hex>]` | XTEA-CTR: the same call encrypts and decrypts |
 | `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
 | `source <file>\|@flash` | run a shell script from a file, or from program flash |
+| `set [<name> <expr>]` | list variables, or give one a value |
+| `unset <name>` | remove a variable |
+| `fn [<name>]` | list functions, or define one up to `end` |
+| `return <expr>` | leave the function with that value |
 | `if <command>` ... `else` ... `end` | run the following commands when that command's status is 0 |
 | `loop <count>` ... `end` | repeat the commands up to `end` |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
@@ -203,9 +207,10 @@ the command history. While a program runs, only `threads`, `stop` and
 `$?` anywhere in a line becomes the exit status of the previous command: 0 when
 it worked, 1 when it failed, 127 for a word that is not a command, and for
 `run` the status of the program — its own code, 130 after Ctrl-C, or 131..134
-after a fault. It is expanded before the line is split, so `echo $?` and
-`write /runs.txt $?` both work, and `status` prints the same numbers with the
-reason and the run time beside them.
+after a fault. `$name` becomes that variable the same way. Both are expanded
+before the line is split, so `echo $?` and `write /runs.txt $?` both work,
+and `status` prints the same numbers with the reason and the run time beside
+them.
 
 ## Scripts
 
@@ -216,6 +221,8 @@ way, and quotes hide a semicolon, so `echo "a;b"` is one command.
 0, the commands up to `else` or `end` run. Otherwise they are skipped,
 and the commands between `else` and `end` run if an `else` was written.
 `loop` repeats the commands up to `end` the number of times given.
+`break` leaves the innermost loop and continues after its `end`. A
+`break` outside a loop is refused before anything runs.
 `sleep` waits that many milliseconds. A count is a decimal number, at
 most 1000000. `$?` may be the count: it is read when the loop starts.
 
@@ -240,6 +247,150 @@ missing `end` or an `else` in the wrong place does not half-run the
 commands. A branch that is skipped does not change `$?`. `$?` is
 expanded when each command runs, so a loop sees a new value every pass.
 Blocks nest, eight deep.
+
+## Variables
+
+`set` with no name lists the variables. `set <name> <expr>` stores the
+value of the expression under that name, and the value's type is whatever
+the expression produced: an integer, a float, or a string of at most 31
+characters. There are eight of them. A name is a letter or `_` and then
+letters, digits or `_`, at most seven characters. `unset <name>` removes one. `$name` in a later command is
+the value as text, so `echo $n` and `loop $n` both work. A name that is not
+set is an error.
+
+An integer is a decimal or `0x` hex literal. Hex keeps all 32 bits, so
+the high bit is the sign and `0xFFFFFFFF` is `-1`. A float has a decimal point.
+A string is written in quotes. `+ - * /` work on numbers; if either side is
+a float the result is a float, and integer `/` truncates. An integer also
+has `%`, `~`, `&`, `|`, `^`, `<<` and `>>` (the shifts are logical, and the
+count is 0..31). `+` concatenates when either side is a string, rendering
+the other side as text. A string written next to further values is a format:
+`%d`, `%u`, `%x`, `%s`, `%f` and `%%`, each value filling one conversion.
+
+```
+freya:/> set n 1 + 2 * 3
+freya:/> set x 7.5 / 2
+freya:/> set s "%d %s" $n "items"
+freya:/> echo $s
+7 items
+```
+
+`==` and `/=` compare two values and leave 1 or 0. Numbers match by value,
+so `1 == 1.0` is true; a string matches only the same text. `<`, `>` and
+`><` compare numbers only: less, greater, and not equal. A string on either
+side is an error. When the command after `if` contains one of these, that
+is the condition: true runs the commands up to `else` or `end`, false runs
+the `else`. Anything else after `if` is still a command, and the branch is
+chosen from its status.
+
+```
+freya:/> if $n == 7
+> echo yes
+> else
+> echo no
+> end
+yes
+```
+
+## Functions
+
+`fn` with no name lists the functions. `fn <name>` ... `end` defines
+one. The body is not run at the definition. A name is the same shape as
+a variable, and there are four of them. Defining the same name again
+replaces the body. The body is at most 127 characters and is kept on
+the heap, so a long one can be refused with `out of memory`.
+
+A call is an expression, `name(arg, ...)`, with 0 to 32 arguments. Each
+argument is an expression. The call's value is what `return <expr>`
+produced, or 0 when the body has no `return`. Inside the body `$0` is
+how many arguments were passed and `$1` .. `$32` are those values. An
+argument that was not passed is an error. `$?` and `$name` still mean
+what they mean outside.
+
+```
+freya:/> fn add
+> return $1 + $2
+> end
+freya:/> set n add(2, 3)
+freya:/> echo $n
+5
+freya:/> fn
+add
+```
+
+`return` outside a function is refused before anything runs, the way
+`break` is refused outside a loop. A call may call another function.
+Deep or very wide calls are refused rather than grown without limit.
+
+`int`, `float`, `str` and `hex` convert, and cannot be defined with `fn`.
+Each takes one value. `int` makes an integer: a float is truncated toward
+zero, and a string is a decimal integer, a `0x` hex integer, or a decimal
+float that is then truncated. `float` makes a float from an integer or
+from decimal text (a `0x` string is an integer first). `str` renders any
+value as text, the same way `$name` does. `hex` of a number is lowercase
+hex text with no `0x` (`hex(-1)` is `"ffffffff"`); `hex` of a string
+parses hex digits, with an optional sign and an optional `0x`, back to
+an integer. A value that is not of that form is `not a number`, and one
+that does not fit is `integer overflow`.
+
+```
+freya:/> set n int("0x10")
+freya:/> set x float($n)
+freya:/> set s hex($n)
+freya:/> echo $s
+10
+freya:/> set n hex($s)
+freya:/> echo $n
+16
+```
+
+`rand()` returns the next value from the ANSI C 1989 example
+generator: `state = state * 1103515245 + 12345` in 32 bits, then
+`(state / 65536) % 32768`, so the result is an integer from 0 to 32767.
+The state starts at 1. `srand(seed)` replaces it with that integer,
+which may be negative (`srand(-1)` stores the bit pattern), and returns
+0. The same seed repeats the same sequence.
+
+```
+freya:/> set n srand(1)
+freya:/> set n rand()
+freya:/> echo $n
+16838
+freya:/> set n rand()
+freya:/> echo $n
+5758
+```
+
+`pi` is the constant 3.14159265, and it is also `pi()` with no
+arguments. `sin` and `cos` take one integer or float, in radians, and
+return a float. An angle past about a million, or one that is not a
+number, is `not a number`.
+
+```
+freya:/> set x sin(pi / 2)
+freya:/> echo $x
+1
+freya:/> set x cos(pi)
+freya:/> echo $x
+-1
+```
+
+Thirteen names are built in, and cannot be defined with `fn`. A pin is a
+string in the same form as the `pin` command (`"PB0"`, `"pb0"`, `"B0"`).
+`get` reads it and returns 0 or 1. `set` makes it a push-pull output,
+writes 0 or 1, and returns the level read back. `adc` takes one raw
+sample and returns that count, 0 to 4095; `"temp"` and `"vref"` are the
+internal sources. `pwm(pin, hz, duty)` starts a channel and returns the
+rate; the duty is a percent and may be a float (`7.5`). `pwm(pin)`
+stops it and returns 0.
+
+```
+freya:/> set n set("PB5", 1)
+freya:/> echo get("PB5")
+1
+freya:/> set n adc("PA0")
+freya:/> set n pwm("PB6", 1000, 25)
+```
 
 A `#` at the start of a statement, or after a space, comments out the
 rest of that statement. Quotes hide it, so `echo "a # b"` prints the

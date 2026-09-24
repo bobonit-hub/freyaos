@@ -350,17 +350,33 @@ int  app_last_exit(freya_exit_t *st)
 void led_set(int on)                   { (void)on; }
 void led_toggle(void)                  { }
 
+static int s_pin_level;
+static int s_pwm_on;
+
 int  gpio_pin_mode(int pin, int mode)  { (void)pin; (void)mode; return 0; }
-int  gpio_pin_read(int pin)            { (void)pin; return 0; }
-int  gpio_pin_write(int pin, int value){ (void)pin; (void)value; return 0; }
+int  gpio_pin_read(int pin)            { (void)pin; return s_pin_level; }
+int  gpio_pin_write(int pin, int value)
+{
+    (void)pin;
+    s_pin_level = value ? 1 : 0;
+    return 0;
+}
 int  gpio_pin_toggle(int pin)          { (void)pin; return 0; }
 
 int  pwm_info(int idx, pwm_info_t *info) { (void)idx; (void)info; return -1; }
-int  pwm_lookup(int pin)               { (void)pin; return -1; }
-int  pwm_close(int pwm)                { (void)pwm; return 0; }
+int  pwm_lookup(int pin)               { (void)pin; return 0; }
+int  pwm_close(int pwm)
+{
+    (void)pwm;
+    if (!s_pwm_on) return -1;
+    s_pwm_on = 0;
+    return 0;
+}
 int  pwm_open(int pin, uint32_t hz, uint32_t duty)
 {
-    (void)pin; (void)hz; (void)duty; return -1;
+    (void)pin; (void)hz; (void)duty;
+    s_pwm_on = 1;
+    return 0;
 }
 int  adc_read(int source)               { (void)source; return FREYA_ADC_MAX; }
 
@@ -1013,6 +1029,419 @@ int main(void)
 
     rc = run("mount");
     expect_rc("mount after power on succeeds", rc, 0);
+
+    printf("variables\n");
+    rc = run("set");
+    expect_rc("set with no name succeeds", rc, 0);
+    expect_exact("set lists nothing yet", "no variables\r\n");
+
+    rc = run("set n 1 + 2 * 3");
+    expect_rc("set of an integer succeeds", rc, 0);
+    expect_exact("set prints nothing", "");
+    rc = run("echo $n");
+    expect_rc("echo of a variable succeeds", rc, 0);
+    expect_exact("integer arithmetic binds * tighter", "7\r\n");
+
+    rc = run("set n $n + 1");
+    expect_rc("set from a variable succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("the variable updated", "8\r\n");
+
+    rc = run("set q 7 / 2");
+    expect_rc("integer division succeeds", rc, 0);
+    rc = run("echo $q");
+    expect_exact("integer division truncates", "3\r\n");
+    rc = run("set q 7 % 2");
+    rc = run("echo $q");
+    expect_exact("remainder is an integer", "1\r\n");
+
+    rc = run("set b 0xF0 & 0x3C");
+    rc = run("echo $b");
+    expect_exact("bitwise and", "48\r\n");
+    rc = run("set b 1 << 4");
+    rc = run("echo $b");
+    expect_exact("left shift", "16\r\n");
+    rc = run("set b ~0");
+    rc = run("echo $b");
+    expect_exact("bitwise not", "-1\r\n");
+
+    rc = run("set x 1 / 2");
+    rc = run("set x 7.5 / 2");
+    expect_rc("float division succeeds", rc, 0);
+    rc = run("echo $x");
+    expect_exact("float division", "3.75\r\n");
+
+    rc = run("set s \"hello\" + \" \" + \"there\"");
+    expect_rc("string concatenation succeeds", rc, 0);
+    rc = run("echo $s");
+    expect_exact("strings join with +", "hello there\r\n");
+    rc = run("set s \"%d %s\" $n $s");
+    rc = run("echo $s");
+    expect_exact("a format takes the following values", "8 hello there\r\n");
+
+    rc = run("if $n == 8; echo yes; else; echo no; end");
+    expect_rc("if of == succeeds", rc, 0);
+    expect_exact("== is true", "yes\r\n");
+    rc = run("if $n /= 8; echo yes; else; echo no; end");
+    expect_rc("if of /= succeeds", rc, 0);
+    expect_exact("/= is false", "no\r\n");
+    rc = run("if $s == \"8 hello there\"; echo yes; else; echo no; end");
+    expect_exact("strings compare with ==", "yes\r\n");
+    rc = run("if 1 == 1.0; echo yes; else; echo no; end");
+    expect_exact("an integer matches the same float", "yes\r\n");
+
+    rc = run("loop $n; echo .; end");
+    expect_rc("loop of a variable succeeds", rc, 0);
+    expect_exact("the count is the variable", ".\r\n.\r\n.\r\n.\r\n.\r\n.\r\n.\r\n.\r\n");
+
+    rc = run("set");
+    expect_has("set lists the integer", "n = 8\r\n");
+    expect_has("set lists the float", "x = 3.75\r\n");
+    expect_has("set lists the string", "s = \"8 hello there\"\r\n");
+
+    rc = run("unset s");
+    expect_rc("unset succeeds", rc, 0);
+    rc = run("echo $s");
+    expect_rc("a removed variable fails", rc, FREYA_EXIT_FAIL);
+    expect_has("the name is gone", "no such variable");
+
+    rc = run("if $n > 2; echo hi; else; echo lo; end");
+    expect_rc("if of > succeeds", rc, 0);
+    expect_exact("> is true", "hi\r\n");
+    rc = run("if $n < 2; echo hi; else; echo lo; end");
+    expect_rc("if of < succeeds", rc, 0);
+    expect_exact("< is false", "lo\r\n");
+    rc = run("if 1.5 > 1; echo y; else; echo n; end");
+    expect_exact("a float compares with an integer", "y\r\n");
+    rc = run("if $n >< 8; echo y; else; echo n; end");
+    expect_exact(">< is false when the numbers match", "n\r\n");
+    rc = run("if $n >< 1; echo y; else; echo n; end");
+    expect_exact(">< is true when the numbers differ", "y\r\n");
+    rc = run("if \"a\" > \"b\"; echo y; else; echo n; end");
+    expect_rc("ordering a string fails", rc, 0);
+    expect_has("ordering wants a number", "not a number");
+
+    rc = run("break");
+    expect_rc("break outside a loop fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("break outside a loop runs nothing", "unexpected break\r\n");
+    rc = run("loop 1; break 1; end");
+    expect_rc("break with an argument fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("break takes nothing", "usage: break\r\n");
+
+    rc = run("set k 0; loop 4; set k $k + 1; if $k < 3; echo $k; else; break; end; end");
+    expect_rc("break in else succeeds", rc, 0);
+    expect_exact("break leaves the loop", "1\r\n2\r\n");
+
+    rc = run("loop 2; loop 2; break; end; echo x; end");
+    expect_rc("break leaves only the inner loop", rc, 0);
+    expect_exact("the outer loop continues", "x\r\nx\r\n");
+
+    rc = run("set n 1 / 0");
+    expect_rc("division by zero fails", rc, FREYA_EXIT_FAIL);
+    expect_has("division by zero is named", "division by zero");
+    rc = run("set n 1.5 & 1");
+    expect_rc("a float bit operation fails", rc, FREYA_EXIT_FAIL);
+    expect_has("bit operations want an integer", "not an integer");
+
+    printf("functions\n");
+    rc = run("fn");
+    expect_rc("fn with no name succeeds", rc, 0);
+    expect_exact("fn lists nothing yet", "no functions\r\n");
+
+    rc = run("return 1");
+    expect_rc("return outside a function fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("return outside a function runs nothing", "unexpected return\r\n");
+
+    rc = run("fn add; return $1 + $2; end");
+    expect_rc("fn definition succeeds", rc, 0);
+    rc = run("set n add(2, 3)");
+    expect_rc("a call in an expression succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("the function returned the sum", "5\r\n");
+
+    rc = run("fn id; return $1; end");
+    rc = run("set n add(id(4), 1)");
+    expect_rc("a nested call succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("the outer call saw the inner value", "5\r\n");
+
+    rc = run("fn narg; return $0; end");
+    rc = run("set n narg()");
+    rc = run("echo $n");
+    expect_exact("a call with no arguments has count 0", "0\r\n");
+    rc = run("set n narg(7, 8, 9)");
+    rc = run("echo $n");
+    expect_exact("$0 is how many arguments were passed", "3\r\n");
+
+    rc = run("fn hi; return \"x\" + $1; end");
+    rc = run("set s hi(\"y\")");
+    rc = run("echo $s");
+    expect_exact("a string argument is a value", "xy\r\n");
+
+    rc = run("set n add(1)");
+    expect_rc("a missing argument fails", rc, FREYA_EXIT_FAIL);
+    expect_has("the missing argument is named", "no such argument");
+
+    rc = run("if add(1, 2) == 3; echo yes; else; echo no; end");
+    expect_rc("if of a call succeeds", rc, 0);
+    expect_exact("the call is the condition value", "yes\r\n");
+
+    rc = run("fn narg; end");
+    rc = run("set n narg()");
+    rc = run("echo $n");
+    expect_exact("no return leaves 0", "0\r\n");
+
+    rc = run("fn add; return $1; end");
+    rc = run("set n add(9, 1)");
+    rc = run("echo $n");
+    expect_exact("defining the same name replaces the body", "9\r\n");
+
+    rc = run("fn hi; echo $1; return $1; end");
+    rc = run("set n hi(4)");
+    expect_exact("the body ran, then returned", "4\r\n");
+
+    rc = run("fn");
+    expect_has("fn lists a function", "add\r\n");
+    expect_has("fn lists another function", "id\r\n");
+
+    rc = run("set n $1");
+    expect_rc("an argument outside a call fails", rc, FREYA_EXIT_FAIL);
+    expect_has("the argument is not there", "no such argument");
+
+    rc = run("set n nosuch(1)");
+    expect_rc("an unknown function fails", rc, FREYA_EXIT_FAIL);
+    expect_has("the unknown function is named", "no such function: nosuch");
+
+    rc = run("fn if; return 1; end");
+    expect_rc("a reserved name fails", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses a reserved name", "bad name");
+
+    {
+        char line[160];
+        int a;
+        strcpy(line, "set n narg(");
+        for (a = 0; a < 33; a++) {
+            if (a) strcat(line, ",");
+            strcat(line, "1");
+        }
+        strcat(line, ")");
+        rc = run(line);
+        expect_rc("33 arguments fails", rc, FREYA_EXIT_FAIL);
+        expect_has("32 is the limit", "too many arguments");
+    }
+
+    rc = run("set n get(\"PB0\")");
+    expect_rc("get of a pin succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("get reads the pin", "0\r\n");
+    rc = run("set n set(\"PB5\", 1)");
+    expect_rc("set of a pin succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("set returns the level read back", "1\r\n");
+    rc = run("set n get(\"PB5\")");
+    rc = run("echo $n");
+    expect_exact("get sees the level that was written", "1\r\n");
+
+    rc = run("set n adc(\"temp\")");
+    expect_rc("adc of the temperature source succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("adc returns the raw count", "4095\r\n");
+    rc = run("set n adc(\"nope\")");
+    expect_rc("adc of a bad name fails", rc, FREYA_EXIT_FAIL);
+    expect_has("adc names a bad pin", "not a pin");
+
+    rc = run("set n pwm(\"PB6\", 1000, 25)");
+    expect_rc("pwm start succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("pwm returns the rate", "1000\r\n");
+    rc = run("set n pwm(\"PB6\", 1000, 7.5)");
+    expect_rc("pwm accepts a fractional duty", rc, 0);
+    rc = run("set n pwm(\"PB6\")");
+    expect_rc("pwm stop succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("pwm stop returns 0", "0\r\n");
+    rc = run("set n pwm(\"PB6\")");
+    expect_rc("pwm stop of an idle channel fails", rc, FREYA_EXIT_FAIL);
+    expect_has("pwm says the channel is idle", "is not running");
+
+    printf("conversions\n");
+    rc = run("set n int(\"42\")");
+    expect_rc("int of a decimal string succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("int parses decimal text", "42\r\n");
+    rc = run("set n int(\"-42\")");
+    rc = run("echo $n");
+    expect_exact("int keeps a leading minus", "-42\r\n");
+    rc = run("set n int(1.9)");
+    rc = run("echo $n");
+    expect_exact("int truncates a float toward zero", "1\r\n");
+    rc = run("set n int(-1.9)");
+    rc = run("echo $n");
+    expect_exact("int truncates a negative float toward zero", "-1\r\n");
+    rc = run("set n int(\"1.9\")");
+    rc = run("echo $n");
+    expect_exact("int of float text truncates", "1\r\n");
+    rc = run("set n int(\"0x10\")");
+    rc = run("echo $n");
+    expect_exact("int parses a 0x string", "16\r\n");
+    rc = run("set n int(\"0xFFFFFFFF\")");
+    rc = run("echo $n");
+    expect_exact("int keeps the high bit of a hex string", "-1\r\n");
+    rc = run("set n 0xFFFFFFFF");
+    rc = run("echo $n");
+    expect_exact("a hex literal keeps all 32 bits", "-1\r\n");
+    rc = run("set n int(\"-2147483648\")");
+    rc = run("echo $n");
+    expect_exact("int accepts the most negative integer", "-2147483648\r\n");
+
+    rc = run("set x float(\"1.5\")");
+    expect_rc("float of text succeeds", rc, 0);
+    rc = run("echo $x");
+    expect_exact("float parses decimal text", "1.5\r\n");
+    rc = run("set x float(2)");
+    rc = run("echo $x");
+    expect_exact("float widens an integer", "2\r\n");
+    rc = run("set x float(\"-2.5\")");
+    rc = run("echo $x");
+    expect_exact("float keeps a leading minus", "-2.5\r\n");
+    rc = run("set x float(\"0x10\")");
+    rc = run("echo $x");
+    expect_exact("float of a hex string is that integer", "16\r\n");
+
+    rc = run("set s str(255)");
+    rc = run("echo $s");
+    expect_exact("str renders an integer", "255\r\n");
+    rc = run("set s str(1.5)");
+    rc = run("echo $s");
+    expect_exact("str renders a float", "1.5\r\n");
+    rc = run("set s str(\"ab\")");
+    rc = run("echo $s");
+    expect_exact("str leaves a string as it is", "ab\r\n");
+
+    rc = run("set s hex(255)");
+    rc = run("echo $s");
+    expect_exact("hex renders lowercase digits", "ff\r\n");
+    rc = run("set n hex(\"ff\")");
+    rc = run("echo $n");
+    expect_exact("hex parses digits", "255\r\n");
+    rc = run("set n hex(\"0xFF\")");
+    rc = run("echo $n");
+    expect_exact("hex accepts a 0x prefix", "255\r\n");
+    rc = run("set s hex(-1)");
+    rc = run("echo $s");
+    expect_exact("hex of a negative is the 32-bit pattern", "ffffffff\r\n");
+    rc = run("set n hex($s)");
+    rc = run("echo $n");
+    expect_exact("hex of that text is the same integer", "-1\r\n");
+    rc = run("set s hex(255.9)");
+    rc = run("echo $s");
+    expect_exact("hex truncates a float first", "ff\r\n");
+    rc = run("set n int(float(hex(\"10\")))");
+    rc = run("echo $n");
+    expect_exact("int, float and hex compose", "16\r\n");
+
+    rc = run("set n int(\"zz\")");
+    expect_rc("int of junk fails", rc, FREYA_EXIT_FAIL);
+    expect_has("junk is not a number", "not a number");
+    rc = run("set n int(\"9999999999\")");
+    expect_rc("an integer past 32 bits fails", rc, FREYA_EXIT_FAIL);
+    expect_has("the overflow is named", "integer overflow");
+    rc = run("set n int()");
+    expect_rc("int with no argument fails", rc, FREYA_EXIT_FAIL);
+    expect_has("int wants one value", "bad expression");
+    rc = run("set n hex(\"0x100000000\")");
+    expect_rc("hex past 32 bits fails", rc, FREYA_EXIT_FAIL);
+    expect_has("hex overflow is named", "integer overflow");
+
+    printf("random\n");
+    rc = run("set n srand(1)");
+    expect_rc("srand succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("srand returns 0", "0\r\n");
+    rc = run("set n rand()");
+    expect_rc("rand succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("the first value after seed 1", "16838\r\n");
+    rc = run("set n rand()");
+    rc = run("echo $n");
+    expect_exact("the second value after seed 1", "5758\r\n");
+    rc = run("set n rand()");
+    rc = run("echo $n");
+    expect_exact("the third value after seed 1", "10113\r\n");
+    rc = run("set n srand(1)");
+    rc = run("set n rand()");
+    rc = run("echo $n");
+    expect_exact("the same seed repeats", "16838\r\n");
+    rc = run("set n srand(0)");
+    rc = run("set n rand()");
+    rc = run("echo $n");
+    expect_exact("seed 0 yields 0", "0\r\n");
+    rc = run("set n srand(-1)");
+    rc = run("set n rand()");
+    rc = run("echo $n");
+    expect_exact("a negative seed is the bit pattern", "15929\r\n");
+    rc = run("set n rand(1)");
+    expect_rc("rand takes no argument", rc, FREYA_EXIT_FAIL);
+    expect_has("rand wants nothing", "bad expression");
+    rc = run("set n srand()");
+    expect_rc("srand needs a seed", rc, FREYA_EXIT_FAIL);
+    expect_has("srand wants an integer", "bad expression");
+    rc = run("set n srand(1.5)");
+    expect_rc("srand refuses a float", rc, FREYA_EXIT_FAIL);
+    printf("trigonometry\n");
+    rc = run("set x pi");
+    expect_rc("pi succeeds", rc, 0);
+    rc = run("echo $x");
+    expect_exact("pi prints to four places", "3.1416\r\n");
+    rc = run("set x pi()");
+    rc = run("echo $x");
+    expect_exact("pi() is the same constant", "3.1416\r\n");
+    rc = run("set x sin(0)");
+    rc = run("echo $x");
+    expect_exact("sin of 0 is 0", "0\r\n");
+    rc = run("set x sin(pi / 2)");
+    rc = run("echo $x");
+    expect_exact("sin of pi/2 is 1", "1\r\n");
+    rc = run("set x cos(0)");
+    rc = run("echo $x");
+    expect_exact("cos of 0 is 1", "1\r\n");
+    rc = run("set x cos(pi)");
+    rc = run("echo $x");
+    expect_exact("cos of pi is -1", "-1\r\n");
+    rc = run("set x sin(1)");
+    rc = run("echo $x");
+    expect_exact("sin of 1 radian", "0.8415\r\n");
+    rc = run("set x cos(1)");
+    rc = run("echo $x");
+    expect_exact("cos of 1 radian", "0.5403\r\n");
+    rc = run("set x sin(-pi / 2)");
+    rc = run("echo $x");
+    expect_exact("sin is odd", "-1\r\n");
+    rc = run("set x sin(\"a\")");
+    expect_rc("sin of a string fails", rc, FREYA_EXIT_FAIL);
+    expect_has("sin wants a number", "bad expression");
+    rc = run("set x sin()");
+    expect_rc("sin needs an angle", rc, FREYA_EXIT_FAIL);
+    rc = run("set x pi(1)");
+    expect_rc("pi takes no argument", rc, FREYA_EXIT_FAIL);
+    expect_has("pi wants nothing", "bad expression");
+    rc = run("fn sin; return 1; end");
+    expect_rc("sin cannot be defined", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses sin", "bad name");
+
+    rc = run("fn rand; return 1; end");
+    expect_rc("rand cannot be defined", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses rand", "bad name");
+
+    rc = run("fn get; return 1; end");
+    expect_rc("a built-in name cannot be defined", rc, FREYA_EXIT_FAIL);
+    rc = run("fn int; return 1; end");
+    expect_rc("int cannot be defined", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses int", "bad name");
+
+    rc = run("fn a; break; end");
+    expect_rc("break in a function fails", rc, FREYA_EXIT_FAIL);
+    expect_exact("break does not cross a function", "unexpected break\r\n");
 
     printf("%d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;

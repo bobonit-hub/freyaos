@@ -62,10 +62,10 @@
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
-/* The last 11 KiB of the 128 KiB holds the kernel extension (threads,
- * the shell's script interpreter, the SPI master and the cipher), so
- * an install does not erase it. */
-#define FREYA_APP_FLASH_SIZE   (0x0801D400UL - FREYA_APP_FLASH_ADDR)
+/* The last 20 KiB of the 128 KiB holds the kernel extension (threads,
+ * the shell's script interpreter, its variables and functions, the SPI
+ * master and the cipher), so an install does not erase it. */
+#define FREYA_APP_FLASH_SIZE   (0x0801B000UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)

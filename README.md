@@ -43,7 +43,7 @@ freya:/>
 | Crystal | 25 MHz | 8 MHz |
 | Flash | 512 KiB | 128 KiB |
 | SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 70528 B flash |
+| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 61312 B flash |
 | Build | `make` | `make BOARD=bluepill` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -111,7 +111,7 @@ Freya 1.1 "UFOnaut" for STM32F103C8T6
   the same thing ([docs/crypt.md](docs/crypt.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
-  size from 8 KiB to 70528 bytes; on the Black Pill the flash region is 64 KiB
+  size from 8 KiB to 61312 bytes; on the Black Pill the flash region is 64 KiB
   (sector 4) and is there so the same console commands work with no card in
   the socket. The program can be copied from the card, or packed into the
   module when Freya itself is flashed.
@@ -292,6 +292,8 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `pwm [<pin> <hz> <duty%>]` | list the PWM channels, or start one: `pwm PB6 1000 25`, `pwm PB6 off` |
 | `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
 | `source <file>\|@flash` | run a shell script from a file, or from program flash |
+| `set`, `unset`, `$name` | integer, float and string variables |
+| `fn`, `return` | a function of 0..32 arguments and one value |
 | `if` / `else` / `end`, `loop <count>` | run commands when a status is 0, or repeat them |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
 
@@ -562,13 +564,25 @@ freya:/> status
 `$?` is the shell's own status too: a command that failed is 1, a word that is
 not a command is 127, and an empty line leaves it alone. Since `$?` is
 expanded before the line is split, `write /runs.txt $?` records the status of
-the last run on the card. Each run also writes its outcome to `/freya.log`,
+the last run on the card. `$name` expands a shell variable the same way.
+Each run also writes its outcome to `/freya.log`,
 at `info` when the status is 0 and at `warn` when it is not.
 
-`;` separates commands on one line. `if <command>` runs the following
-commands up to `else` or `end` when that command's status is 0, and the
-`else` commands otherwise. `loop <count>` repeats up to `end`, and
-`sleep <ms>` waits that many milliseconds. A block left open is finished
+`;` separates commands on one line. `set n 1 + 2` stores an integer, a
+float or a string under a name, and `$n` expands it; `if $n > 1` is true
+when the comparison is. `fn add` ... `return $1 + $2` ... `end` defines a
+function; `add(2, 3)` in an expression passes up to 32 arguments and
+yields the returned value. `int`, `float`, `str` and `hex` convert a
+value between an integer, a float, text and hexadecimal. `rand()` is
+the ANSI C 1989 example generator, 0 to 32767, and `srand(seed)` sets
+its state. `pi` is the circle constant, and `sin` and `cos` take an
+angle in radians. `get`, `set`,
+`adc` and `pwm` are built in:
+`get("PB0")` reads a pin, `set("PB5", 1)` drives it, `adc("PA0")` returns
+one raw sample, and `pwm("PB6", 1000, 25)` starts a channel. `break` leaves a loop. `if <command>` still runs the following commands up
+to `else` or `end` when that command's status is 0, and the `else` commands
+otherwise. `loop <count>` repeats up to `end`, and `sleep <ms>` waits that
+many milliseconds. A block left open is finished
 on the next lines (`>` is the prompt); Ctrl-C throws those lines away,
 and also cuts a `sleep` or a `loop` short. `source <file>` runs a script
 from the card, and `source @flash` runs one kept in the program flash
@@ -585,11 +599,11 @@ built against this ABI can check before calling:
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-most of the 128 KiB of flash sits idle. So the board reserves 70528 bytes
+most of the 128 KiB of flash sits idle. So the board reserves 61312 bytes
 at the top of flash — the rest of page 48 after a 128-byte auto-start slot,
-then pages 49 to 116 — for one program image. The last 11 KiB holds the
-kernel extension (the thread scheduler, the shell's script interpreter and
-the SPI master and the cipher), which is flashed as its own image. The size register on
+then pages 49 to 107 — for one program image. The last 20 KiB holds the
+kernel extension (the thread scheduler, the shell's script interpreter,
+its variables and functions, the SPI master and the cipher), which is flashed as its own image. The size register on
 these parts often still reads 64 KiB; the region runs through the 128 KiB
 anyway. The Black Pill does not need
 the size (it already has 56 KiB of program RAM) but it keeps the same
@@ -638,7 +652,7 @@ flash into the RAM region before `app_main` is called. That is what the second
 linker script (`boards/<board>/app_flash.ld`) describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
-spends the 8 KiB RAM window entirely on its variables, and gets 70528 bytes
+spends the 8 KiB RAM window entirely on its variables, and gets 61312 bytes
 for code instead of 8 KiB. On the Black Pill the RAM window is still 56 KiB and
 the flash image may be up to 64 KiB.
 
@@ -684,7 +698,7 @@ Black Pill:
 0x08010000  +--------------------------------+
             |  program flash region          |  64 KiB, sector 4
 0x08020000  +--------------------------------+
-            |  kernel extension              |  start of sector 5
+            |  kernel extension              |  20 KiB, start of sector 5
 0x08080000  +--------------------------------+
 
 0x20000000  +--------------------------------+
@@ -710,10 +724,10 @@ heap takes whatever `.bss` leaves behind:
 0x0800C000  +--------------------------------+
             |  auto-start flag + log level  |  128 B, page 48
 0x0800C080  +--------------------------------+
-            |  program flash region          |  70528 B, rest of page 48
-            |                                |  and pages 49..116, installed
-0x0801D400  +--------------------------------+  from the card
-            |  kernel extension              |  11 KiB, pages 117..127
+            |  program flash region          |  61312 B, rest of page 48
+            |                                |  and pages 49..110, installed
+0x0801B000  +--------------------------------+  from the card
+            |  kernel extension              |  20 KiB, pages 108..127
 0x08020000  +--------------------------------+
 
 0x20000000  +--------------------------------+
@@ -897,7 +911,7 @@ ALL TESTS PASSED
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 128 KiB of
   flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
   KiB instead of sixty. Installing a program into flash is the answer to the
-  first half of that, not the second — such a program gets 70528 bytes of code, but
+  first half of that, not the second — such a program gets 61312 bytes of code, but
   the heap is still small and the main thread still uses the shell stack.
 * The Black Pill keeps a program in flash for the same console commands, not
   because 56 KiB of program RAM is too small. Its erase unit at the program

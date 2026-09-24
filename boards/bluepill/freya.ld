@@ -11,8 +11,8 @@
  * it fits.  The size register on these parts often still reads 64 KiB.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
  *   0x0800C000 .. 0x0800C07F   auto-start flag + reserved          (128 B)
- *   0x0800C080 .. 0x0801D3FF   program flash region             (70528 B)
- *   0x0801D400 .. 0x0801FFFF   kernel extension              (11 KiB)
+ *   0x0800C080 .. 0x0801AFFF   program flash region             (61312 B)
+ *   0x0801B000 .. 0x0801FFFF   kernel extension              (20 KiB)
  *
  * The extension is its own image at the top of the 128 KiB.  The program
  * region stops short of it, so install and uninstall never erase it,
@@ -37,7 +37,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x0801D400, LENGTH = 11K
+    KEXT  (rx)  : ORIGIN = 0x0801B000, LENGTH = 20K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
@@ -53,7 +53,7 @@ __shell_stack_limit  = __worker_stacks + __worker_count * __worker_stack_size;
 __autostart_start    = 0x0800C000;
 __autostart_end      = 0x0800C080;
 __app_flash_start    = 0x0800C080;
-__app_flash_end      = 0x0801D400;
+__app_flash_end      = 0x0801B000;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;
@@ -71,8 +71,10 @@ SECTIONS
     /*
      * Threads, the switch, the console commands that talk to them, and
      * the SPI master and the cipher.  Claimed before .text so the
-     * wildcard below does not take them.  The extension is 11 KiB so
-     * SPI and XTEA fit beside the scheduler.
+     * wildcard below does not take them.  The extension is 20 KiB so
+     * SPI, XTEA, the shell variables and functions fit beside the scheduler.
+     * Float helpers for the variables live here too: the 48 KiB image
+     * has no room for them.
      * A call across the two images is an ordinary branch.
      */
     .kext :
@@ -96,6 +98,7 @@ SECTIONS
          * for it; the 48 KiB image still does.  The Black Pill script
          * claims those sections up here instead. */
         *shell.o(.text.shell_poll_runtime)
+        *softfp.o(.text .text.*)
         *shell.o(.text.kext_script)
         *shell.o(.text.kext_script.*)
         *loader.o(.text.kext_script)
@@ -111,6 +114,7 @@ SECTIONS
         *shell.o(.rodata.cmd_crypt*)
         *crypt.o(.rodata .rodata.*)
         *shell.o(.rodata.shell_poll_runtime*)
+        *softfp.o(.rodata .rodata.*)
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)
         . = ALIGN(4);

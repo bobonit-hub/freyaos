@@ -16,6 +16,28 @@ calling the new entries.
 
 ## What changed
 
+* The shell has `sin`, `cos` and the constant `pi`. The angle is in
+  radians. `sin(pi / 2)` is 1 and `cos(pi)` is -1.
+* The shell has the ANSI C 1989 example generator. `rand()` returns
+  an integer from 0 to 32767, and `srand(seed)` sets the 32-bit state.
+  The state starts at 1, and the same seed repeats the same sequence.
+* The shell converts between an integer, a float, text and hex.
+  `int("0x10")` is 16, `float(16)` is 16, `str(16)` is `"16"`, and
+  `hex(16)` is `"10"`. `hex("ffffffff")` and the literal `0xFFFFFFFF`
+  are both -1. A float is truncated toward zero.
+* The shell has built-in functions for pins. `get("PB0")` reads a pin,
+  `set("PB5", 1)` drives it and returns the level read back,
+  `adc("PA0")` (also `"temp"` and `"vref"`) returns one raw sample,
+  and `pwm("PB6", 1000, 25)` starts a channel. `pwm("PB6")` stops it.
+* The shell has functions. `fn add` ... `return $1 + $2` ... `end`
+  defines one. A call is an expression, `add(2, 3)`, with 0 to 32
+  arguments and one returned value. `$0` is the count and `$1` .. `$32`
+  are the arguments. Four functions, each body at most 127 characters.
+* The shell has variables. `set n 1 + 2 * 3` stores an integer, a float
+  or a string; `$n` expands it. Numbers have `+ - * /`, integers also
+  have `%` and `~ & | ^ << >>`, and a string is concatenated with `+`
+  or formatted (`set s "%d" $n`). `==` and `/=` compare, and `if $n == 7`
+  takes that as the condition. Eight names, each at most seven characters.
 * The shell runs scripts. `source <file>` reads a text file from the
   card, at most 1024 bytes, and runs it with the same rules as a typed
   line: `;`, newlines, `if`/`else`/`end`, `loop`, `sleep` and `$?`. A
@@ -40,8 +62,8 @@ calling the new entries.
 * The scheduler and the script interpreter live in a kernel extension, a
   second flash image, so the 48 KiB kernel still does not share an erase
   unit with the auto-start slot. On the Blue Pill that extension is the
-  last 11 KiB of the 128 KiB, and the program flash region is 70528 bytes,
-  through `0x0801D3FF`. On the Black Pill the extension is 16 KiB at the
+  last 20 KiB of the 128 KiB, and the program flash region is 61312 bytes,
+  through `0x0801AFFF`. On the Black Pill the extension is 20 KiB at the
   start of sector 5, and the program region stays 64 KiB.
 * Programs can take synchronous 12-bit ADC1 samples from the common analog
   pins, the internal temperature sensor, and Vref. `adc PA0`, `adc temp`,

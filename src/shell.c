@@ -6,6 +6,12 @@
  * command leaves an exit status behind, which '$?' and 'status' read.
  * ';' separates commands on one line.  'if'/'else'/'end' and 'loop'
  * group them; a block that is still open is finished on later lines.
+ * 'set' keeps a few named values — integer, float or string — and
+ * '$name' expands one the way '$?' expands the status.
+ * int(), float(), str() and hex() convert between those and hex text.
+ * rand() and srand() are the ANSI C 1989 example generator.
+ * sin(), cos() and the constant pi are single-precision.
+ * 'fn' defines a function of up to 32 arguments that returns one value.
  * 'source' runs the same language from a file or from program flash.
  */
 #include "freya.h"
@@ -152,12 +158,29 @@ static int status_of(int rc)
     return rc & FREYA_EXIT_MAX;
 }
 
+/* Text of one variable.  0 on success, -1 when that name is not set.
+ * Defined with the variable store; a call from here is into the
+ * extension, same as any other branch across the two images. */
+static int KEXT var_copy(const char *name, int nlen, char *out, int size);
+
+/* Text of function argument idx.  0 is the count.  -1 when this is
+ * not a call, or that argument was not passed. */
+static int KEXT arg_copy(int idx, char *out, int size);
+
+static int name_char(char c, int first)
+{
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_')
+        return 1;
+    return !first && c >= '0' && c <= '9';
+}
+
 /*
- * '$?' becomes the status of the command before this one.  It is
- * expanded when that command runs, so each pass of a loop sees the
- * status the previous command left.  Nothing else is expanded.
+ * '$?' becomes the status of the command before this one.  '$name'
+ * becomes that variable, rendered as text.  Both are expanded when
+ * the command runs, so each pass of a loop sees the values the
+ * previous command left.  -1 leaves a message and sets nothing.
  */
-static void expand_status(const char *in, char *out, int size)
+static int expand_status(const char *in, char *out, int size)
 {
     int o = 0;
 
@@ -171,9 +194,55 @@ static void expand_status(const char *in, char *out, int size)
             in += 2;
             continue;
         }
+        if (in[0] == '$' && in[1] >= '0' && in[1] <= '9') {
+            char tmp[40];
+            int idx = 0, k = 0;
+
+            while (in[1 + k] >= '0' && in[1 + k] <= '9') {
+                idx = idx * 10 + (in[1 + k] - '0');
+                k++;
+                if (k > 2 || idx > 32) {
+                    kprintf("bad name\r\n");
+                    s_status = FREYA_EXIT_FAIL;
+                    out[0] = '\0';
+                    return -1;
+                }
+            }
+            if (arg_copy(idx, tmp, (int)sizeof tmp) != 0) {
+                kprintf("no such argument\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                out[0] = '\0';
+                return -1;
+            }
+            for (int i = 0; tmp[i] && o < size - 1; i++) out[o++] = tmp[i];
+            in += 1 + k;
+            continue;
+        }
+        if (in[0] == '$' && name_char(in[1], 1)) {
+            char tmp[40];
+            int n = 0;
+
+            while (name_char(in[1 + n], 0)) n++;
+            if (n >= 8) {
+                kprintf("bad name\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                out[0] = '\0';
+                return -1;
+            }
+            if (var_copy(in + 1, n, tmp, (int)sizeof tmp) != 0) {
+                kprintf("no such variable\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                out[0] = '\0';
+                return -1;
+            }
+            for (int i = 0; tmp[i] && o < size - 1; i++) out[o++] = tmp[i];
+            in += 1 + n;
+            continue;
+        }
         out[o++] = *in++;
     }
     out[o] = '\0';
+    return 0;
 }
 
 static void print_fat_time(uint16_t date, uint16_t time)
@@ -288,6 +357,7 @@ static uint32_t mcu_flash_kib(void)
 /* ----------------------------------------------------------- commands */
 static int cmd_help(int argc, char **argv);
 static int cmd_script(int argc, char **argv);
+static int KEXT cmd_unset(int argc, char **argv);
 
 static int cmd_sysinfo(int argc, char **argv)
 {
@@ -2084,17 +2154,22 @@ static const command_t s_cmds[] = {
     { "echo",     cmd_echo,     "echo <text...>" },
     { "sleep",    cmd_sleep,    "sleep <ms>" },
     { "source",   cmd_source,   "source " PROG_ARG },
+    { "set",      cmd_script,   "set [<name> <expr>]" },
+    { "unset",    cmd_unset,    "unset <name>" },
+    { "fn",       cmd_script,   "fn [<name>]" },
+    { "return",   cmd_script,   "return <expr>" },
     { "if",       cmd_script,   "if <command>" },
     { "else",     cmd_script,   "else" },
     { "end",      cmd_script,   "end" },
     { "loop",     cmd_script,   "loop <count>" },
+    { "break",    cmd_script,   "break" },
     { "clear",    cmd_clear,    "clear" },
     { "reboot",   cmd_reboot,   "reboot" },
 };
 
-/* 'if', 'else', 'end' and 'loop' are syntax, handled before the table
- * is searched.  Reaching here means one of those words was itself the
- * command an 'if' ran, which is not what they mean. */
+/* 'if', 'else', 'end', 'loop', 'fn' and 'return' are syntax, handled
+ * before the table is searched.  Reaching here means one of those words
+ * was itself the command an 'if' ran, which is not what they mean. */
 static int cmd_script(int argc, char **argv)
 {
     (void)argc;
@@ -2148,10 +2223,13 @@ static int cmd_help(int argc, char **argv)
 #define BLK_IF       1
 #define BLK_ELSE     2
 #define BLK_LOOP     3
+#define BLK_FN       4
 
 #define SCR_DONE     0
 #define SCR_END      1
 #define SCR_ELSE     2
+#define SCR_BREAK    3
+#define SCR_RETURN   4
 #define SCR_ERR     -1
 
 static char s_script[SCRIPT_MAX];   /* lines of a block still being typed */
@@ -2284,6 +2362,67 @@ static int KEXT script_check(const char *text, char *walk)
                 return -1;
             }
             stk[sp++] = BLK_LOOP;
+        } else if (word_is(walk, "fn", &rest)) {
+            int nlen = 0;
+
+            if (!*rest) continue;
+            if (!name_char(*rest, 1)) {
+                kprintf("fn: bad name\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            while (name_char(rest[nlen], 0)) nlen++;
+            if (nlen >= 8) {
+                kprintf("fn: bad name\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            if (rest[nlen]) {
+                usage("fn [<name>]");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            if (sp >= SCRIPT_NEST) {
+                kprintf("too many nested blocks\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            stk[sp++] = BLK_FN;
+        } else if (word_is(walk, "return", &rest)) {
+            int i;
+
+            if (!*rest) {
+                usage("return <expr>");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            for (i = sp - 1; i >= 0; i--)
+                if (stk[i] == BLK_FN) break;
+            if (i < 0) {
+                kprintf("unexpected return\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+        } else if (word_is(walk, "break", &rest)) {
+            int i;
+
+            if (*rest) {
+                usage("break");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
+            for (i = sp - 1; i >= 0; i--) {
+                if (stk[i] == BLK_FN) {
+                    i = -1;
+                    break;
+                }
+                if (stk[i] == BLK_LOOP) break;
+            }
+            if (i < 0) {
+                kprintf("unexpected break\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                return -1;
+            }
         } else if (word_is(walk, "else", &rest)) {
             if (*rest) {
                 usage("else");
@@ -2314,13 +2453,1505 @@ static int KEXT script_check(const char *text, char *walk)
     return sp ? 1 : 0;
 }
 
+/* ---------------------------------------------------------- variables */
+/*
+ * Eight names.  A value is an integer, a float or a short string, and
+ * the next assignment decides which.  Arithmetic is + - * / ; an
+ * integer also has % & | ^ ~ << >>.  A string is concatenated with +
+ * and formatted by writing the format and then its arguments:
+ * 'set s "%d" $n'.  int(), float() and str() convert, and hex()
+ * turns an integer into hex text or hex text into an integer.
+ * == and /= compare.  < > and >< order numbers.
+ * 'if' treats a line that contains one of those as a condition.
+ * 'break' leaves the innermost loop.
+ */
+#define VAR_MAX   8
+#define VAR_NAME  8
+#define VAR_STR   32
+
+enum { V_NONE = 0, V_INT, V_FLT, V_STR };
+
+typedef struct {
+    char name[VAR_NAME];
+    uint8_t type;
+    union {
+        int32_t i;
+        float f;
+        char s[VAR_STR];
+    } u;
+} shell_var_t;
+
+typedef struct {
+    uint8_t type;
+    int32_t i;
+    float f;
+    char s[VAR_STR];
+} val_t;
+
+static shell_var_t s_var[VAR_MAX];
+static const char *s_vwho = "set";
+
+static int KEXT vfail(const char *msg)
+{
+    kprintf("%s: %s\r\n", s_vwho, msg);
+    return -1;
+}
+
+static void KEXT vskip(const char **pp)
+{
+    const char *s = *pp;
+    while (*s == ' ' || *s == '\t') s++;
+    *pp = s;
+}
+
+static shell_var_t *KEXT var_find(const char *name, int nlen, int create)
+{
+    shell_var_t *gap = NULL;
+    int i;
+
+    for (i = 0; i < VAR_MAX; i++) {
+        if (s_var[i].type == V_NONE) {
+            if (!gap) gap = &s_var[i];
+            continue;
+        }
+        if (strncmp(s_var[i].name, name, (size_t)nlen) == 0 &&
+            s_var[i].name[nlen] == '\0')
+            return &s_var[i];
+    }
+    if (!create || !gap) return NULL;
+    memset(gap, 0, sizeof *gap);
+    memcpy(gap->name, name, (size_t)nlen);
+    gap->name[nlen] = '\0';
+    return gap;
+}
+
+static void KEXT ftoa(char *out, int size, float v)
+{
+    char tmp[24];
+    int neg = 0, n, i;
+    int32_t ip, frac;
+
+    if (v != v) {
+        ksnprintf(out, size, "nan");
+        return;
+    }
+    if (v < 0.f) { neg = 1; v = -v; }
+    if (v > 2147483647.f) {
+        ksnprintf(out, size, "%sinf", neg ? "-" : "");
+        return;
+    }
+    ip = (int32_t)v;
+    frac = (int32_t)((v - (float)ip) * 10000.f + 0.5f);
+    if (frac >= 10000) { ip++; frac = 0; }
+    if (frac < 0) frac = 0;
+    n = ksnprintf(tmp, (int)sizeof tmp, "%s%d.%04d",
+                  neg ? "-" : "", (int)ip, (int)frac);
+    if (n < 0 || n >= (int)sizeof tmp) n = (int)sizeof tmp - 1;
+    i = n;
+    while (i > 0 && tmp[i - 1] == '0') i--;
+    if (i > 0 && tmp[i - 1] == '.') i--;
+    tmp[i] = '\0';
+    ksnprintf(out, size, "%s", tmp);
+}
+
+static void KEXT val_text(const val_t *v, char *out, int size)
+{
+    if (v->type == V_INT) ksnprintf(out, size, "%d", (int)v->i);
+    else if (v->type == V_FLT) ftoa(out, size, v->f);
+    else ksnprintf(out, size, "%s", v->s);
+}
+
+static int KEXT var_copy(const char *name, int nlen, char *out, int size)
+{
+    shell_var_t *slot = var_find(name, nlen, 0);
+    val_t v;
+
+    if (!slot) return -1;
+    v.type = slot->type;
+    v.i = 0;
+    v.f = 0.f;
+    v.s[0] = '\0';
+    if (slot->type == V_INT) v.i = slot->u.i;
+    else if (slot->type == V_FLT) v.f = slot->u.f;
+    else memcpy(v.s, slot->u.s, VAR_STR);
+    val_text(&v, out, size);
+    return 0;
+}
+
+static void KEXT var_list(void)
+{
+    int any = 0, i;
+
+    for (i = 0; i < VAR_MAX; i++) {
+        char buf[VAR_STR];
+
+        if (s_var[i].type == V_NONE) continue;
+        any = 1;
+        if (s_var[i].type == V_INT)
+            kprintf("%s = %d\r\n", s_var[i].name, (int)s_var[i].u.i);
+        else if (s_var[i].type == V_FLT) {
+            ftoa(buf, (int)sizeof buf, s_var[i].u.f);
+            kprintf("%s = %s\r\n", s_var[i].name, buf);
+        } else
+            kprintf("%s = \"%s\"\r\n", s_var[i].name, s_var[i].u.s);
+    }
+    if (!any) kprintf("no variables\r\n");
+}
+
+static int KEXT load_var(const char *name, int nlen, val_t *out)
+{
+    shell_var_t *slot = var_find(name, nlen, 0);
+    char nb[VAR_NAME];
+
+    if (!slot) {
+        memcpy(nb, name, (size_t)nlen);
+        nb[nlen] = '\0';
+        kprintf("%s: no such variable: %s\r\n", s_vwho, nb);
+        return -1;
+    }
+    out->type = slot->type;
+    out->i = 0;
+    out->f = 0.f;
+    out->s[0] = '\0';
+    if (slot->type == V_INT) out->i = slot->u.i;
+    else if (slot->type == V_FLT) out->f = slot->u.f;
+    else memcpy(out->s, slot->u.s, VAR_STR);
+    return 0;
+}
+
+static int KEXT add_i(int32_t a, int32_t b, int32_t *o)
+{
+    if ((b > 0 && a > 2147483647 - b) ||
+        (b < 0 && a < (-2147483647 - 1) - b))
+        return -1;
+    *o = a + b;
+    return 0;
+}
+
+static int KEXT mul_i(int32_t a, int32_t b, int32_t *o)
+{
+    const int32_t vmin = (-2147483647 - 1);
+    int neg = 0;
+    uint32_t ua, ub, r;
+
+    if (a == 0 || b == 0) { *o = 0; return 0; }
+    if (a == vmin) {
+        if (b != 1) return -1;
+        *o = a;
+        return 0;
+    }
+    if (b == vmin) {
+        if (a != 1) return -1;
+        *o = b;
+        return 0;
+    }
+    if (a < 0) { neg ^= 1; a = -a; }
+    if (b < 0) { neg ^= 1; b = -b; }
+    ua = (uint32_t)a;
+    ub = (uint32_t)b;
+    if (ub > 0xFFFFFFFFu / ua) return -1;
+    r = ua * ub;
+    if (!neg) {
+        if (r > 2147483647u) return -1;
+        *o = (int32_t)r;
+        return 0;
+    }
+    if (r > 2147483648u) return -1;
+    *o = (int32_t)(0u - r);
+    return 0;
+}
+
+enum {
+    OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD,
+    OP_AND, OP_OR, OP_XOR, OP_SHL, OP_SHR
+};
+
+static int KEXT apply_num(int op, val_t *a, const val_t *b)
+{
+    int flt = (a->type == V_FLT || b->type == V_FLT);
+    int32_t ia, ib, ir;
+    float fa, fb;
+
+    if (op == OP_MOD || op == OP_AND || op == OP_OR || op == OP_XOR ||
+        op == OP_SHL || op == OP_SHR) {
+        if (a->type != V_INT || b->type != V_INT) return vfail("not an integer");
+        ia = a->i;
+        ib = b->i;
+        if (op == OP_MOD) {
+            if (ib == 0) return vfail("division by zero");
+            if (ia == (-2147483647 - 1) && ib == -1) ir = 0;
+            else ir = ia % ib;
+        } else if (op == OP_AND) ir = ia & ib;
+        else if (op == OP_OR) ir = ia | ib;
+        else if (op == OP_XOR) ir = ia ^ ib;
+        else {
+            if (ib < 0 || ib > 31) return vfail("bad shift");
+            if (op == OP_SHL) ir = (int32_t)((uint32_t)ia << (uint32_t)ib);
+            else ir = (int32_t)((uint32_t)ia >> (uint32_t)ib);
+        }
+        a->type = V_INT;
+        a->i = ir;
+        return 0;
+    }
+
+    if (flt) {
+        fa = (a->type == V_INT) ? (float)a->i : a->f;
+        fb = (b->type == V_INT) ? (float)b->i : b->f;
+        if (op == OP_ADD) fa = fa + fb;
+        else if (op == OP_SUB) fa = fa - fb;
+        else if (op == OP_MUL) fa = fa * fb;
+        else {
+            if (fb == 0.f) return vfail("division by zero");
+            fa = fa / fb;
+        }
+        a->type = V_FLT;
+        a->f = fa;
+        return 0;
+    }
+
+    ia = a->i;
+    ib = b->i;
+    if (op == OP_ADD) {
+        if (add_i(ia, ib, &ir) != 0) return vfail("integer overflow");
+    } else if (op == OP_SUB) {
+        if (ib == (-2147483647 - 1)) {
+            if (ia >= 0) return vfail("integer overflow");
+            ir = (int32_t)((uint32_t)ia + 2147483648u);
+        } else if (add_i(ia, -ib, &ir) != 0) {
+            return vfail("integer overflow");
+        }
+    } else if (op == OP_MUL) {
+        if (mul_i(ia, ib, &ir) != 0) return vfail("integer overflow");
+    } else {
+        if (ib == 0) return vfail("division by zero");
+        if (ia == (-2147483647 - 1) && ib == -1) return vfail("integer overflow");
+        ir = ia / ib;
+    }
+    a->type = V_INT;
+    a->i = ir;
+    return 0;
+}
+
+static int KEXT apply_add(val_t *a, const val_t *b)
+{
+    char left[VAR_STR], right[VAR_STR];
+    int n, m;
+
+    if (a->type != V_STR && b->type != V_STR)
+        return apply_num(OP_ADD, a, b);
+    val_text(a, left, (int)sizeof left);
+    val_text(b, right, (int)sizeof right);
+    n = (int)strlen(left);
+    m = (int)strlen(right);
+    if (n + m >= VAR_STR) return vfail("string too long");
+    memcpy(a->s, left, (size_t)n);
+    memcpy(a->s + n, right, (size_t)m + 1);
+    a->type = V_STR;
+    return 0;
+}
+
+/* One conversion in a format string, or concatenation when it has none.
+ * '%%' is a literal percent.  A later conversion is left for the next
+ * argument. */
+static int KEXT format_step(val_t *dst, const val_t *arg)
+{
+    char out[VAR_STR];
+    char piece[VAR_STR];
+    const char *f = dst->s;
+    int o = 0;
+
+    while (*f) {
+        if (*f != '%') {
+            if (o >= VAR_STR - 1) return vfail("string too long");
+            out[o++] = *f++;
+            continue;
+        }
+        f++;
+        if (*f == '%') {
+            if (o >= VAR_STR - 1) return vfail("string too long");
+            out[o++] = '%';
+            f++;
+            continue;
+        }
+        if (*f != 'd' && *f != 'i' && *f != 'u' && *f != 'x' && *f != 'X' &&
+            *f != 's' && *f != 'f')
+            return vfail("bad format");
+        if (*f == 's') val_text(arg, piece, (int)sizeof piece);
+        else if (*f == 'f') {
+            float fv;
+            if (arg->type == V_STR) return vfail("bad format");
+            fv = (arg->type == V_INT) ? (float)arg->i : arg->f;
+            ftoa(piece, (int)sizeof piece, fv);
+        } else if (*f == 'd' || *f == 'i') {
+            int32_t n;
+            if (arg->type == V_STR) return vfail("bad format");
+            if (arg->type == V_FLT) {
+                if (arg->f > 2147483647.f || arg->f < -2147483648.f)
+                    return vfail("integer overflow");
+                n = (int32_t)arg->f;
+            } else n = arg->i;
+            ksnprintf(piece, (int)sizeof piece, "%d", (int)n);
+        } else {
+            if (arg->type != V_INT) return vfail("not an integer");
+            ksnprintf(piece, (int)sizeof piece,
+                      (*f == 'u') ? "%u" : (*f == 'X') ? "%X" : "%x",
+                      (unsigned)(uint32_t)arg->i);
+        }
+        f++;
+        {
+            int pn = (int)strlen(piece);
+            int i;
+            if (o + pn >= VAR_STR) return vfail("string too long");
+            for (i = 0; i < pn; i++) out[o++] = piece[i];
+        }
+        while (*f) {
+            if (o >= VAR_STR - 1) return vfail("string too long");
+            out[o++] = *f++;
+        }
+        out[o] = '\0';
+        memcpy(dst->s, out, (size_t)o + 1);
+        dst->type = V_STR;
+        return 0;
+    }
+    out[o] = '\0';
+    memcpy(dst->s, out, (size_t)o + 1);
+    dst->type = V_STR;
+    {
+        val_t extra = *arg;
+        return apply_add(dst, &extra);
+    }
+}
+
+static int KEXT parse_expr(const char **pp, val_t *out);
+
+/* ---------------------------------------------------------- functions */
+/*
+ * Four functions.  A body is kept on the heap, at most 127 characters,
+ * so the static cost is the table.  A call takes 0 to 32 arguments and
+ * returns one value; the arguments of the call in progress sit on the
+ * stack, sized to how many were passed.  $0 is that count, $1 .. $32
+ * are the values.  No 'return' leaves 0.
+ */
+#define FN_MAX    4
+#define FN_BODY   128
+#define FN_ARGS   32
+#define FN_NEST   4
+#define FN_STACK  1900
+
+typedef struct {
+    uint8_t type;
+    union {
+        int32_t i;
+        float f;
+        char s[VAR_STR];
+    } u;
+} fn_arg_t;
+
+typedef struct {
+    char name[VAR_NAME];
+    char *body;
+} shell_fn_t;
+
+static shell_fn_t s_fn[FN_MAX];
+static fn_arg_t *s_fn_args;
+static int s_fn_argc;
+static int s_fn_depth;
+static int s_fn_stack;
+static val_t *s_fn_ret;
+
+static int KEXT exec_block(const char **pp, int skip, char *walk, char *one);
+
+static int KEXT fn_reserved(const char *s, int n)
+{
+    static const char *const w[] = {
+        "if", "else", "end", "loop", "break", "fn", "return",
+        "get", "set", "adc", "pwm", "int", "float", "str", "hex",
+        "rand", "srand", "sin", "cos", "pi"
+    };
+    int i;
+
+    for (i = 0; i < (int)(sizeof w / sizeof w[0]); i++) {
+        if ((int)strlen(w[i]) == n && strncmp(s, w[i], (size_t)n) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static shell_fn_t *KEXT fn_slot(const char *name, int nlen, int create)
+{
+    shell_fn_t *gap = NULL;
+    int i;
+
+    for (i = 0; i < FN_MAX; i++) {
+        if (!s_fn[i].body) {
+            if (!gap) gap = &s_fn[i];
+            continue;
+        }
+        if (strncmp(s_fn[i].name, name, (size_t)nlen) == 0 &&
+            s_fn[i].name[nlen] == '\0')
+            return &s_fn[i];
+    }
+    return create ? gap : NULL;
+}
+
+static void KEXT fn_list(void)
+{
+    int any = 0, i;
+
+    for (i = 0; i < FN_MAX; i++) {
+        if (!s_fn[i].body) continue;
+        any = 1;
+        kprintf("%s\r\n", s_fn[i].name);
+    }
+    if (!any) kprintf("no functions\r\n");
+}
+
+/* 0 copied, -2 when the body does not fit, -1 when the block is open. */
+static int KEXT fn_slurp(const char **pp, char *dst, int size, char *walk)
+{
+    int depth = 1, n = 0;
+
+    while (next_stmt(pp, walk, LINE_MAX) == 0) {
+        int add;
+
+        if (word_is(walk, "if", NULL) || word_is(walk, "loop", NULL) ||
+            word_is(walk, "fn", NULL))
+            depth++;
+        else if (word_is(walk, "end", NULL)) {
+            if (--depth == 0) {
+                if (dst) dst[n] = '\0';
+                return 0;
+            }
+        }
+        if (!dst) continue;
+        add = (int)strlen(walk);
+        if ((n ? n + 1 : 0) + add >= size) return -2;
+        if (n) dst[n++] = '\n';
+        memcpy(dst + n, walk, (size_t)add);
+        n += add;
+    }
+    return -1;
+}
+
+static int KEXT fn_define(const char *rest, const char **pp, char *walk, int skip)
+{
+    char tmp[FN_BODY];
+    char name[VAR_NAME];
+    int nlen = 0, rc;
+    shell_fn_t *slot;
+    char *mem;
+
+    s_vwho = "fn";
+    if (!name_char(*rest, 1)) return vfail("bad name");
+    while (name_char(rest[nlen], 0)) nlen++;
+    if (nlen >= VAR_NAME) return vfail("bad name");
+    if (rest[nlen]) return usage("fn [<name>]");
+    memcpy(name, rest, (size_t)nlen);
+    name[nlen] = '\0';
+    if (fn_reserved(name, nlen)) return vfail("bad name");
+
+    rc = fn_slurp(pp, skip ? NULL : tmp, FN_BODY, walk);
+    if (rc == -2) return vfail("function too long");
+    if (rc != 0) {
+        kprintf("missing end\r\n");
+        s_status = FREYA_EXIT_FAIL;
+        return -1;
+    }
+    if (skip) return 0;
+
+    slot = fn_slot(name, nlen, 1);
+    if (!slot) return vfail("too many functions");
+    mem = kmalloc((uint32_t)strlen(tmp) + 1U);
+    if (!mem) return vfail("out of memory");
+    memcpy(mem, tmp, strlen(tmp) + 1U);
+    if (slot->body) kfree(slot->body);
+    else {
+        memcpy(slot->name, name, (size_t)nlen + 1U);
+    }
+    slot->body = mem;
+    return 0;
+}
+
+static int KEXT arg_get(int idx, val_t *out)
+{
+    const fn_arg_t *a;
+
+    out->type = V_INT;
+    out->i = 0;
+    out->f = 0.f;
+    out->s[0] = '\0';
+    if (s_fn_depth <= 0 || idx < 0 || idx > s_fn_argc) return -1;
+    if (idx == 0) {
+        out->i = s_fn_argc;
+        return 0;
+    }
+    a = &s_fn_args[idx - 1];
+    out->type = a->type;
+    if (a->type == V_INT) out->i = a->u.i;
+    else if (a->type == V_FLT) out->f = a->u.f;
+    else memcpy(out->s, a->u.s, VAR_STR);
+    return 0;
+}
+
+static int KEXT arg_load(int idx, val_t *out)
+{
+    if (arg_get(idx, out) != 0) return vfail("no such argument");
+    return 0;
+}
+
+static int KEXT arg_copy(int idx, char *out, int size)
+{
+    val_t v;
+
+    if (arg_get(idx, &v) != 0) return -1;
+    val_text(&v, out, size);
+    return 0;
+}
+
+static void KEXT val_arg(fn_arg_t *a, const val_t *v)
+{
+    a->type = v->type;
+    if (v->type == V_INT) a->u.i = v->i;
+    else if (v->type == V_FLT) a->u.f = v->f;
+    else memcpy(a->u.s, v->s, VAR_STR);
+}
+
+static int KEXT fn_invoke(const char *body, fn_arg_t *args, int argc, val_t *out)
+{
+    char walk[LINE_MAX];
+    char one[LINE_MAX];
+    const char *p = body;
+    fn_arg_t *saved_a = s_fn_args;
+    int saved_n = s_fn_argc;
+    val_t *saved_r = s_fn_ret;
+    val_t ret;
+    int rc;
+
+    memset(&ret, 0, sizeof ret);
+    s_fn_args = args;
+    s_fn_argc = argc;
+    s_fn_ret = &ret;
+    s_fn_depth++;
+    rc = exec_block(&p, 0, walk, one);
+    s_fn_depth--;
+    s_fn_args = saved_a;
+    s_fn_argc = saved_n;
+    s_fn_ret = saved_r;
+    if (rc == SCR_RETURN) {
+        *out = ret;
+        return 0;
+    }
+    if (rc == SCR_DONE) {
+        out->type = V_INT;
+        out->i = 0;
+        out->f = 0.f;
+        out->s[0] = '\0';
+        return 0;
+    }
+    if (rc == SCR_BREAK) {
+        kprintf("unexpected break\r\n");
+        s_status = FREYA_EXIT_FAIL;
+    }
+    return -1;
+}
+
+/* base 10 or 16.  A leading sign is kept.  Hex may start with 0x and
+ * keeps all 32 bits, so the high bit is the sign.  -1 bad, -2 overflow. */
+static int KEXT parse_i32(const char *s, int base, int32_t *o)
+{
+    int neg = 0, digits = 0;
+    uint32_t u = 0;
+
+    if (*s == '+' || *s == '-') {
+        neg = (*s == '-');
+        s++;
+    }
+    if (base == 16 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
+        s += 2;
+    while (*s) {
+        int d;
+
+        if (*s >= '0' && *s <= '9') d = *s - '0';
+        else if (base == 16 && *s >= 'a' && *s <= 'f') d = *s - 'a' + 10;
+        else if (base == 16 && *s >= 'A' && *s <= 'F') d = *s - 'A' + 10;
+        else return -1;
+        if (base == 10) {
+            if (u > (2147483647u - (uint32_t)d) / 10u) {
+                if (!(neg && u == 214748364u && d == 8 && s[1] == '\0'))
+                    return -2;
+            }
+        } else if (u > (0xFFFFFFFFu - (uint32_t)d) / 16u) {
+            return -2;
+        }
+        u = u * (uint32_t)base + (uint32_t)d;
+        digits++;
+        s++;
+    }
+    if (!digits) return -1;
+    if (neg) {
+        if (u > 2147483648u) return -2;
+        *o = (int32_t)(0u - u);
+    } else if (base == 16) {
+        *o = (int32_t)u;
+    } else {
+        if (u > 2147483647u) return -2;
+        *o = (int32_t)u;
+    }
+    return 0;
+}
+
+static int KEXT parse_f32(const char *s, float *o)
+{
+    int neg = 0, saw = 0, dot = 0;
+    float ip = 0.f, scale = 0.1f;
+
+    if (*s == '+' || *s == '-') {
+        neg = (*s == '-');
+        s++;
+    }
+    while (*s) {
+        if (*s >= '0' && *s <= '9') {
+            int d = *s - '0';
+            saw = 1;
+            if (!dot) ip = ip * 10.f + (float)d;
+            else { ip = ip + (float)d * scale; scale *= 0.1f; }
+            s++;
+        } else if (*s == '.' && !dot) {
+            dot = 1;
+            s++;
+        } else return -1;
+    }
+    if (!saw) return -1;
+    *o = neg ? -ip : ip;
+    return 0;
+}
+
+static int KEXT hex_prefix(const char *s)
+{
+    if (*s == '+' || *s == '-') s++;
+    return s[0] == '0' && (s[1] == 'x' || s[1] == 'X');
+}
+
+/* 0 fits, -1 not a number, -2 out of int32 range.  Truncates toward 0. */
+static int KEXT flt_to_i32(float f, int32_t *o)
+{
+    if (f != f) return -1;
+    if (f >= 2147483648.f || f < -2147483648.f) return -2;
+    *o = (int32_t)f;
+    return 0;
+}
+
+static int KEXT i32_fail(int rc)
+{
+    if (rc == -2) return vfail("integer overflow");
+    if (rc != 0) return vfail("not a number");
+    return 0;
+}
+
+static int KEXT conv_int(const fn_arg_t *a, val_t *out)
+{
+    int32_t n;
+    int rc;
+
+    if (a->type == V_INT) {
+        out->i = a->u.i;
+        return 1;
+    }
+    if (a->type == V_FLT) {
+        rc = flt_to_i32(a->u.f, &n);
+        if (i32_fail(rc) != 0) return -1;
+        out->i = n;
+        return 1;
+    }
+    if (hex_prefix(a->u.s)) rc = parse_i32(a->u.s, 16, &n);
+    else if (strchr(a->u.s, '.') != NULL) {
+        float f;
+        rc = parse_f32(a->u.s, &f);
+        if (rc == 0) rc = flt_to_i32(f, &n);
+    } else rc = parse_i32(a->u.s, 10, &n);
+    if (i32_fail(rc) != 0) return -1;
+    out->i = n;
+    return 1;
+}
+
+static int KEXT conv_float(const fn_arg_t *a, val_t *out)
+{
+    out->type = V_FLT;
+    if (a->type == V_FLT) {
+        out->f = a->u.f;
+        return 1;
+    }
+    if (a->type == V_INT) {
+        out->f = (float)a->u.i;
+        return 1;
+    }
+    if (hex_prefix(a->u.s)) {
+        int32_t n;
+        int rc = parse_i32(a->u.s, 16, &n);
+        if (i32_fail(rc) != 0) return -1;
+        out->f = (float)n;
+        return 1;
+    }
+    if (parse_f32(a->u.s, &out->f) != 0) return vfail("not a number");
+    return 1;
+}
+
+static int KEXT conv_str(const fn_arg_t *a, val_t *out)
+{
+    val_t v;
+
+    v.type = a->type;
+    v.i = 0;
+    v.f = 0.f;
+    v.s[0] = '\0';
+    if (a->type == V_INT) v.i = a->u.i;
+    else if (a->type == V_FLT) v.f = a->u.f;
+    else memcpy(v.s, a->u.s, VAR_STR);
+    val_text(&v, out->s, VAR_STR);
+    out->type = V_STR;
+    return 1;
+}
+
+static int KEXT conv_hex(const fn_arg_t *a, val_t *out)
+{
+    int32_t n;
+    int rc;
+
+    if (a->type == V_STR) {
+        rc = parse_i32(a->u.s, 16, &n);
+        if (i32_fail(rc) != 0) return -1;
+        out->i = n;
+        return 1;
+    }
+    if (a->type == V_FLT) {
+        rc = flt_to_i32(a->u.f, &n);
+        if (i32_fail(rc) != 0) return -1;
+    } else n = a->u.i;
+    ksnprintf(out->s, VAR_STR, "%x", (unsigned)(uint32_t)n);
+    out->type = V_STR;
+    return 1;
+}
+
+/* ANSI C 1989 7.10.2.1 example.  The state is 32 bits, unsigned long
+ * on this machine, and the result is 0..32767.  The seed starts at 1. */
+static uint32_t s_rand_next = 1;
+
+static int32_t KEXT rand_step(void)
+{
+    s_rand_next = s_rand_next * 1103515245u + 12345u;
+    return (int32_t)((s_rand_next / 65536u) % 32768u);
+}
+
+/* Single precision.  The angle is reduced to a quadrant of pi/2, then
+ * a Taylor polynomial covers that quadrant.  Past about 1e6 the
+ * reduction no longer has a meaningful fraction of pi left. */
+static float KEXT shell_pi(void)
+{
+    return 3.14159265358979323846f;
+}
+
+static float KEXT poly_sin(float y)
+{
+    float y2 = y * y;
+    return y * (1.f + y2 * (-1.6666666666666666e-1f + y2 *
+           (8.333333333333333e-3f + y2 * (-1.984126984126984e-4f + y2 *
+           (2.755731922398589e-6f + y2 * -2.505210838544172e-8f)))));
+}
+
+static float KEXT poly_cos(float y)
+{
+    float y2 = y * y;
+    return 1.f + y2 * (-0.5f + y2 * (4.166666666666666e-2f + y2 *
+           (-1.388888888888889e-3f + y2 * (2.480158730158730e-5f + y2 *
+           -2.755731922398589e-7f))));
+}
+
+/* 0 and the value, -1 when the angle is not a usable number. */
+static int KEXT shell_sincos(float x, int cos, float *o)
+{
+    const float half_pi = 1.5707963267948966f;
+    float fn, y;
+    int n, q;
+
+    if (x != x || x > 1.0e6f || x < -1.0e6f) return -1;
+    fn = x * 0.6366197723675814f;
+    n = (int)(fn >= 0.f ? fn + 0.5f : fn - 0.5f);
+    y = x - (float)n * half_pi;
+    q = n & 3;
+    if (cos) q = (q + 1) & 3;
+    if (q == 0) *o = poly_sin(y);
+    else if (q == 1) *o = poly_cos(y);
+    else if (q == 2) *o = -poly_sin(y);
+    else *o = -poly_cos(y);
+    return 0;
+}
+
+static int KEXT conv_sincos(const fn_arg_t *a, int cos, val_t *out)
+{
+    float x, y;
+
+    if (a->type == V_FLT) x = a->u.f;
+    else if (a->type == V_INT) x = (float)a->u.i;
+    else return vfail("bad expression");
+    if (shell_sincos(x, cos, &y) != 0) return vfail("not a number");
+    out->type = V_FLT;
+    out->f = y;
+    return 1;
+}
+
+/* 1 handled, 0 not a built-in, -1 error (already printed).
+ * int/float/str/hex convert.  rand() and srand(seed) are the ANSI C
+ * generator.  sin and cos take one number, and pi() is the constant.
+ * get(pin) reads a pin.  set(pin, 0|1) drives it and reads it back.
+ * adc(pin|temp|vref) is one raw count.  pwm(pin, hz, duty)
+ * starts a channel and returns the rate; pwm(pin) stops it and returns 0. */
+static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
+                           int argc, val_t *out)
+{
+    const char *ps;
+    int pin, rc;
+
+    out->type = V_INT;
+    out->i = 0;
+    out->f = 0.f;
+    out->s[0] = '\0';
+
+    if ((nlen == 3 && strncmp(name, "int", 3) == 0) ||
+        (nlen == 5 && strncmp(name, "float", 5) == 0) ||
+        (nlen == 3 && strncmp(name, "str", 3) == 0) ||
+        (nlen == 3 && strncmp(name, "hex", 3) == 0)) {
+        if (argc != 1) return vfail("bad expression");
+        if (name[0] == 'i') return conv_int(&args[0], out);
+        if (name[0] == 'f') return conv_float(&args[0], out);
+        if (name[0] == 's') return conv_str(&args[0], out);
+        return conv_hex(&args[0], out);
+    }
+
+    if (nlen == 4 && strncmp(name, "rand", 4) == 0) {
+        if (argc != 0) return vfail("bad expression");
+        out->i = rand_step();
+        return 1;
+    }
+    if (nlen == 5 && strncmp(name, "srand", 5) == 0) {
+        if (argc != 1 || args[0].type != V_INT) return vfail("bad expression");
+        s_rand_next = (uint32_t)args[0].u.i;
+        return 1;
+    }
+
+    if (nlen == 2 && strncmp(name, "pi", 2) == 0) {
+        if (argc != 0) return vfail("bad expression");
+        out->type = V_FLT;
+        out->f = shell_pi();
+        return 1;
+    }
+    if (nlen == 3 && (strncmp(name, "sin", 3) == 0 || strncmp(name, "cos", 3) == 0)) {
+        if (argc != 1) return vfail("bad expression");
+        return conv_sincos(&args[0], name[0] == 'c', out);
+    }
+
+    if (nlen == 3 && strncmp(name, "get", 3) == 0) {
+        if (argc != 1 || args[0].type != V_STR) return vfail("bad expression");
+        pin = parse_pin(args[0].u.s);
+        if (pin < 0) return pin_fail("get", FREYA_ERR_PIN);
+        rc = gpio_pin_read(pin);
+        if (rc < 0) return pin_fail("get", rc);
+        out->i = rc;
+        return 1;
+    }
+    if (nlen == 3 && strncmp(name, "set", 3) == 0) {
+        if (argc != 2 || args[0].type != V_STR || args[1].type != V_INT ||
+            (args[1].u.i != 0 && args[1].u.i != 1))
+            return vfail("bad expression");
+        pin = parse_pin(args[0].u.s);
+        if (pin < 0) return pin_fail("set", FREYA_ERR_PIN);
+        rc = gpio_pin_mode(pin, FREYA_PIN_OUT);
+        if (rc != 0) return pin_fail("set", rc);
+        rc = gpio_pin_write(pin, (int)args[1].u.i);
+        if (rc != 0) return pin_fail("set", rc);
+        rc = gpio_pin_read(pin);
+        if (rc < 0) return pin_fail("set", rc);
+        out->i = rc;
+        return 1;
+    }
+    if (nlen == 3 && strncmp(name, "adc", 3) == 0) {
+        int source;
+
+        if (argc != 1 || args[0].type != V_STR) return vfail("bad expression");
+        ps = args[0].u.s;
+        if (strcmp(ps, "temp") == 0) source = FREYA_ADC_TEMP;
+        else if (strcmp(ps, "vref") == 0) source = FREYA_ADC_VREF;
+        else source = parse_pin(ps);
+        if (source < 0) return pin_fail("adc", FREYA_ERR_PIN);
+        rc = adc_read(source);
+        if (rc < 0) return pin_fail("adc", rc);
+        out->i = rc;
+        return 1;
+    }
+    if (nlen == 3 && strncmp(name, "pwm", 3) == 0) {
+        uint32_t hz, duty;
+        int ch;
+
+        if ((argc != 1 && argc != 3) || args[0].type != V_STR)
+            return vfail("bad expression");
+        pin = parse_pin(args[0].u.s);
+        ch = (pin < 0) ? FREYA_ERR_PIN : pwm_lookup(pin);
+        if (ch < 0) return pin_fail("pwm", ch);
+        if (argc == 1) {
+            if (pwm_close(ch) != 0) {
+                kprintf("pwm: is not running\r\n");
+                return -1;
+            }
+            return 1;
+        }
+        if (args[1].type != V_INT || args[1].u.i <= 0) return vfail("bad expression");
+        hz = (uint32_t)args[1].u.i;
+        if (args[2].type == V_INT) {
+            if (args[2].u.i < 0 || args[2].u.i > 100) return vfail("bad expression");
+            duty = (uint32_t)args[2].u.i * 100U;
+        } else if (args[2].type == V_FLT) {
+            float d = args[2].u.f;
+            if (d < 0.f || d > 100.f) return vfail("bad expression");
+            duty = (uint32_t)(d * 100.f + 0.5f);
+            if (duty > FREYA_PWM_FULL) duty = FREYA_PWM_FULL;
+        } else {
+            return vfail("bad expression");
+        }
+        rc = pwm_open(pin, hz, duty);
+        if (rc < 0) return pin_fail("pwm", rc);
+        out->i = (int32_t)hz;
+        return 1;
+    }
+    return 0;
+}
+
+static int KEXT parse_call(const char *name, int nlen, const char **pp, val_t *out)
+{
+    const char *beg[FN_ARGS], *end[FN_ARGS];
+    int argc = 0, mark, i;
+    shell_fn_t *slot;
+    char nb[VAR_NAME];
+
+    memcpy(nb, name, (size_t)nlen);
+    nb[nlen] = '\0';
+    if (s_fn_depth >= FN_NEST || s_fn_stack + (int)sizeof beg > FN_STACK)
+        return vfail("calls nest too deeply");
+    s_fn_stack += (int)sizeof beg;
+
+    (*pp)++;
+    vskip(pp);
+    if (**pp != ')') {
+        for (;;) {
+            const char *s;
+            int depth = 0, q = 0;
+
+            vskip(pp);
+            s = *pp;
+            if (*s == ')' || *s == ',' || *s == '\0') {
+                s_fn_stack -= (int)sizeof beg;
+                return vfail("bad expression");
+            }
+            if (argc >= FN_ARGS) {
+                s_fn_stack -= (int)sizeof beg;
+                return vfail("too many arguments");
+            }
+            beg[argc] = s;
+            while (*s) {
+                if (*s == '"') q = !q;
+                else if (!q && *s == '(') depth++;
+                else if (!q && *s == ')') {
+                    if (depth == 0) break;
+                    depth--;
+                } else if (!q && *s == ',' && depth == 0) break;
+                s++;
+            }
+            if (*s != ',' && *s != ')') {
+                s_fn_stack -= (int)sizeof beg;
+                return vfail("bad expression");
+            }
+            end[argc++] = s;
+            *pp = s;
+            if (*s == ')') break;
+            (*pp)++;
+        }
+    }
+    if (**pp != ')') {
+        s_fn_stack -= (int)sizeof beg;
+        return vfail("bad expression");
+    }
+    (*pp)++;
+
+    mark = (argc > 0 ? argc : 1) * (int)sizeof(fn_arg_t) + LINE_MAX * 2;
+    if (s_fn_stack + mark > FN_STACK) {
+        s_fn_stack -= (int)sizeof beg;
+        return vfail("calls nest too deeply");
+    }
+    s_fn_stack += mark;
+    {
+        fn_arg_t args[argc > 0 ? argc : 1];
+
+        for (i = 0; i < argc; i++) {
+            const char *p = beg[i];
+            val_t v;
+
+            if (parse_expr(&p, &v) != 0) {
+                s_fn_stack -= mark + (int)sizeof beg;
+                return -1;
+            }
+            vskip(&p);
+            if (p != end[i]) {
+                s_fn_stack -= mark + (int)sizeof beg;
+                return vfail("bad expression");
+            }
+            val_arg(&args[i], &v);
+        }
+        {
+            int b = fn_builtin(nb, nlen, argc ? args : NULL, argc, out);
+            if (b != 0) {
+                s_fn_stack -= mark + (int)sizeof beg;
+                return (b < 0) ? -1 : 0;
+            }
+        }
+        slot = fn_slot(nb, nlen, 0);
+        if (!slot) {
+            s_fn_stack -= mark + (int)sizeof beg;
+            kprintf("%s: no such function: %s\r\n", s_vwho, nb);
+            return -1;
+        }
+        if (fn_invoke(slot->body, argc ? args : NULL, argc, out) != 0) {
+            s_fn_stack -= mark + (int)sizeof beg;
+            return -1;
+        }
+    }
+    s_fn_stack -= mark + (int)sizeof beg;
+    return 0;
+}
+
+static int KEXT parse_primary(const char **pp, val_t *out)
+{
+    const char *s;
+    vskip(pp);
+    s = *pp;
+
+    if (*s == '(') {
+        *pp = s + 1;
+        if (parse_expr(pp, out) != 0) return -1;
+        vskip(pp);
+        if (**pp != ')') return vfail("bad expression");
+        (*pp)++;
+        return 0;
+    }
+
+    if (*s == '"') {
+        int n = 0;
+        s++;
+        while (*s && *s != '"') {
+            if (n >= VAR_STR - 1) return vfail("string too long");
+            out->s[n++] = *s++;
+        }
+        if (*s != '"') return vfail("bad expression");
+        out->s[n] = '\0';
+        out->type = V_STR;
+        *pp = s + 1;
+        for (;;) {
+            val_t arg;
+            char c;
+            vskip(pp);
+            c = **pp;
+            if (!((c >= '0' && c <= '9') || c == '.' || c == '"' ||
+                  c == '$' || c == '('))
+                break;
+            if (parse_primary(pp, &arg) != 0) return -1;
+            if (format_step(out, &arg) != 0) return -1;
+        }
+        return 0;
+    }
+
+        if (*s == '$') {
+        int n = 0;
+        s++;
+        if (*s == '?') {
+            out->type = V_INT;
+            out->i = s_status;
+            *pp = s + 1;
+            return 0;
+        }
+        if (*s >= '0' && *s <= '9') {
+            int idx = 0, k = 0;
+            while (s[k] >= '0' && s[k] <= '9') {
+                idx = idx * 10 + (s[k] - '0');
+                k++;
+                if (k > 2 || idx > FN_ARGS) return vfail("bad name");
+            }
+            *pp = s + k;
+            return arg_load(idx, out);
+        }
+        if (!name_char(*s, 1)) return vfail("bad name");
+        while (name_char(s[n], 0)) n++;
+        if (n >= VAR_NAME) return vfail("bad name");
+        *pp = s + n;
+        return load_var(s, n, out);
+    }
+
+    if ((*s >= '0' && *s <= '9') || *s == '.') {
+        int hex = 0, dot = 0, digits = 0;
+        if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+            uint32_t u = 0;
+            s += 2;
+            hex = 1;
+            while ((*s >= '0' && *s <= '9') ||
+                   (*s >= 'a' && *s <= 'f') || (*s >= 'A' && *s <= 'F')) {
+                uint32_t d = (*s <= '9') ? (uint32_t)(*s - '0')
+                             : (uint32_t)((*s & ~0x20) - 'A' + 10);
+                if (u > (0xFFFFFFFFu - d) / 16u) return vfail("integer overflow");
+                u = u * 16u + d;
+                digits++;
+                s++;
+            }
+            if (!digits || name_char(*s, 0)) return vfail("bad expression");
+            /* All 32 bits: the high bit is the sign, so 0xFFFFFFFF is -1. */
+            out->type = V_INT;
+            out->i = (int32_t)u;
+            *pp = s;
+            (void)hex;
+            return 0;
+        }
+        {
+            const char *t = s;
+            while (*t >= '0' && *t <= '9') t++;
+            if (*t == '.') dot = 1;
+        }
+        if (!dot) {
+            uint32_t u = 0;
+            while (*s >= '0' && *s <= '9') {
+                uint32_t d = (uint32_t)(*s - '0');
+                if (u > (2147483647u - d) / 10u) return vfail("integer overflow");
+                u = u * 10u + d;
+                digits++;
+                s++;
+            }
+            if (!digits || *s == '.' || name_char(*s, 0)) return vfail("bad expression");
+            out->type = V_INT;
+            out->i = (int32_t)u;
+            *pp = s;
+            return 0;
+        }
+        {
+            float ip = 0.f, scale = 0.1f;
+            int saw = 0, seen_dot = 0;
+            while (*s) {
+                if (*s >= '0' && *s <= '9') {
+                    int d = *s - '0';
+                    saw = 1;
+                    if (!seen_dot) ip = ip * 10.f + (float)d;
+                    else { ip = ip + (float)d * scale; scale *= 0.1f; }
+                    s++;
+                } else if (*s == '.' && !seen_dot) {
+                    seen_dot = 1;
+                    s++;
+                } else break;
+            }
+            if (!saw || name_char(*s, 0)) return vfail("bad expression");
+            out->type = V_FLT;
+            out->f = ip;
+            *pp = s;
+            return 0;
+        }
+    }
+
+    if (name_char(*s, 1)) {
+        int n = 0;
+        while (name_char(s[n], 0)) n++;
+        *pp = s + n;
+        vskip(pp);
+        if (**pp != '(') {
+            if (n == 2 && s[0] == 'p' && s[1] == 'i') {
+                out->type = V_FLT;
+                out->f = shell_pi();
+                return 0;
+            }
+            return vfail("bad expression");
+        }
+        return parse_call(s, n, pp, out);
+    }
+
+    return vfail("bad expression");
+}
+
+static int KEXT parse_unary(const char **pp, val_t *out)
+{
+    char op;
+    vskip(pp);
+    op = **pp;
+    if (op == '+' || op == '-' || op == '~') {
+        (*pp)++;
+        if (parse_unary(pp, out) != 0) return -1;
+        if (op == '~') {
+            if (out->type != V_INT) return vfail("not an integer");
+            out->i = ~out->i;
+            return 0;
+        }
+        if (out->type == V_INT) {
+            if (op == '-') {
+                if (out->i == (-2147483647 - 1)) return vfail("integer overflow");
+                out->i = -out->i;
+            }
+            return 0;
+        }
+        if (out->type == V_FLT) {
+            if (op == '-') out->f = -out->f;
+            return 0;
+        }
+        return vfail("bad expression");
+    }
+    return parse_primary(pp, out);
+}
+
+static int KEXT parse_mul(const char **pp, val_t *out)
+{
+    if (parse_unary(pp, out) != 0) return -1;
+    for (;;) {
+        int op;
+        val_t rhs;
+        vskip(pp);
+        if (**pp == '*') op = OP_MUL;
+        else if (**pp == '/' && (*pp)[1] != '=') op = OP_DIV;
+        else if (**pp == '%') op = OP_MOD;
+        else break;
+        (*pp)++;
+        if (parse_unary(pp, &rhs) != 0) return -1;
+        if (out->type == V_STR || rhs.type == V_STR) return vfail("bad expression");
+        if (apply_num(op, out, &rhs) != 0) return -1;
+    }
+    return 0;
+}
+
+static int KEXT parse_add(const char **pp, val_t *out)
+{
+    if (parse_mul(pp, out) != 0) return -1;
+    for (;;) {
+        int sub;
+        val_t rhs;
+        vskip(pp);
+        if (**pp != '+' && **pp != '-') break;
+        sub = (**pp == '-');
+        (*pp)++;
+        if (parse_mul(pp, &rhs) != 0) return -1;
+        if (sub) {
+            if (out->type == V_STR || rhs.type == V_STR)
+                return vfail("bad expression");
+            if (apply_num(OP_SUB, out, &rhs) != 0) return -1;
+        } else if (apply_add(out, &rhs) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int KEXT parse_shift(const char **pp, val_t *out)
+{
+    if (parse_add(pp, out) != 0) return -1;
+    for (;;) {
+        int op;
+        val_t rhs;
+        vskip(pp);
+        if ((*pp)[0] == '<' && (*pp)[1] == '<') op = OP_SHL;
+        else if ((*pp)[0] == '>' && (*pp)[1] == '>') op = OP_SHR;
+        else break;
+        *pp += 2;
+        if (parse_add(pp, &rhs) != 0) return -1;
+        if (apply_num(op, out, &rhs) != 0) return -1;
+    }
+    return 0;
+}
+
+static int KEXT parse_bit(const char **pp, val_t *out, char tok, int op,
+                          int (*lower)(const char **, val_t *))
+{
+    if (lower(pp, out) != 0) return -1;
+    for (;;) {
+        val_t rhs;
+        vskip(pp);
+        if (**pp != tok) break;
+        (*pp)++;
+        if (lower(pp, &rhs) != 0) return -1;
+        if (apply_num(op, out, &rhs) != 0) return -1;
+    }
+    return 0;
+}
+
+static int KEXT parse_and(const char **pp, val_t *out)
+{
+    return parse_bit(pp, out, '&', OP_AND, parse_shift);
+}
+
+static int KEXT parse_xor(const char **pp, val_t *out)
+{
+    return parse_bit(pp, out, '^', OP_XOR, parse_and);
+}
+
+static int KEXT parse_or(const char **pp, val_t *out)
+{
+    return parse_bit(pp, out, '|', OP_OR, parse_xor);
+}
+
+static int KEXT values_equal(const val_t *a, const val_t *b)
+{
+    if (a->type == V_STR || b->type == V_STR) {
+        if (a->type != b->type) return 0;
+        return strcmp(a->s, b->s) == 0;
+    }
+    if (a->type == V_INT && b->type == V_INT) return a->i == b->i;
+    {
+        float x = (a->type == V_INT) ? (float)a->i : a->f;
+        float y = (b->type == V_INT) ? (float)b->i : b->f;
+        return x == y;
+    }
+}
+
+/* -1 when either side is a string.  *cmp is -1, 0 or 1, as a - b. */
+static int KEXT values_order(const val_t *a, const val_t *b, int *cmp)
+{
+    if (a->type == V_STR || b->type == V_STR) return -1;
+    if (a->type == V_INT && b->type == V_INT) {
+        *cmp = (a->i > b->i) - (a->i < b->i);
+        return 0;
+    }
+    {
+        float x = (a->type == V_INT) ? (float)a->i : a->f;
+        float y = (b->type == V_INT) ? (float)b->i : b->f;
+        *cmp = (x > y) - (x < y);
+        return 0;
+    }
+}
+
+static int KEXT parse_expr(const char **pp, val_t *out)
+{
+    if (parse_or(pp, out) != 0) return -1;
+    for (;;) {
+        int ne;
+        val_t rhs;
+        vskip(pp);
+        if ((*pp)[0] == '=' && (*pp)[1] == '=') ne = 0;
+        else if ((*pp)[0] == '/' && (*pp)[1] == '=') ne = 1;
+        else if ((*pp)[0] == '>' && (*pp)[1] == '<') ne = 2;
+        else if ((*pp)[0] == '<' && (*pp)[1] != '<') ne = 3;
+        else if ((*pp)[0] == '>' && (*pp)[1] != '>') ne = 4;
+        else break;
+        *pp += (ne >= 3) ? 1 : 2;
+        if (parse_or(pp, &rhs) != 0) return -1;
+        if (ne <= 1) {
+            out->i = values_equal(out, &rhs) ? 1 : 0;
+            if (ne) out->i = !out->i;
+        } else {
+            int cmp;
+
+            if (values_order(out, &rhs, &cmp) != 0) return vfail("not a number");
+            if (ne == 2) out->i = cmp != 0;
+            else if (ne == 3) out->i = cmp < 0;
+            else out->i = cmp > 0;
+        }
+        out->type = V_INT;
+    }
+    return 0;
+}
+
+static int KEXT set_exec(const char *line)
+{
+    const char *s;
+    char name[VAR_NAME];
+    int nlen = 0;
+    val_t v;
+    shell_var_t *slot;
+
+    s_vwho = "set";
+    if (!word_is(line, "set", &s)) return -1;
+    if (!*s) {
+        var_list();
+        return 0;
+    }
+    if (!name_char(*s, 1)) return vfail("bad name");
+    while (name_char(s[nlen], 0)) nlen++;
+    if (nlen >= VAR_NAME) return vfail("bad name");
+    memcpy(name, s, (size_t)nlen);
+    name[nlen] = '\0';
+    s += nlen;
+    vskip(&s);
+    if (!*s) return usage("set [<name> <expr>]");
+    if (parse_expr(&s, &v) != 0) return -1;
+    vskip(&s);
+    if (*s) return vfail("bad expression");
+    slot = var_find(name, nlen, 1);
+    if (!slot) return vfail("too many variables");
+    slot->type = v.type;
+    if (v.type == V_INT) slot->u.i = v.i;
+    else if (v.type == V_FLT) slot->u.f = v.f;
+    else memcpy(slot->u.s, v.s, VAR_STR);
+    return 0;
+}
+
+static int KEXT cmd_unset(int argc, char **argv)
+{
+    shell_var_t *slot;
+    const char *n;
+    int nlen = 0;
+
+    s_vwho = "unset";
+    if (argc != 2) return usage("unset <name>");
+    n = argv[1];
+    if (!name_char(n[0], 1)) return vfail("bad name");
+    while (n[nlen]) {
+        if (!name_char(n[nlen], 0) || nlen >= VAR_NAME - 1) return vfail("bad name");
+        nlen++;
+    }
+    slot = var_find(n, nlen, 0);
+    if (!slot) {
+        kprintf("unset: no such variable: %s\r\n", n);
+        return -1;
+    }
+    slot->type = V_NONE;
+    slot->name[0] = '\0';
+    return 0;
+}
+
+/* 1 when the text is a comparison.  'if' runs a command otherwise. */
+static int KEXT is_condition(const char *s)
+{
+    int q = 0;
+
+    while (*s) {
+        if (*s == '"') q = !q;
+        else if (!q && s[0] == '=' && s[1] == '=') return 1;
+        else if (!q && s[0] == '/' && s[1] == '=') return 1;
+        else if (!q && s[0] == '>' && s[1] == '<') return 1;
+        else if (!q && s[0] == '<' && s[1] != '<') return 1;
+        else if (!q && s[0] == '>' && s[1] != '>') return 1;
+        s++;
+    }
+    return 0;
+}
+
+/* 1 true, 0 false, -1 bad (a message is already printed). */
+static int KEXT cond_eval(const char *s)
+{
+    val_t v;
+
+    s_vwho = "if";
+    if (parse_expr(&s, &v) != 0) return -1;
+    vskip(&s);
+    if (*s || v.type != V_INT) return vfail("bad expression");
+    return v.i ? 1 : 0;
+}
+
 static int KEXT run_command(const char *line)
 {
     char buf[LINE_MAX];
     char *argv[MAX_ARGS];
     int argc;
 
-    expand_status(line, buf, (int)sizeof buf);
+    if (word_is(line, "set", NULL))
+        return s_status = status_of(set_exec(line));
+    if (expand_status(line, buf, (int)sizeof buf) != 0)
+        return s_status;
     argc = split_args(buf, argv, MAX_ARGS);
     if (argc == 0) return s_status;
 
@@ -2359,23 +3990,107 @@ static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
         if (word_is(walk, "end", NULL)) return SCR_END;
         if (word_is(walk, "else", NULL)) return SCR_ELSE;
 
+        if (word_is(walk, "return", &rest)) {
+            val_t v;
+
+            if (!*rest) {
+                usage("return <expr>");
+                s_status = FREYA_EXIT_FAIL;
+                return SCR_ERR;
+            }
+            if (skip) continue;
+            if (!s_fn_ret) {
+                kprintf("unexpected return\r\n");
+                s_status = FREYA_EXIT_FAIL;
+                return SCR_ERR;
+            }
+            s_vwho = "return";
+            if (parse_expr(&rest, &v) != 0) {
+                s_status = FREYA_EXIT_FAIL;
+                return SCR_ERR;
+            }
+            vskip(&rest);
+            if (*rest) {
+                vfail("bad expression");
+                s_status = FREYA_EXIT_FAIL;
+                return SCR_ERR;
+            }
+            *s_fn_ret = v;
+            s_status = 0;
+            return SCR_RETURN;
+        }
+
+        if (word_is(walk, "fn", &rest)) {
+            if (!*rest) {
+                if (!skip) {
+                    fn_list();
+                    s_status = 0;
+                }
+                continue;
+            }
+            if (fn_define(rest, pp, walk, skip) != 0) {
+                s_status = FREYA_EXIT_FAIL;
+                return SCR_ERR;
+            }
+            if (!skip) s_status = 0;
+            continue;
+        }
+
         if (word_is(walk, "if", &rest)) {
             int took = 0;
 
             /* 'one' is shared with the nested call, so the condition is
              * run before that call reuses it. */
             if (!skip) {
-                strncpy(one, rest, LINE_MAX - 1);
-                one[LINE_MAX - 1] = '\0';
-                run_command(one);
-                took = (s_status == 0);
+                if (is_condition(rest)) {
+                    int t = cond_eval(rest);
+
+                    if (t < 0) {
+                        s_status = FREYA_EXIT_FAIL;
+                        took = 0;
+                    } else {
+                        s_status = t ? 0 : FREYA_EXIT_FAIL;
+                        took = t;
+                    }
+                } else {
+                    strncpy(one, rest, LINE_MAX - 1);
+                    one[LINE_MAX - 1] = '\0';
+                    run_command(one);
+                    took = (s_status == 0);
+                }
             }
             rc = exec_block(pp, skip || !took, walk, one);
+            if (rc == SCR_RETURN) return SCR_RETURN;
+            if (rc == SCR_BREAK) {
+                /* The branch stopped early.  Skip the rest of this 'if'
+                 * so its 'end' is still found, then tell the loop. */
+                rc = exec_block(pp, 1, walk, one);
+                if (rc == SCR_ELSE)
+                    rc = exec_block(pp, 1, walk, one);
+                if (!block_closed(rc)) return SCR_ERR;
+                return SCR_BREAK;
+            }
             if (rc == SCR_ERR) return SCR_ERR;
             if (rc == SCR_ELSE)
                 rc = exec_block(pp, skip || took, walk, one);
+            if (rc == SCR_RETURN) return SCR_RETURN;
+            if (rc == SCR_BREAK) {
+                if (!block_closed(exec_block(pp, 1, walk, one))) return SCR_ERR;
+                return SCR_BREAK;
+            }
             if (!block_closed(rc)) return SCR_ERR;
             continue;
+        }
+
+        if (word_is(walk, "break", &rest)) {
+            if (*rest) {
+                usage("break");
+                s_status = FREYA_EXIT_FAIL;
+                return SCR_ERR;
+            }
+            if (skip) continue;
+            s_status = 0;
+            return SCR_BREAK;
         }
 
         if (word_is(walk, "loop", &rest)) {
@@ -2385,7 +4100,8 @@ static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
             if (!skip) {
                 int pr;
 
-                expand_status(rest, one, LINE_MAX);
+                if (expand_status(rest, one, LINE_MAX) != 0)
+                    return SCR_ERR;
                 pr = parse_count(one, &count);
                 if (pr != 0) {
                     count_error(pr);
@@ -2403,6 +4119,13 @@ static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
 
                 if (script_interrupted()) return SCR_ERR;
                 rc = exec_block(&q, 0, walk, one);
+                if (rc == SCR_RETURN) return SCR_RETURN;
+                if (rc == SCR_BREAK) {
+                    rc = exec_block(&q, 1, walk, one);
+                    if (!block_closed(rc)) return SCR_ERR;
+                    *pp = q;
+                    break;
+                }
                 if (!block_closed(rc)) return SCR_ERR;
                 *pp = q;
             }

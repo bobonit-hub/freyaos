@@ -12,8 +12,9 @@
  *   0x0800C000 .. 0x0800FF7F   unused (rest of sector 3)
  *   0x0800FF80 .. 0x0800FFFF   auto-start flag + reserved          (128 B)
  *   0x08010000 .. 0x0801FFFF   program flash region              (64 KiB)
- *   0x08020000 .. 0x08023FFF   kernel extension (threads, SPI, XTEA) (16 KiB)
- *   0x08024000 .. 0x0807FFFF   unused
+ *   0x08020000 .. 0x08024FFF   kernel extension (threads, SPI, XTEA,
+ *                                  shell functions)                 (20 KiB)
+ *   0x08025000 .. 0x0807FFFF   unused
  *
  * The extension is a separate image.  It sits in sector 5 so that writing
  * the kernel does not share an erase unit with the auto-start slot or with
@@ -32,7 +33,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x08020000, LENGTH = 16K
+    KEXT  (rx)  : ORIGIN = 0x08020000, LENGTH = 20K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
 }
 
