@@ -1,21 +1,65 @@
-# Freya 1.1 "UFOnaut"
+# Freya 2.0 "Reptiloid"
 
-23 September 2026
+24 September 2026
 
-UFOnaut follows Chupacabra. The console banner and `sysinfo` print the
+Reptiloid follows UFOnaut. The console banner and `sysinfo` print the
 version and this name:
 
 ```
-Freya 1.1 "UFOnaut" for STM32F411CEU6
+Freya 2.0 "Reptiloid" for STM32F411CEU6
 ```
 
-The program ABI is still version 3. The 1-Wire, thread and SPI calls are
-appended to the service table, so a program built against 1.0.1 still
-loads. One built against this kernel can check `FREYA_API_HAS` before
-calling the new entries.
+The program ABI is still version 3. SPI, XTEA, the raw console, board
+power and the ADC are appended to the service table, so a program built
+against 1.1 still loads. One built against this kernel can check
+`FREYA_API_HAS` before calling the new entries.
+
+The shell is a small language on the scripts from 1.1: values, variables,
+functions, and the calls below. See [docs/shell.md](docs/shell.md).
 
 ## What changed
 
+* `upload` sends a file on the card to the host as XMODEM or XMODEM-1K.
+  The line before the transfer states the size in bytes. `download`
+  takes `--size <bytes>` and stores that many, so the padding byte is
+  not part of the file. `tools/fremote.py` uses both: a remote shell,
+  and `fs ls`, `fs cp`, `fs cat`, `fs rm`, `fs mkdir`, `fs mv` and
+  `fs df` against the card. A path with a leading `:` is on the board.
+* The shell searches a string with a Lua pattern. `match("abc-12", "%d+")`
+  returns the matched text, or the captures when the pattern has them,
+  or `none` when nothing matches. `find` returns the start and the end,
+  counting from 1. `gsub` returns the new string and how many
+  replacements it made. A class is `%d` or `%a`, an uppercase class is
+  the complement, and `*` `+` `-` `?` `^` `$` and `()` work as they do
+  in Lua. There is no alternation.
+* The shell can run two functions at once. `spawn("blink", 1)` starts
+  one and returns its id. It runs until `sleep`, `yield` or `return`,
+  then another ready one runs, and a larger priority goes first.
+  `join(id)` waits until it has finished. `stop blink` stops it.
+  The two share the interpreter and the variables. They are not the
+  threads a program starts, and `run` is refused while one is alive.
+* The shell has a small file API in the shape of Lua's `io` library.
+  `open(path, mode)` returns a handle. `read` takes a line, the rest of
+  the file, a count of characters, or a number, and returns `empty` at
+  the end. `write` writes strings, the text of a number, or one raw
+  byte. `close`, `seek` and `flush` finish the set. Four files may be
+  open, and a string read back is at most 31 characters.
+* The shell orders an array. `min` is the least element, `max` is the
+  greatest, and `sort` returns a new array in that order. Numbers
+  compare by value and strings by text. An empty array has no least
+  or greatest element.
+* The shell has auto arrays and dicts. `array(10, 20)` stores elements
+  of one type and grows when an index past the end is written, up to 8.
+  `dict("b", 2, "a", 1)` stores pairs whose keys are one type and whose
+  values are one type. The keys are kept sorted, and a lookup is a
+  binary search. `$a[i]` and `$d["a"]` read, `set a[i]` and `set d[k]`
+  write, and `len` is the count. Assigning a name copies. Four may
+  exist at once. The cells are taken from the heap and freed when the
+  name is unset or replaced.
+* A function can return 1 to 32 values from anywhere in its body.
+  `return 1, 2.5, "ok"` keeps each type. A call used as one value
+  yields the first. `set a, b, c pair(1)` stores one returned value
+  per name.
 * The shell can arm a hardware timer or a pin interrupt and run a
   script function when it fires. `timer(1000000, 0, "ontick")` starts
   a one-second tick, `irq("PB0", 2, "onpress")` arms a falling edge,
@@ -33,23 +77,82 @@ calling the new entries.
 * The shell has the ANSI C 1989 example generator. `rand()` returns
   an integer from 0 to 32767, and `srand(seed)` sets the 32-bit state.
   The state starts at 1, and the same seed repeats the same sequence.
-* The shell converts between an integer, a float, text and hex.
-  `int("0x10")` is 16, `float(16)` is 16, `str(16)` is `"16"`, and
-  `hex(16)` is `"10"`. `hex("ffffffff")` and the literal `0xFFFFFFFF`
-  are both -1. A float is truncated toward zero.
+* The shell has bool and none values. `true` and `false` are the bools,
+  `bool(0)` is `false`, and `bool("true")` is `true`. `none` is a value
+  with no number, distinct from `empty`. `if true` takes the first branch.
+* The shell converts between an integer, a byte, a bool, a float, text
+  and hex. A byte is 0 to 255, written `65b`, and `byte(n)` makes one.
+  `byte(0x41)` is the hex form. `empty` is a value with no number;
+  `empty()` is the same value. `int("0x10")` is 16, `float(16)` is 16,
+  `str(16)` is `"16"`, and `hex(16)` is `"10"`. `hex("ffffffff")` and
+  the literal `0xFFFFFFFF` are both -1. A float is truncated toward zero.
 * The shell has built-in functions for pins. `get("PB0")` reads a pin,
   `set("PB5", 1)` drives it and returns the level read back,
   `adc("PA0")` (also `"temp"` and `"vref"`) returns one raw sample,
   and `pwm("PB6", 1000, 25)` starts a channel. `pwm("PB6")` stops it.
 * The shell has functions. `fn add` ... `return $1 + $2` ... `end`
   defines one. A call is an expression, `add(2, 3)`, with 0 to 32
-  arguments and one returned value. `$0` is the count and `$1` .. `$32`
-  are the arguments. Four functions, each body at most 127 characters.
-* The shell has variables. `set n 1 + 2 * 3` stores an integer, a float
-  or a string; `$n` expands it. Numbers have `+ - * /`, integers also
-  have `%` and `~ & | ^ << >>`, and a string is concatenated with `+`
-  or formatted (`set s "%d" $n`). `==` and `/=` compare, and `if $n == 7`
-  takes that as the condition. Eight names, each at most seven characters.
+  arguments. `$0` is the count and `$1` .. `$32` are the arguments.
+  Four functions, each body at most 127 characters.
+* The shell has variables. `set n 1 + 2 * 3` stores an integer, a byte,
+  empty, a float or a string; `$n` expands it. Numbers have `+ - * /`,
+  integers and bytes also have `%` and `~ & | ^ << >>`, and a string is
+  concatenated with `+` or formatted (`set s "%d" $n`). `==` and `/=`
+  compare, and `if $n == 7` takes that as the condition. Eight names,
+  each at most seven characters.
+* The kernel extension grew to hold the shell language, the SPI master,
+  XMODEM and the cipher. On the Blue Pill it is the last 43 KiB of the
+  128 KiB, and the program flash region is 37760 bytes, through
+  `0x080153FF`. On the Black Pill it is 40 KiB at the start of sector 5,
+  and the program region stays 64 KiB.
+* Programs can take synchronous 12-bit ADC1 samples from the common analog
+  pins, the internal temperature sensor, and Vref. `adc PA0`, `adc temp`,
+  and `samples/adc` use the same appended service-table call.
+* A program can encrypt and decrypt with XTEA in CTR mode. The key is
+  16 bytes and the nonce is 8. The same call does both, and a message
+  longer than 4096 bytes is handed over in pieces. `crypt` at the
+  console takes hex, and `samples/crypt` checks the published block
+  vector or encrypts a file. See [docs/crypt.md](docs/crypt.md).
+* A program can speak SPI as a master. The card keeps SPI1. Bus 1 is
+  SPI2 on both boards: SCK PB13, MISO PB14, MOSI PB15. Chip select is a
+  pin the program drives. The clock is the fastest power-of-two division
+  of the bus clock that does not exceed the rate asked for, from 187.5 kHz
+  to 24 MHz. `spi 1 1000000` opens it, and `samples/spi` checks the wires.
+  See [docs/spi.md](docs/spi.md).
+* A program can take the console raw. Ctrl-C then arrives through `getc`
+  as `0x03`, and the kernel turns raw mode off when the run ends.
+* A program can switch the SD socket supply. `power sd off` drops VDD
+  and `power sd on` brings it back. `api->power(FREYA_PWR_SD, on)` is
+  the same call.
+* `samples/edit` is a terminal text editor for a file on the card.
+  See [samples/edit/README.md](samples/edit/README.md).
+* `samples/altair` is an Altair 8800b Turnkey emulator. It runs Altair
+  BASIC and other original software from the card: memory images, Intel
+  HEX and MITS paper tapes. The menu can also take a memory image or
+  Intel HEX over XMODEM. Ctrl-] opens the front panel. The 48 KiB
+  machine is Black Pill only, from flash. `samples/altair16` keeps the
+  8080's RAM at 16 KiB so it fits the program RAM region, and on the
+  Blue Pill that RAM lives in program flash. See
+  [samples/altair/README.md](samples/altair/README.md).
+
+# Freya 1.1 "UFOnaut"
+
+23 September 2026
+
+UFOnaut follows Chupacabra. The console banner and `sysinfo` print the
+version and this name:
+
+```
+Freya 1.1 "UFOnaut" for STM32F411CEU6
+```
+
+The program ABI is still version 3. The 1-Wire and thread calls are
+appended to the service table, so a program built against 1.0.1 still
+loads. One built against this kernel can check `FREYA_API_HAS` before
+calling the new entries.
+
+## What changed
+
 * The shell runs scripts. `source <file>` reads a text file from the
   card, at most 1024 bytes, and runs it with the same rules as a typed
   line: `;`, newlines, `if`/`else`/`end`, `loop`, `sleep` and `$?`. A
@@ -74,34 +177,18 @@ calling the new entries.
 * The scheduler and the script interpreter live in a kernel extension, a
   second flash image, so the 48 KiB kernel still does not share an erase
   unit with the auto-start slot. On the Blue Pill that extension is the
-  last 20 KiB of the 128 KiB, and the program flash region is 61312 bytes,
-  through `0x0801AFFF`. On the Black Pill the extension is 20 KiB at the
+  last 8 KiB of the 128 KiB, and the program flash region is 73600 bytes,
+  through `0x0801DFFF`. On the Black Pill the extension is 16 KiB at the
   start of sector 5, and the program region stays 64 KiB.
-* Programs can take synchronous 12-bit ADC1 samples from the common analog
-  pins, the internal temperature sensor, and Vref. `adc PA0`, `adc temp`,
-  and `samples/adc` use the same appended service-table call.
 * A program can speak 1-Wire at standard speed on a spare pin: presence,
   byte reads and writes, a ROM search, and a strong pull-up. Up to four
   pins may be open at once. `w1 PB12 search` lists the devices, and
   `samples/w1` reads a DS18B20. See [docs/w1.md](docs/w1.md).
-* A program can encrypt and decrypt with XTEA in CTR mode. The key is
-  16 bytes and the nonce is 8. The same call does both, and a message
-  longer than 4096 bytes is handed over in pieces. `crypt` at the
-  console takes hex, and `samples/crypt` checks the published block
-  vector or encrypts a file. See [docs/crypt.md](docs/crypt.md).
-* A program can speak SPI as a master. The card keeps SPI1. Bus 1 is
-  SPI2 on both boards: SCK PB13, MISO PB14, MOSI PB15. Chip select is a
-  pin the program drives. The clock is the fastest power-of-two division
-  of the bus clock that does not exceed the rate asked for, from 187.5 kHz
-  to 24 MHz. `spi 1 1000000` opens it, and `samples/spi` checks the wires.
-  See [docs/spi.md](docs/spi.md).
 * The Blue Pill has no FPU. A program that uses single-precision float is
   linked with `src/softfp.c` (add, subtract, multiply, divide, compare,
   and conversion to or from an integer). Helpers the program does not
   call stay out of the image.
 * Host tests delete the FAT disk images when a run finishes (`make test`).
-* `samples/edit` is a terminal text editor for a file on the card.
-  See [samples/edit/README.md](samples/edit/README.md).
 
 # Freya 1.0.1 "Chupacabra"
 

@@ -21,8 +21,8 @@
 #error "program flash region extends past the board's flash"
 #endif
 
-#define FREYA_VERSION   "1.1"
-#define FREYA_CODENAME  "UFOnaut"
+#define FREYA_VERSION   "2.0"
+#define FREYA_CODENAME  "Reptiloid"
 #define FREYA_BUILD_ID  __DATE__ " " __TIME__
 
 /* --------------------------------------------------------------- misc */
@@ -521,6 +521,10 @@ int  script_text_ok(const char *text, uint32_t len);
 void console_banner(void);
 
 /* ------------------------------------------------------------- xmodem */
-int xmodem_receive_to_file(const char *path, uint32_t *received, int strip_pad);
+/* exact < 0 keeps the old rule (strip SUB padding, or keep it).
+ * exact >= 0 stores that many bytes and drops the rest of the packet. */
+int xmodem_receive_to_file(const char *path, uint32_t *received,
+                           int strip_pad, int32_t exact);
+int xmodem_send_file(const char *path, uint32_t *sent);
 
 #endif /* FREYA_H */

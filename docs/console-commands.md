@@ -17,13 +17,13 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `meminfo` | flash and RAM usage: .data, .bss, heap, program region, stack |
 | `mount` | initialise the card and mount the filesystem |
 | `power [sd [on\|off]]` | show the socket supply, or switch it |
-| `ls [-l] [path]` | list a directory |
-| `ll [path]` | list with sizes, dates and attributes |
+| `ls [-l] [path]` | list a directory; `-l` adds sizes, dates and attributes |
 | `cd [path]`, `pwd` | move around |
 | `mkdir <dir>...` | create directories |
 | `rm [-r] <path>...` | remove files, empty directories, or whole trees |
-| `rename <old> <new>`, `mv` | rename or move a file or directory (no data copy) |
-| `download <file> [--raw]` | receive a file over XMODEM |
+| `rename <old> <new>` | rename or move a file or directory (no data copy) |
+| `download <file> [--raw] [--size <bytes>]` | receive a file over XMODEM; `--size` stores that many bytes and drops the padding |
+| `upload <file>` | send a file over XMODEM; the first line gives the exact size |
 | `cat <file>` | print a file |
 | `write <file> <text...>` | append a line to a file |
 | `hexdump <file> [off] [len]` | dump a file in hex |
@@ -50,11 +50,12 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `w1 [<pin>\|<pin> off\|<pin> search\|<pin> reset\|…]` | list open 1-Wire pins, or open one and talk to it |
 | `crypt [<key> <nonce> <hex>]` | XTEA-CTR: the same call encrypts and decrypts |
 | `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
+| `yield` | let a script thread run |
 | `source <file>\|@flash` | run a shell script from a file, or from program flash |
-| `set [<name> <expr>]` | list variables, or give one a value |
+| `set [<name> [, <name>]... <expr>]` | list variables, or store one or more values |
 | `unset <name>` | remove a variable |
 | `fn [<name>]` | list functions, or define one up to `end` |
-| `return <expr>` | leave the function with that value |
+| `return <expr> [, <expr>]...` | leave the function with those values |
 | `if <command>` ... `else` ... `end` | run the following commands when that command's status is 0 |
 | `loop <count>` ... `end` | repeat the commands up to `end` |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
@@ -198,11 +199,12 @@ freya:/> crypt 000102030405060708090a0b0c0d0e0f 4142434445464748 000000000000000
 A file is `samples/crypt`. [docs/crypt.md](crypt.md) is the call.
 
 Ctrl-C stops a running program and every thread it created. It also
-stops a `sleep`, a `loop` or a `wait`, and throws away a script that is still
-being typed. `stop` with no name does the same when a program is
-running, and unloads it otherwise;
-`stop <name>` stops that thread and leaves the run going. `threads` lists
-them. Ctrl-U clears the input line, and the up and down cursor keys walk
+stops a `sleep`, a `loop` or a `wait`, and every script thread, and throws
+away a script that is still being typed. `stop` with no name does the same
+when a program is running, and unloads it otherwise;
+`stop <name>` stops that thread and leaves the run going. A script thread
+is stopped the same way, by the name of its function. `threads` lists
+both. Ctrl-U clears the input line, and the up and down cursor keys walk
 the command history. While a program runs, only `threads`, `stop` and
 `help` are read from the console; anything else waits until the run ends.
 
@@ -227,6 +229,8 @@ and the commands between `else` and `end` run if an `else` was written.
 `break` outside a loop is refused before anything runs.
 `sleep` waits that many milliseconds. A count is a decimal number, at
 most 1000000. `$?` may be the count: it is read when the loop starts.
+While it waits, a script thread that is ready runs. `yield` does that
+and does not wait. The calls are in [shell.md](shell.md).
 
 ```
 freya:/> if echo hi
@@ -244,7 +248,7 @@ tick
 
 The prompt changes to `>` while a block is still open, and Ctrl-C on
 that prompt throws the lines away. Those lines together have to stay
-within 160 characters. Nothing runs until the block is closed, so a
+within 159 characters. Nothing runs until the block is closed, so a
 missing `end` or an `else` in the wrong place does not half-run the
 commands. A branch that is skipped does not change `$?`. `$?` is
 expanded when each command runs, so a loop sees a new value every pass.
@@ -254,20 +258,36 @@ Blocks nest, eight deep.
 
 `set` with no name lists the variables. `set <name> <expr>` stores the
 value of the expression under that name, and the value's type is whatever
-the expression produced: an integer, a float, or a string of at most 31
-characters. There are eight of them. A name is a letter or `_` and then
+the expression produced: an integer, a byte, a bool, empty, none, a float, a string of at most 31
+characters, an auto array, or a dict. There are eight of them. A name is a letter or `_` and then
 letters, digits or `_`, at most seven characters. `unset <name>` removes one. `$name` in a later command is
 the value as text, so `echo $n` and `loop $n` both work. A name that is not
 set is an error.
 
 An integer is a decimal or `0x` hex literal. Hex keeps all 32 bits, so
-the high bit is the sign and `0xFFFFFFFF` is `-1`. A float has a decimal point.
-A string is written in quotes. `+ - * /` work on numbers; if either side is
-a float the result is a float, and integer `/` truncates. An integer also
+the high bit is the sign and `0xFFFFFFFF` is `-1`. A byte is that literal
+with a trailing `b` and is 0 to 255 (`65b`). A hex byte is `byte(0x41)`.
+`true` and `false` are the bool values. `empty` is the empty
+value, and `none` is a different value with no number. A float has a decimal point.
+A string is written in quotes. `+ - * /` work on numbers; a byte is promoted
+to an integer, and if either side is
+a float the result is a float, and integer `/` truncates. An integer or a
+byte also
 has `%`, `~`, `&`, `|`, `^`, `<<` and `>>` (the shifts are logical, and the
 count is 0..31). `+` concatenates when either side is a string, rendering
 the other side as text. A string written next to further values is a format:
 `%d`, `%u`, `%x`, `%s`, `%f` and `%%`, each value filling one conversion.
+
+`array(10, 20)` stores an auto array. Every element is the same type.
+`$a[i]` reads one, and `set a[i] <expr>` writes one. An index past the
+end grows the array, up to 8 elements, and fills the gap with zero.
+`dict("b", 2, "a", 1)` stores a dict. Keys are one type, values are
+one type, and the keys stay sorted. `$d["a"]` reads a pair and
+`set d[k] <expr>` inserts or replaces one. There are at most 8 pairs.
+`len` is the count. `min` and `max` are the least and greatest
+element, and `sort` returns the array in that order. `set b $a` copies. Four arrays and dicts may exist
+at once. `unset`, or storing something else over the name, frees the
+cells. The full rules are in [shell.md](shell.md).
 
 ```
 freya:/> set n 1 + 2 * 3
@@ -278,11 +298,14 @@ freya:/> echo $s
 ```
 
 `==` and `/=` compare two values and leave 1 or 0. Numbers match by value,
-so `1 == 1.0` is true; a string matches only the same text. `<`, `>` and
-`><` compare numbers only: less, greater, and not equal. A string on either
-side is an error. When the command after `if` contains one of these, that
+so `1 == 1.0` and `1 == 1b` are true; a string matches only the same text,
+a bool matches only a bool, `empty` matches only `empty`, and `none`
+matches only `none`. `<`, `>` and
+`><` compare numbers only: less, greater, and not equal. A string, a bool, `empty`, or `none`
+on either side is an error. When the command after `if` contains one of these, that
 is the condition: true runs the commands up to `else` or `end`, false runs
-the `else`. Anything else after `if` is still a command, and the branch is
+the `else`. `if true`, `if false`, and `if bool(...)` are conditions too.
+Anything else after `if` is still a command, and the branch is
 chosen from its status.
 
 ```
@@ -299,15 +322,18 @@ yes
 `fn` with no name lists the functions. `fn <name>` ... `end` defines
 one. The body is not run at the definition. A name is the same shape as
 a variable, and there are four of them. Defining the same name again
-replaces the body. The body is at most 127 characters and is kept on
-the heap, so a long one can be refused with `out of memory`.
+replaces the body. The body is at most 127 characters. A longer one is
+`function too long`. The body is kept on the heap, so it can also be
+refused with `out of memory`.
 
 A call is an expression, `name(arg, ...)`, with 0 to 32 arguments. Each
-argument is an expression. The call's value is what `return <expr>`
-produced, or 0 when the body has no `return`. Inside the body `$0` is
-how many arguments were passed and `$1` .. `$32` are those values. An
-argument that was not passed is an error. `$?` and `$name` still mean
-what they mean outside.
+argument is an expression. `return` leaves from anywhere in the body
+with 1 to 32 values, separated by commas, each keeping its type. A call
+used as one value yields the first of those, or 0 when the body has no
+`return`. `set a, b name(...)` stores the first values, one per name.
+Inside the body `$0` is how many arguments were passed and `$1` .. `$32`
+are those values. An argument that was not passed is an error. `$?` and
+`$name` still mean what they mean outside.
 
 ```
 freya:/> fn add
@@ -324,16 +350,24 @@ add
 `break` is refused outside a loop. A call may call another function.
 Deep or very wide calls are refused rather than grown without limit.
 
-`int`, `float`, `str` and `hex` convert, and cannot be defined with `fn`.
-Each takes one value. `int` makes an integer: a float is truncated toward
+`int`, `float`, `byte`, `bool`, `str` and `hex` convert, and cannot be defined with `fn`.
+Each of those takes one value. `empty()`, `none()`, `true()` and `false()` take none. `int` makes an integer: a byte is widened, a bool is 0 or 1, a float is truncated toward
 zero, and a string is a decimal integer, a `0x` hex integer, or a decimal
-float that is then truncated. `float` makes a float from an integer or
+float that is then truncated. `byte` makes a value from 0 to 255; a float
+is truncated first, and a value outside that range is `integer overflow`.
+`float` makes a float from an integer, a byte, or
 from decimal text (a `0x` string is an integer first). `str` renders any
-value as text, the same way `$name` does. `hex` of a number is lowercase
+value as text, the same way `$name` does; `true` is the text `true`,
+`empty` is `empty`, and `none` is `none`. `bool` makes a bool: zero is
+`false`, any other number is `true`, and the strings are `true` and `false`.
+`hex` of a number is lowercase
 hex text with no `0x` (`hex(-1)` is `"ffffffff"`); `hex` of a string
 parses hex digits, with an optional sign and an optional `0x`, back to
 an integer. A value that is not of that form is `not a number`, and one
-that does not fit is `integer overflow`.
+that does not fit is `integer overflow`. A byte literal is `65b`.
+The empty value is written `empty`. The none value is written `none`.
+A bool is written `true` or `false`. `if true` and `if false` are
+conditions.
 
 ```
 freya:/> set n int("0x10")
@@ -345,6 +379,14 @@ freya:/> set n hex($s)
 freya:/> echo $n
 16
 ```
+
+`match`, `find` and `gsub` search a string with a Lua pattern. `%d`
+is a digit and `%a` is a letter; an uppercase class is the complement.
+`*` `+` `-` and `?` repeat, `^` and `$` anchor, and `()` captures.
+`match` returns the match, or the captures, or `none`. `find` returns
+the start and the end, counting from 1. `gsub` returns the new string
+and how many replacements it made. The full rules are in
+[shell.md](shell.md).
 
 `rand()` returns the next value from the ANSI C 1989 example
 generator: `state = state * 1103515245 + 12345` in 32 bits, then
@@ -364,7 +406,7 @@ freya:/> echo $n
 ```
 
 `pi()` is the constant 3.14159265 and takes no argument. `sin(angle)`
-and `cos(angle)` take one integer or float, in radians, and return a
+and `cos(angle)` take one integer, byte, or float, in radians, and return a
 float. An angle past about a million, or one that is not a number, is
 `not a number`.
 
@@ -377,7 +419,8 @@ freya:/> echo $x
 -1
 ```
 
-Thirteen names are built in, and cannot be defined with `fn`. A pin is a
+The names that cannot be defined with `fn` are listed in
+[shell.md](shell.md). A pin is a
 string in the same form as the `pin` command (`"PB0"`, `"pb0"`, `"B0"`).
 `get` reads it and returns 0 or 1. `set` makes it a push-pull output,
 writes 0 or 1, and returns the level read back. `adc` takes one raw

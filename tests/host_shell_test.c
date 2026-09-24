@@ -205,13 +205,26 @@ int  fs_rename(const char *a, const char *b)
 {
     (void)a; (void)b; return FAT_ERR_INVAL;
 }
-void fs_close_all(void)                { }
+void fs_close_all(void);
 
-/* One planted script file.  Every other open fails, as before. */
+/* One planted script file on fd 3.  Three more files live in RAM so the
+ * shell's open/read/write calls can be checked without a card image. */
 static const char *s_src_path;
 static const char *s_src_data;
 static int s_src_pos;
 static int s_src_open;
+
+#define RAM_N   3
+#define RAM_CAP 160
+
+typedef struct {
+    int used, open, flags;
+    char path[40];
+    char data[RAM_CAP];
+    int len, pos;
+} ram_file_t;
+
+static ram_file_t s_ram[RAM_N];
 
 static void plant_script(const char *path, const char *data)
 {
@@ -221,45 +234,125 @@ static void plant_script(const char *path, const char *data)
     s_src_open = 0;
 }
 
+static int ram_lookup(const char *path)
+{
+    int i;
+
+    if (!path) return -1;
+    for (i = 0; i < RAM_N; i++)
+        if (s_ram[i].used && strcmp(s_ram[i].path, path) == 0) return i;
+    return -1;
+}
+
 int  fs_fd_open(const char *path, int flags)
 {
-    (void)flags;
+    int i;
+
     if (s_src_path && path && strcmp(path, s_src_path) == 0 && s_src_data) {
         s_src_open = 1;
         s_src_pos = 0;
         return 3;
     }
-    return FAT_ERR_NOENT;
+    i = ram_lookup(path);
+    if (i < 0) {
+        if (!(flags & FREYA_O_CREATE)) return FAT_ERR_NOENT;
+        for (i = 0; i < RAM_N; i++)
+            if (!s_ram[i].used) break;
+        if (i == RAM_N) return FAT_ERR_NOSPC;
+        memset(&s_ram[i], 0, sizeof s_ram[i]);
+        snprintf(s_ram[i].path, sizeof s_ram[i].path, "%s", path ? path : "");
+        s_ram[i].used = 1;
+    }
+    if (s_ram[i].open) return FAT_ERR_INVAL;
+    if (flags & FREYA_O_TRUNC) s_ram[i].len = 0;
+    s_ram[i].flags = flags;
+    s_ram[i].pos = (flags & FREYA_O_APPEND) ? s_ram[i].len : 0;
+    s_ram[i].open = 1;
+    return i;
 }
 int  fs_fd_close(int fd)
 {
-    if (fd == 3) s_src_open = 0;
+    if (fd == 3) {
+        s_src_open = 0;
+        return FAT_OK;
+    }
+    if (fd < 0 || fd >= RAM_N || !s_ram[fd].open) return FAT_ERR_INVAL;
+    s_ram[fd].open = 0;
     return FAT_OK;
 }
 int  fs_fd_read(int fd, void *buf, int len)
 {
     int left, n;
 
-    if (fd != 3 || !s_src_open || !s_src_data || len < 0) return 0;
-    left = (int)strlen(s_src_data) - s_src_pos;
+    if (fd == 3) {
+        if (!s_src_open || !s_src_data || len < 0) return 0;
+        left = (int)strlen(s_src_data) - s_src_pos;
+        if (left <= 0) return 0;
+        n = len < left ? len : left;
+        memcpy(buf, s_src_data + s_src_pos, (size_t)n);
+        s_src_pos += n;
+        return n;
+    }
+    if (fd < 0 || fd >= RAM_N || !s_ram[fd].open || len < 0) return FAT_ERR_INVAL;
+    left = s_ram[fd].len - s_ram[fd].pos;
     if (left <= 0) return 0;
     n = len < left ? len : left;
-    memcpy(buf, s_src_data + s_src_pos, (size_t)n);
-    s_src_pos += n;
+    memcpy(buf, s_ram[fd].data + s_ram[fd].pos, (size_t)n);
+    s_ram[fd].pos += n;
     return n;
 }
 int32_t fs_fd_size(int fd)
 {
-    if (fd != 3 || !s_src_data) return FAT_ERR_INVAL;
-    return (int32_t)strlen(s_src_data);
+    if (fd == 3 && s_src_data) return (int32_t)strlen(s_src_data);
+    if (fd < 0 || fd >= RAM_N || !s_ram[fd].open) return FAT_ERR_INVAL;
+    return s_ram[fd].len;
 }
 int  fs_fd_write(int fd, const void *buf, int len)
 {
-    (void)fd; (void)buf; (void)len; return len;
+    if (fd < 0 || fd >= RAM_N || !s_ram[fd].open || len < 0) return FAT_ERR_INVAL;
+    if (s_ram[fd].flags & FREYA_O_APPEND) s_ram[fd].pos = s_ram[fd].len;
+    if (s_ram[fd].pos > RAM_CAP || len > RAM_CAP - s_ram[fd].pos)
+        return FAT_ERR_NOSPC;
+    memcpy(s_ram[fd].data + s_ram[fd].pos, buf, (size_t)len);
+    s_ram[fd].pos += len;
+    if (s_ram[fd].pos > s_ram[fd].len) s_ram[fd].len = s_ram[fd].pos;
+    return len;
 }
 int  fs_fd_seek(int fd, int32_t off, int whence)
 {
-    (void)fd; (void)off; (void)whence; return 0;
+    int32_t base, next;
+
+    if (fd == 3 && s_src_data) {
+        if (whence == FREYA_SEEK_SET) base = 0;
+        else if (whence == FREYA_SEEK_CUR) base = s_src_pos;
+        else if (whence == FREYA_SEEK_END) base = (int32_t)strlen(s_src_data);
+        else return FAT_ERR_INVAL;
+        if (base + off < 0) return FAT_ERR_INVAL;
+        s_src_pos = (int)(base + off);
+        return 0;
+    }
+    if (fd < 0 || fd >= RAM_N || !s_ram[fd].open) return FAT_ERR_INVAL;
+    if (whence == FREYA_SEEK_SET) base = 0;
+    else if (whence == FREYA_SEEK_CUR) base = s_ram[fd].pos;
+    else if (whence == FREYA_SEEK_END) base = s_ram[fd].len;
+    else return FAT_ERR_INVAL;
+    next = base + off;
+    if (next < 0) return FAT_ERR_INVAL;
+    s_ram[fd].pos = (int)next;
+    return 0;
+}
+int32_t fs_fd_tell(int fd)
+{
+    if (fd == 3 && s_src_open) return s_src_pos;
+    if (fd < 0 || fd >= RAM_N || !s_ram[fd].open) return FAT_ERR_INVAL;
+    return s_ram[fd].pos;
+}
+void fs_close_all(void)
+{
+    int i;
+
+    s_src_open = 0;
+    for (i = 0; i < RAM_N; i++) s_ram[i].open = 0;
 }
 
 int  log_get_level(void)               { return 3; }
@@ -286,19 +379,75 @@ int app_script_find(const char **text, uint32_t *length)
     return 1;
 }
 
+/* First fit, so the shell can free an array or a dict and use the
+ * bytes again.  The kernel heap does the same on the board. */
 static char s_km[8192];
-static uint32_t s_km_used;
+static int s_km_ready;
+
+typedef struct {
+    uint32_t size;
+    uint32_t free;
+} host_blk_t;
+
+static void km_init(void)
+{
+    host_blk_t *b = (host_blk_t *)s_km;
+    b->size = (uint32_t)sizeof s_km;
+    b->free = 1;
+    s_km_ready = 1;
+}
+
 void *kmalloc(uint32_t size)
 {
-    uint32_t a;
+    uint8_t *p;
+    uint32_t need;
 
+    if (!s_km_ready) km_init();
     if (size == 0) return NULL;
-    a = (s_km_used + 7U) & ~7U;
-    if (a + size > sizeof s_km) return NULL;
-    s_km_used = a + size;
-    return s_km + a;
+    need = ((size + 7U) & ~7U) + (uint32_t)sizeof(host_blk_t);
+    p = (uint8_t *)s_km;
+    while (p + sizeof(host_blk_t) <= (uint8_t *)s_km + sizeof s_km) {
+        host_blk_t *b = (host_blk_t *)p;
+        if (b->size < sizeof(host_blk_t) ||
+            p + b->size > (uint8_t *)s_km + sizeof s_km)
+            return NULL;
+        if (b->free && b->size >= need) {
+            if (b->size >= need + sizeof(host_blk_t) + 8U) {
+                host_blk_t *n = (host_blk_t *)(p + need);
+                n->size = b->size - need;
+                n->free = 1;
+                b->size = need;
+            }
+            b->free = 0;
+            return p + sizeof(host_blk_t);
+        }
+        p += b->size;
+    }
+    return NULL;
 }
-void kfree(void *p)                    { (void)p; }
+
+void kfree(void *ptr)
+{
+    uint8_t *p;
+    if (!ptr) return;
+    ((host_blk_t *)((uint8_t *)ptr - sizeof(host_blk_t)))->free = 1;
+    p = (uint8_t *)s_km;
+    while (p + sizeof(host_blk_t) <= (uint8_t *)s_km + sizeof s_km) {
+        host_blk_t *c = (host_blk_t *)p;
+        host_blk_t *n;
+        if (c->size < sizeof(host_blk_t) ||
+            p + c->size > (uint8_t *)s_km + sizeof s_km)
+            break;
+        n = (host_blk_t *)(p + c->size);
+        if (c->free && (uint8_t *)n + sizeof(host_blk_t) <=
+            (uint8_t *)s_km + sizeof s_km && n->free &&
+            (uint8_t *)n + n->size <= (uint8_t *)s_km + sizeof s_km) {
+            c->size += n->size;
+            continue;
+        }
+        p += c->size;
+    }
+}
 int  app_flash_erase(void)
 {
     s_erased = 1;
@@ -526,9 +675,15 @@ int  spi_transfer(int bus, const void *tx, void *rx, int len)
 }
 int  spi_owns_pin(int pin)             { (void)pin; return 0; }
 
-int xmodem_receive_to_file(const char *path, uint32_t *received, int strip)
+int xmodem_receive_to_file(const char *path, uint32_t *received, int strip,
+                           int32_t exact)
 {
-    (void)path; (void)received; (void)strip; return -1;
+    (void)path; (void)received; (void)strip; (void)exact; return -1;
+}
+
+int xmodem_send_file(const char *path, uint32_t *sent)
+{
+    (void)path; (void)sent; return -1;
 }
 
 static void plant_mmio(void)
@@ -1209,6 +1364,153 @@ int main(void)
     expect_rc("a removed variable fails", rc, FREYA_EXIT_FAIL);
     expect_has("the name is gone", "no such variable");
 
+    printf("arrays\n");
+    rc = run("set a array(10, 20, 30)");
+    expect_rc("array() succeeds", rc, 0);
+    rc = run("echo $a");
+    expect_exact("an array prints its elements", "[10, 20, 30]\r\n");
+    rc = run("echo $a[1]");
+    expect_exact("an index reads one element", "20\r\n");
+    rc = run("set n len($a)");
+    rc = run("echo $n");
+    expect_exact("len is the element count", "3\r\n");
+    rc = run("set a[3] 40");
+    expect_rc("writing the next index appends", rc, 0);
+    rc = run("echo $a[3]");
+    expect_exact("the appended element is there", "40\r\n");
+    rc = run("set a[5] 60");
+    rc = run("echo $a");
+    expect_exact("a gap is filled with zeros", "[10, 20, 30, 40, 0, 60]\r\n");
+    rc = run("set a[0] 1b");
+    expect_rc("an element of another type fails", rc, FREYA_EXIT_FAIL);
+    expect_has("the array keeps its type", "type mismatch");
+    rc = run("set a[8] 1");
+    expect_rc("past the last slot fails", rc, FREYA_EXIT_FAIL);
+    expect_has("the array has a fixed ceiling", "out of range");
+    rc = run("set b $a");
+    rc = run("set a[0] 1");
+    rc = run("echo $b[0]");
+    expect_exact("assigning an array copies it", "10\r\n");
+    rc = run("set n min($a)");
+    rc = run("echo $n");
+    expect_exact("min is the least element", "0\r\n");
+    rc = run("set n max($a)");
+    rc = run("echo $n");
+    expect_exact("max is the greatest element", "60\r\n");
+    rc = run("set b sort($a)");
+    expect_rc("sort succeeds", rc, 0);
+    rc = run("echo $b");
+    expect_exact("sort returns ascending order", "[0, 1, 20, 30, 40, 60]\r\n");
+    rc = run("echo $a");
+    expect_exact("sort leaves the original array", "[1, 20, 30, 40, 0, 60]\r\n");
+    rc = run("unset a");
+    rc = run("unset b");
+
+    rc = run("set a array(1.5, 0.25, 2.0)");
+    rc = run("set n min($a)");
+    rc = run("echo $n");
+    expect_exact("min orders floats", "0.25\r\n");
+    rc = run("set b sort($a)");
+    rc = run("echo $b");
+    expect_exact("sort orders floats", "[0.25, 1.5, 2]\r\n");
+    rc = run("unset a");
+    rc = run("unset b");
+
+    rc = run("set a array(\"c\", \"a\", \"b\")");
+    rc = run("set s min($a)");
+    rc = run("echo $s");
+    expect_exact("min orders strings", "a\r\n");
+    rc = run("set b sort($a)");
+    rc = run("set");
+    expect_has("sort orders strings", "b = [\"a\", \"b\", \"c\"]\r\n");
+    rc = run("unset a");
+    rc = run("unset b");
+    rc = run("unset s");
+
+    rc = run("set a array(3b, 1b, 2b)");
+    rc = run("set b sort($a)");
+    rc = run("echo $b");
+    expect_exact("sort orders bytes", "[1b, 2b, 3b]\r\n");
+    rc = run("set n max($a)");
+    rc = run("echo $n");
+    expect_exact("max of bytes is the greatest", "3\r\n");
+    rc = run("unset a");
+    rc = run("unset b");
+
+    rc = run("set a array()");
+    rc = run("set n min($a)");
+    expect_rc("min of an empty array fails", rc, FREYA_EXIT_FAIL);
+    expect_has("an empty array has no least element", "empty array");
+    rc = run("set b sort($a)");
+    rc = run("echo $b");
+    expect_exact("sort of an empty array is empty", "[]\r\n");
+    rc = run("set n len($a)");
+    rc = run("echo $n");
+    expect_exact("len of an empty array is 0", "0\r\n");
+    rc = run("unset a");
+    rc = run("unset b");
+
+    rc = run("set d dict(\"b\", 2, \"a\", 1)");
+    rc = run("set n min($d)");
+    expect_rc("min refuses a dict", rc, FREYA_EXIT_FAIL);
+    expect_has("min wants an array", "bad expression");
+    rc = run("unset d");
+
+    rc = run("fn sort; return 1; end");
+    expect_rc("sort is a reserved name", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses sort", "bad name");
+
+    rc = run("set d dict(\"b\", 2, \"a\", 1)");
+    expect_rc("dict() succeeds", rc, 0);
+    rc = run("set n len($d)");
+    rc = run("echo $n");
+    expect_exact("len is the pair count", "2\r\n");
+    rc = run("set");
+    expect_has("dict keys are kept sorted", "d = {\"a\": 1, \"b\": 2}\r\n");
+    rc = run("echo $d[\"b\"]");
+    expect_exact("a key reads its value", "2\r\n");
+    rc = run("set d[\"c\"] 3");
+    rc = run("echo $d[\"a\"]");
+    expect_exact("insert keeps the earlier key", "1\r\n");
+    rc = run("set");
+    expect_has("the new key lands in order", "d = {\"a\": 1, \"b\": 2, \"c\": 3}\r\n");
+    rc = run("set d[\"b\"] 9");
+    rc = run("echo $d[\"b\"]");
+    expect_exact("a known key is replaced", "9\r\n");
+    rc = run("set n len($d)");
+    rc = run("echo $n");
+    expect_exact("replacing a key leaves the count", "3\r\n");
+    rc = run("set e dict()");
+    rc = run("set n len($e)");
+    rc = run("echo $n");
+    expect_exact("len of an empty dict is 0", "0\r\n");
+    rc = run("unset e");
+    rc = run("set n len(1)");
+    expect_rc("len of a number fails", rc, FREYA_EXIT_FAIL);
+    expect_has("len wants an array or a dict", "bad expression");
+    rc = run("set d[1] 4");
+    expect_rc("a key of another type fails", rc, FREYA_EXIT_FAIL);
+    expect_has("dict keys stay one type", "type mismatch");
+    rc = run("set d[\"a\"] \"x\"");
+    expect_rc("a value of another type fails", rc, FREYA_EXIT_FAIL);
+    expect_has("dict values stay one type", "type mismatch");
+    rc = run("echo $d[\"z\"]");
+    expect_rc("a missing key fails", rc, FREYA_EXIT_FAIL);
+    expect_has("the missing key is named", "no such key");
+    rc = run("set m[\"x\"] 7");
+    expect_rc("a string index starts a dict", rc, 0);
+    rc = run("echo $m[\"x\"]");
+    expect_exact("the new dict holds the value", "7\r\n");
+    rc = run("unset m");
+    rc = run("set p[0] 4");
+    rc = run("echo $p");
+    expect_exact("an integer index starts an array", "[4]\r\n");
+    rc = run("unset p");
+    rc = run("if $d == dict(\"c\", 3, \"a\", 1, \"b\", 9); echo yes; else; echo no; end");
+    expect_exact("dicts compare by key and value", "yes\r\n");
+    rc = run("unset d");
+    rc = run("set n 8");
+
     rc = run("if $n > 2; echo hi; else; echo lo; end");
     expect_rc("if of > succeeds", rc, 0);
     expect_exact("> is true", "hi\r\n");
@@ -1294,6 +1596,75 @@ int main(void)
     rc = run("set n narg()");
     rc = run("echo $n");
     expect_exact("no return leaves 0", "0\r\n");
+
+    rc = run("fn id; if $1 /= 0; return 1, 2.5, \"ok\"; else; return 0, 0, \"no\"; end; end");
+    expect_rc("a function may return several values", rc, 0);
+    rc = run("set a, b, c id(1)");
+    expect_rc("set stores each returned value", rc, 0);
+    rc = run("echo $a");
+    expect_exact("the first value is an integer", "1\r\n");
+    rc = run("echo $b");
+    expect_exact("the second value is a float", "2.5\r\n");
+    rc = run("echo $c");
+    expect_exact("the third value is a string", "ok\r\n");
+    rc = run("set a, b, c id(0)");
+    rc = run("echo $c");
+    expect_exact("return in the other branch is used", "no\r\n");
+    rc = run("set n id(1)");
+    expect_rc("one name takes the first value", rc, 0);
+    rc = run("echo $n");
+    expect_exact("the later values are left", "1\r\n");
+    rc = run("set a, b id(1)");
+    expect_rc("fewer names than values succeeds", rc, 0);
+    rc = run("echo $b");
+    expect_exact("the second name took the float", "2.5\r\n");
+
+    rc = run("fn add; return 7, 8; end");
+    rc = run("fn narg; return 1, add(); end");
+    rc = run("set a, b, c narg()");
+    expect_rc("a trailing call is handed on", rc, 0);
+    rc = run("echo $a");
+    expect_exact("the value before the call is kept", "1\r\n");
+    rc = run("echo $c");
+    expect_exact("the call's second value is handed on", "8\r\n");
+
+    rc = run("fn hi; loop 3; return 4, \"x\"; end; end");
+    rc = run("set a, b hi()");
+    rc = run("echo $b");
+    expect_exact("return leaves from inside a loop", "x\r\n");
+
+    rc = run("set a, b, c, d id(1)");
+    expect_rc("fewer values than names fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a short return is named", "too few values");
+    rc = run("set a, b 1");
+    expect_rc("several names need a call", rc, FREYA_EXIT_FAIL);
+    expect_has("a single value is not enough", "too few values");
+
+    {
+        char line[160];
+        int a;
+        strcpy(line, "fn hi; return ");
+        for (a = 0; a < 32; a++) {
+            if (a) strcat(line, ",");
+            strcat(line, "1");
+        }
+        strcat(line, "; end");
+        rc = run(line);
+        expect_rc("32 values can be defined", rc, 0);
+        rc = run("set n hi()");
+        expect_rc("32 values can be returned", rc, 0);
+        strcpy(line, "fn hi; return ");
+        for (a = 0; a < 33; a++) {
+            if (a) strcat(line, ",");
+            strcat(line, "1");
+        }
+        strcat(line, "; end");
+        rc = run(line);
+        expect_rc("33 values can be defined", rc, 0);
+        rc = run("set n hi()");
+        expect_rc("33 values fails", rc, FREYA_EXIT_FAIL);
+        expect_has("32 values is the limit", "too many values");
+    }
 
     rc = run("fn add; return $1; end");
     rc = run("set n add(9, 1)");
@@ -1456,6 +1827,205 @@ int main(void)
     rc = run("set n hex(\"0x100000000\")");
     expect_rc("hex past 32 bits fails", rc, FREYA_EXIT_FAIL);
     expect_has("hex overflow is named", "integer overflow");
+
+    printf("byte and empty\n");
+    rc = run("set b 65b");
+    expect_rc("a byte literal succeeds", rc, 0);
+    rc = run("echo $b");
+    expect_exact("a byte prints as decimal", "65\r\n");
+    rc = run("set b byte(0x41)");
+    rc = run("echo $b");
+    expect_exact("byte() of a hex integer", "65\r\n");
+    rc = run("set b 0b");
+    rc = run("echo $b");
+    expect_exact("byte zero", "0\r\n");
+    rc = run("set b 256b");
+    expect_rc("a byte past 255 fails", rc, FREYA_EXIT_FAIL);
+    expect_has("the byte range is named", "integer overflow");
+    rc = run("set b byte(255)");
+    expect_rc("byte() succeeds", rc, 0);
+    rc = run("echo $b");
+    expect_exact("byte() keeps 255", "255\r\n");
+    rc = run("set b byte(1.9)");
+    rc = run("echo $b");
+    expect_exact("byte() truncates toward zero", "1\r\n");
+    rc = run("set b byte(\"0x10\")");
+    rc = run("echo $b");
+    expect_exact("byte() parses a hex string", "16\r\n");
+    rc = run("set b byte(256)");
+    expect_rc("byte() past 255 fails", rc, FREYA_EXIT_FAIL);
+    expect_has("byte() overflow is named", "integer overflow");
+    rc = run("set b byte(-1)");
+    expect_rc("byte() of a negative fails", rc, FREYA_EXIT_FAIL);
+    rc = run("set n int(65b)");
+    rc = run("echo $n");
+    expect_exact("int widens a byte", "65\r\n");
+    rc = run("set n 1b + 2b");
+    rc = run("echo $n");
+    expect_exact("bytes add as integers", "3\r\n");
+    rc = run("set n byte(0xF0) & byte(0x0F)");
+    rc = run("echo $n");
+    expect_exact("bytes have bitwise and", "0\r\n");
+    rc = run("set n ~0b");
+    rc = run("echo $n");
+    expect_exact("bitwise not of a byte is an integer", "-1\r\n");
+    rc = run("if 1b == 1; echo yes; else; echo no; end");
+    expect_exact("a byte matches the same integer", "yes\r\n");
+    rc = run("if 1b == 1.0; echo yes; else; echo no; end");
+    expect_exact("a byte matches the same float", "yes\r\n");
+    rc = run("if 1b < 2; echo yes; else; echo no; end");
+    expect_exact("a byte orders with an integer", "yes\r\n");
+    rc = run("set s \"%d\" 65b");
+    rc = run("echo $s");
+    expect_exact("a format accepts a byte", "65\r\n");
+    rc = run("set s hex(255b)");
+    rc = run("echo $s");
+    expect_exact("hex of a byte", "ff\r\n");
+    rc = run("set b byte(255)");
+    rc = run("set");
+    expect_has("set lists the byte", "b = 255b\r\n");
+
+    rc = run("unset q");
+    rc = run("set e empty");
+    expect_rc("the empty literal succeeds", rc, 0);
+    rc = run("echo $e");
+    expect_exact("empty prints its name", "empty\r\n");
+    rc = run("set e empty()");
+    rc = run("echo $e");
+    expect_exact("empty() is the same value", "empty\r\n");
+    rc = run("if empty == empty; echo yes; else; echo no; end");
+    expect_exact("empty matches empty", "yes\r\n");
+    rc = run("if empty == 0; echo yes; else; echo no; end");
+    expect_exact("empty does not match zero", "no\r\n");
+    rc = run("if empty == \"\"; echo yes; else; echo no; end");
+    expect_exact("empty does not match an empty string", "no\r\n");
+    rc = run("set s str(empty)");
+    rc = run("echo $s");
+    expect_exact("str of empty is the name", "empty\r\n");
+    rc = run("set s \"x\" + empty");
+    rc = run("echo $s");
+    expect_exact("a string joins empty as text", "xempty\r\n");
+    rc = run("set n int(empty)");
+    expect_rc("int of empty fails", rc, FREYA_EXIT_FAIL);
+    expect_has("empty is not a number", "not a number");
+    rc = run("set n empty + 1");
+    expect_rc("adding to empty fails", rc, FREYA_EXIT_FAIL);
+    expect_has("empty is not arithmetic", "bad expression");
+    rc = run("if empty > 0; echo y; else; echo n; end");
+    expect_rc("ordering empty fails", rc, 0);
+    expect_has("ordering wants a number", "not a number");
+    rc = run("set");
+    expect_has("set lists empty", "e = empty\r\n");
+    rc = run("fn id; return 1b, empty; end");
+    rc = run("set b, e id()");
+    rc = run("echo $b");
+    expect_exact("a call can return a byte", "1\r\n");
+    rc = run("echo $e");
+    expect_exact("a call can return empty", "empty\r\n");
+
+    printf("bool and none\n");
+    rc = run("set b true");
+    expect_rc("the true literal succeeds", rc, 0);
+    rc = run("echo $b");
+    expect_exact("true prints its name", "true\r\n");
+    rc = run("set b false()");
+    rc = run("echo $b");
+    expect_exact("false() is the false bool", "false\r\n");
+    rc = run("if true; echo yes; else; echo no; end");
+    expect_exact("if true takes the first branch", "yes\r\n");
+    rc = run("if false; echo yes; else; echo no; end");
+    expect_exact("if false takes the else", "no\r\n");
+    rc = run("if true == false; echo yes; else; echo no; end");
+    expect_exact("true does not match false", "no\r\n");
+    rc = run("if true == 1; echo yes; else; echo no; end");
+    expect_exact("true does not match the integer 1", "no\r\n");
+    rc = run("if false == 0; echo yes; else; echo no; end");
+    expect_exact("false does not match zero", "no\r\n");
+    rc = run("set b bool(0)");
+    rc = run("echo $b");
+    expect_exact("bool of zero is false", "false\r\n");
+    rc = run("set b bool(2)");
+    rc = run("echo $b");
+    expect_exact("bool of a nonzero integer is true", "true\r\n");
+    rc = run("set b bool(0.0)");
+    rc = run("echo $b");
+    expect_exact("bool of zero float is false", "false\r\n");
+    rc = run("set b bool(\"true\")");
+    rc = run("echo $b");
+    expect_exact("bool of the text true", "true\r\n");
+    rc = run("set b bool(\"no\")");
+    expect_rc("bool of other text fails", rc, FREYA_EXIT_FAIL);
+    expect_has("other text is not a bool", "not a number");
+    rc = run("set n int(true)");
+    rc = run("echo $n");
+    expect_exact("int of true is 1", "1\r\n");
+    rc = run("set n int(false)");
+    rc = run("echo $n");
+    expect_exact("int of false is 0", "0\r\n");
+    rc = run("set n true + 1");
+    expect_rc("adding to true fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a bool is not arithmetic", "bad expression");
+    rc = run("if true > false; echo y; else; echo n; end");
+    expect_rc("ordering a bool fails", rc, 0);
+    expect_has("ordering wants a number", "not a number");
+    rc = run("set s \"%s\" true");
+    rc = run("echo $s");
+    expect_exact("a format prints a bool as text", "true\r\n");
+    rc = run("set a array(true, false)");
+    rc = run("set a[3] true");
+    rc = run("echo $a");
+    expect_exact("a bool gap is false", "[true, false, false, true]\r\n");
+    rc = run("set n min($a)");
+    rc = run("echo $n");
+    expect_exact("min of bools is false", "false\r\n");
+    rc = run("unset a");
+    rc = run("set b true");
+    rc = run("set");
+    expect_has("set lists a bool", "b = true\r\n");
+
+    rc = run("unset b");
+    rc = run("set e none");
+    expect_rc("the none literal succeeds", rc, 0);
+    rc = run("echo $e");
+    expect_exact("none prints its name", "none\r\n");
+    rc = run("set e none()");
+    rc = run("echo $e");
+    expect_exact("none() is the same value", "none\r\n");
+    rc = run("if none == none; echo yes; else; echo no; end");
+    expect_exact("none matches none", "yes\r\n");
+    rc = run("if none == empty; echo yes; else; echo no; end");
+    expect_exact("none does not match empty", "no\r\n");
+    rc = run("if none == 0; echo yes; else; echo no; end");
+    expect_exact("none does not match zero", "no\r\n");
+    rc = run("set s str(none)");
+    rc = run("echo $s");
+    expect_exact("str of none is the name", "none\r\n");
+    rc = run("set s \"x\" + none");
+    rc = run("echo $s");
+    expect_exact("a string joins none as text", "xnone\r\n");
+    rc = run("set n int(none)");
+    expect_rc("int of none fails", rc, FREYA_EXIT_FAIL);
+    expect_has("none is not a number", "not a number");
+    rc = run("set n bool(none)");
+    expect_rc("bool of none fails", rc, FREYA_EXIT_FAIL);
+    expect_has("none is not a bool", "not a number");
+    rc = run("set n none + 1");
+    expect_rc("adding to none fails", rc, FREYA_EXIT_FAIL);
+    expect_has("none is not arithmetic", "bad expression");
+    rc = run("fn id; return true, none; end");
+    rc = run("set b, e id()");
+    rc = run("echo $b");
+    expect_exact("a call can return a bool", "true\r\n");
+    rc = run("echo $e");
+    expect_exact("a call can return none", "none\r\n");
+    rc = run("set");
+    expect_has("set lists none", "e = none\r\n");
+    rc = run("fn bool; return 1; end");
+    expect_rc("bool is a reserved name", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses bool", "bad name");
+    rc = run("fn none; return 1; end");
+    expect_rc("none is a reserved name", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses none", "bad name");
 
     printf("random\n");
     rc = run("set n srand(1)");
@@ -1703,6 +2273,395 @@ int main(void)
     rc = run("fn a; break; end");
     expect_rc("break in a function fails", rc, FREYA_EXIT_FAIL);
     expect_exact("break does not cross a function", "unexpected break\r\n");
+
+    printf("files\n");
+    fat_unmount();
+    rc = run("set x open(\"/n.txt\")");
+    expect_rc("open before mount fails", rc, FREYA_EXIT_FAIL);
+    expect_has("open asks for mount", "no filesystem mounted");
+    fat_mount();
+
+    rc = run("set x open(\"/missing.txt\")");
+    expect_rc("open of a missing file fails", rc, FREYA_EXIT_FAIL);
+    expect_has("open names the missing file", "open: /missing.txt:");
+    rc = run("set x open(\"/n.txt\", \"z\")");
+    expect_rc("a bad mode fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a bad mode is a bad expression", "bad expression");
+
+    rc = run("set x open(\"/n.txt\", \"w\")");
+    expect_rc("open for write succeeds", rc, 0);
+    rc = run("echo $x");
+    expect_exact("open returns a handle", "0\r\n");
+    rc = run("set n write($x, \"hi\", 10b)");
+    expect_rc("write of a string and a newline succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("write counts the bytes", "3\r\n");
+    rc = run("set n close($x)");
+    expect_rc("close succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("close returns 0", "0\r\n");
+
+    rc = run("set x open(\"/n.txt\")");
+    expect_rc("open for read succeeds", rc, 0);
+    rc = run("set s read($x)");
+    expect_rc("read of a line succeeds", rc, 0);
+    rc = run("echo $s");
+    expect_exact("read drops the newline", "hi\r\n");
+    rc = run("set s read($x)");
+    expect_rc("read at the end succeeds", rc, 0);
+    rc = run("echo $s");
+    expect_exact("the end of the file is empty", "empty\r\n");
+    rc = run("set n close($x)");
+
+    rc = run("set x open(\"/n.txt\", \"w\")");
+    rc = run("set n write($x, \"ab\", \"cd\")");
+    rc = run("echo $n");
+    expect_exact("write joins its values", "4\r\n");
+    rc = run("set n seek($x, \"set\", 1)");
+    expect_rc("seek set moves to an offset", rc, 0);
+    rc = run("echo $n");
+    expect_exact("seek returns the new position", "1\r\n");
+    rc = run("set s read($x, 2)");
+    rc = run("echo $s");
+    expect_exact("read of a count returns those characters", "bc\r\n");
+    rc = run("set n seek($x)");
+    rc = run("echo $n");
+    expect_exact("seek with no offset is the position", "3\r\n");
+    rc = run("set n seek($x, \"end\")");
+    rc = run("echo $n");
+    expect_exact("seek end is the length", "4\r\n");
+    s_synced = 0;
+    rc = run("set n flush($x)");
+    expect_rc("flush succeeds", rc, 0);
+    if (s_synced) pass("flush syncs the card");
+    else fail("flush syncs the card");
+    rc = run("set n close($x)");
+
+    rc = run("set x open(\"/num.txt\", \"w\")");
+    rc = run("set n write($x, \" 42\")");
+    rc = run("set n seek($x, \"set\", 0)");
+    rc = run("set n read($x, \"*n\")");
+    expect_rc("read of a number succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("read *n skips spaces", "42\r\n");
+    rc = run("set n close($x)");
+    rc = run("set x open(\"/num.txt\", \"w\")");
+    rc = run("set n write($x, \"1.5\")");
+    rc = run("set n seek($x, \"set\", 0)");
+    rc = run("set x read($x, \"*n\")");
+    rc = run("echo $x");
+    expect_exact("read *n of a decimal is a float", "1.5\r\n");
+
+    rc = run("set x open(\"/n.txt\", \"w\")");
+    rc = run("set n write($x, \"ab\")");
+    rc = run("set n close($x)");
+    rc = run("set x open(\"/n.txt\", \"a\")");
+    rc = run("set n write($x, \"c\")");
+    rc = run("set n close($x)");
+    rc = run("set x open(\"/n.txt\", \"rb\")");
+    rc = run("set s read($x, \"*a\")");
+    rc = run("echo $s");
+    expect_exact("append and *a keep the bytes", "abc\r\n");
+    rc = run("set n close($x)");
+
+    rc = run("set x open(\"/n.txt\", \"w\")");
+    rc = run("set n write($x, 65)");
+    rc = run("set n seek($x, \"set\", 0)");
+    rc = run("set s read($x, \"*a\")");
+    rc = run("echo $s");
+    expect_exact("an integer is written as text", "65\r\n");
+    rc = run("set n close($x)");
+    rc = run("set x open(\"/raw.txt\", \"w\")");
+    rc = run("set n write($x, 65b)");
+    rc = run("set n seek($x, \"set\", 0)");
+    rc = run("set s read($x, \"*a\")");
+    rc = run("echo $s");
+    expect_exact("a byte is written raw", "A\r\n");
+    rc = run("set n close($x)");
+
+    rc = run("set x open(\"/n.txt\", \"w\")");
+    rc = run("set n write($x, \"0123456789abcdef\", \"0123456789abcdef\")");
+    rc = run("set n seek($x, \"set\", 0)");
+    rc = run("set s read($x, \"*a\")");
+    expect_rc("read *a of a long file fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a long read is too long", "string too long");
+    rc = run("set s read($x, 31)");
+    rc = run("echo $s");
+    expect_exact("a failed read leaves the position",
+                 "0123456789abcdef0123456789abcde\r\n");
+    rc = run("set n close($x)");
+
+    rc = run("set x open(\"/n.txt\", \"w\")");
+    rc = run("set n write($x, \"hi\", 10b)");
+    rc = run("set n seek($x, \"set\", 0)");
+    rc = run("set s read($x, \"*L\")");
+    expect_rc("read *L succeeds", rc, 0);
+    rc = run("if $s /= \"hi\"; echo kept; else; echo stripped; end");
+    expect_exact("read *L keeps the newline", "kept\r\n");
+    rc = run("set n close($x)");
+
+    rc = run("set n read($x)");
+    expect_rc("read of a closed handle fails", rc, FREYA_EXIT_FAIL);
+    rc = run("fn open; return 1; end");
+    expect_rc("open cannot be defined", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses open", "bad name");
+
+    printf("script threads\n");
+    rc = run("fn add; echo a1; yield; echo a2; end; "
+             "fn id; echo b1; yield; echo b2; end; "
+             "set x spawn(\"add\", 1); set y spawn(\"id\", 1); yield");
+    expect_rc("two threads run", rc, 0);
+    expect_exact("yield gives each thread a turn",
+                 "a1\r\nb1\r\na2\r\nb2\r\n");
+
+    rc = run("fn add; echo a; sleep 10; echo b; end; "
+             "set n spawn(\"add\", 1); echo mid; sleep 10; echo end");
+    expect_rc("a thread sleeps", rc, 0);
+    expect_exact("sleep runs the thread when its wait is over",
+                 "a\r\nmid\r\nb\r\nend\r\n");
+
+    rc = run("fn add; echo a; sleep 5; echo b; end; "
+             "set n spawn(\"add\", 0); set k join($n); echo done; echo $k");
+    expect_rc("join waits", rc, 0);
+    expect_exact("join returns when the thread has finished",
+                 "a\r\nb\r\ndone\r\n0\r\n");
+
+    rc = run("fn add; echo a; sleep 50; echo b; end; "
+             "set n spawn(\"add\", 1); stop add; echo after");
+    expect_rc("stop of a script thread succeeds", rc, 0);
+    expect_exact("stop ends the thread before it wakes",
+                 "a\r\nstopped add\r\nafter\r\n");
+
+    rc = run("fn add; sleep 1000; end; set n spawn(\"add\", 1); threads; stop add");
+    expect_rc("threads lists a script thread", rc, 0);
+    expect_has("the script thread is asleep", "sleep    add");
+
+    rc = run("fn add; echo lo; end; fn id; echo hi; end; "
+             "set n spawn(\"add\", 1) + spawn(\"id\", 2)");
+    expect_rc("a higher priority runs first", rc, 0);
+    expect_exact("priority 2 runs ahead of priority 1", "hi\r\nlo\r\n");
+
+    rc = run("fn add; set n 0; loop 3; set n $n + 1; end; echo $n; end; "
+             "set n spawn(\"add\", 1)");
+    expect_rc("a thread runs a loop", rc, 0);
+    expect_exact("the loop counted in the thread", "3\r\n");
+
+    rc = run("fn add; if 1 == 1; echo yes; else; echo no; end; end; "
+             "set n spawn(\"add\", 1)");
+    expect_rc("a thread runs if", rc, 0);
+    expect_exact("the thread took the first branch", "yes\r\n");
+
+    rc = run("fn add; loop 4; echo x; break; end; echo z; end; "
+             "set n spawn(\"add\", 1)");
+    expect_rc("a thread breaks a loop", rc, 0);
+    expect_exact("break leaves the loop", "x\r\nz\r\n");
+
+    rc = run("fn add; echo a; return 1; echo b; end; set n spawn(\"add\", 1)");
+    expect_rc("return ends a thread", rc, 0);
+    expect_exact("the thread stops at return", "a\r\n");
+
+    rc = run("fn add; sleep 100; end; fn id; sleep 100; end; "
+             "fn narg; sleep 100; end; "
+             "set x spawn(\"add\", 1); set y spawn(\"id\", 1); "
+             "set z spawn(\"narg\", 1)");
+    expect_rc("a third thread is refused", rc, FREYA_EXIT_FAIL);
+    expect_has("only two script threads fit", "too many threads");
+    rc = run("stop add; stop id");
+    expect_rc("the two threads stop", rc, 0);
+
+    rc = run("fn add; sleep 100; end; "
+             "set x spawn(\"add\", 1); set y spawn(\"add\", 1)");
+    expect_rc("a second thread of the same name fails", rc, FREYA_EXIT_FAIL);
+    expect_has("the name is in use", "that name is in use");
+    rc = run("stop add");
+
+    rc = run("set n spawn(\"nope\", 1)");
+    expect_rc("spawn of a missing function fails", rc, FREYA_EXIT_FAIL);
+    expect_has("spawn names the missing function", "no such function");
+    rc = run("set n spawn(\"add\", 8)");
+    expect_rc("a priority past 7 fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a bad priority is refused", "bad expression");
+    rc = run("fn spawn; return 1; end");
+    expect_rc("spawn cannot be defined", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses spawn", "bad name");
+
+    rc = run("fn add; set n join($n); end; set n spawn(\"add\", 1)");
+    expect_rc("a thread cannot join itself", rc, FREYA_EXIT_FAIL);
+    expect_has("join refuses the running thread", "cannot join itself");
+
+    rc = run("fn add; sleep 1000; end; set n spawn(\"add\", 1); run");
+    expect_rc("run is refused while a thread is alive", rc, FREYA_EXIT_FAIL);
+    expect_has("run names the thread", "a thread is running");
+    rc = run("stop add");
+    expect_rc("the last thread stops", rc, 0);
+
+    rc = run("help yield");
+    expect_rc("help yield succeeds", rc, 0);
+    expect_exact("help yield names the command", "yield\r\n");
+
+    printf("collection ownership\n");
+    run("unset a");
+    run("unset b");
+    run("unset c");
+    run("unset d");
+    run("unset e");
+    run("unset f");
+    run("unset k");
+    run("unset n");
+    run("unset p");
+    run("unset q");
+    run("unset s");
+    run("unset t");
+    run("unset x");
+    run("unset y");
+    run("unset z");
+
+    rc = run("set a array(1)");
+    expect_rc("ownership test array succeeds", rc, 0);
+    for (i = 0; i < 8; i++) {
+        rc = run("set s $a + \"\"");
+        expect_rc("collection concatenation releases its temporary", rc, 0);
+    }
+    for (i = 0; i < 8; i++) {
+        rc = run("set s \"%s\" $a");
+        expect_rc("collection formatting releases its argument", rc, 0);
+    }
+
+    rc = run("fn add; return $a + 1; end");
+    expect_rc("failing collection function is defined", rc, 0);
+    for (i = 0; i < 8; i++) {
+        rc = run("set n add()");
+        expect_rc("failed return releases its partial value", rc, FREYA_EXIT_FAIL);
+    }
+
+    rc = run("fn add; return array(1); end");
+    expect_rc("collection function is defined", rc, 0);
+    rc = run("fn id; return add(), 2; end");
+    expect_rc("multi-return collection function is defined", rc, 0);
+    for (i = 0; i < 8; i++) {
+        rc = run("set b, c id()");
+        expect_rc("non-final call return keeps valid ownership", rc, 0);
+    }
+    rc = run("echo $b");
+    expect_exact("non-final call returned its collection", "[1]\r\n");
+
+    rc = run("fn add; return $a; end");
+    expect_rc("interrupt collection function is defined", rc, 0);
+    rc = run("set n timer(1000, 0, \"add\")");
+    expect_rc("ownership test timer starts", rc, 0);
+    for (i = 1; i <= 8; i++) {
+        fire_timer(i);
+        rc = run("set n wait(50)");
+        expect_rc("interrupt return value is released", rc, 0);
+    }
+    rc = run("set n tclose(0)");
+    expect_rc("ownership test timer closes", rc, 0);
+
+    rc = run("set p[8] 1");
+    expect_rc("failed first indexed write fails", rc, FREYA_EXIT_FAIL);
+    rc = run("unset p");
+    expect_rc("failed first indexed write leaves no variable", rc, FREYA_EXIT_FAIL);
+
+    run("unset a");
+    run("unset b");
+    run("unset c");
+    run("unset n");
+    run("unset s");
+
+    printf("patterns\n");
+    run("unset x");
+    run("unset f");
+    run("unset t");
+    run("unset k");
+    run("unset y");
+    run("unset z");
+    rc = run("set s match(\"abc-12\", \"%a+\")");
+    expect_rc("match of letters succeeds", rc, 0);
+    rc = run("echo $s");
+    expect_exact("match returns the letters", "abc\r\n");
+    rc = run("set s match(\"abc-12\", \"%d+\")");
+    rc = run("echo $s");
+    expect_exact("match returns the digits", "12\r\n");
+    rc = run("set s match(\"abc\", \"%d+\")");
+    rc = run("echo $s");
+    expect_exact("a failed match is none", "none\r\n");
+    rc = run("set a, b match(\"abc-12\", \"(%a+)%-(%d+)\")");
+    expect_rc("match of two captures succeeds", rc, 0);
+    rc = run("echo $a");
+    expect_exact("the first capture is the letters", "abc\r\n");
+    rc = run("echo $b");
+    expect_exact("the second capture is the digits", "12\r\n");
+    rc = run("set n match(\"ab\", \"a()\")");
+    rc = run("echo $n");
+    expect_exact("an empty capture is the position", "2\r\n");
+    rc = run("set s match(\"<a>b>\", \"<.->\")");
+    rc = run("echo $s");
+    expect_exact("the short repeat stops early", "<a>\r\n");
+    rc = run("set s match(\"<a>b>\", \"<.*>\")");
+    rc = run("echo $s");
+    expect_exact("the long repeat runs on", "<a>b>\r\n");
+    rc = run("set s match(\"abc\", \"^b\")");
+    rc = run("echo $s");
+    expect_exact("a caret misses past the start", "none\r\n");
+    rc = run("set s match(\"abc\", \"c$\")");
+    rc = run("echo $s");
+    expect_exact("a dollar matches the end", "c\r\n");
+    rc = run("set s match(\"abcabc\", \"a\", 2)");
+    rc = run("echo $s");
+    expect_exact("match starts at the index", "a\r\n");
+    rc = run("set s match(\"(a(b)c)\", \"%b()\")");
+    rc = run("echo $s");
+    expect_exact("a balanced pair takes the outer", "(a(b)c)\r\n");
+    rc = run("set s match(\"ab12\", \"%D+\")");
+    rc = run("echo $s");
+    expect_exact("an uppercase class is the complement", "ab\r\n");
+    rc = run("set s match(\"ab12\", \"[0-9]+\")");
+    rc = run("echo $s");
+    expect_exact("a range matches the digits", "12\r\n");
+    rc = run("set a, b find(\"abc-12\", \"%d+\")");
+    rc = run("echo $a");
+    expect_exact("find returns where the match starts", "5\r\n");
+    rc = run("echo $b");
+    expect_exact("find returns where the match ends", "6\r\n");
+    rc = run("set a, b find(\"a%d\", \"%d\", 1, true)");
+    rc = run("echo $a");
+    expect_exact("a plain find starts at the percent", "2\r\n");
+    rc = run("echo $b");
+    expect_exact("a plain find ends at the d", "3\r\n");
+    rc = run("set s, n gsub(\"a1b2\", \"%d\", \"x\")");
+    expect_rc("gsub succeeds", rc, 0);
+    rc = run("echo $s");
+    expect_exact("gsub replaces each digit", "axbx\r\n");
+    rc = run("echo $n");
+    expect_exact("gsub counts the replacements", "2\r\n");
+    rc = run("set s gsub(\"ab\", \"(.)\", \"[%1]\")");
+    rc = run("echo $s");
+    expect_exact("a replacement keeps the capture", "[a][b]\r\n");
+    rc = run("set s gsub(\"a\", \"a\", \"%%\")");
+    rc = run("echo $s");
+    expect_exact("a doubled percent is one percent", "%\r\n");
+    rc = run("set s match(\"a\", \"[\")");
+    expect_rc("a broken pattern fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a broken pattern is named", "bad pattern");
+    rc = run("set s gsub(\"abcdefghijklmnop\", \".\", \"xy\")");
+    expect_rc("a long replacement fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a long replacement is too long", "string too long");
+    rc = run("fn match; return 1; end");
+    expect_rc("match cannot be defined", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses match", "bad name");
+    rc = run("if match(\"ab12\", \"%d+\") /= none; echo yes; else; echo no; end");
+    expect_exact("a match is a condition value", "yes\r\n");
+    rc = run("set s match(\"aa\", \"(a)%1\")");
+    rc = run("echo $s");
+    expect_exact("a pattern can repeat a capture", "a\r\n");
+    rc = run("set s match(\"abc\", \"b\", -2)");
+    rc = run("echo $s");
+    expect_exact("a negative index counts from the end", "b\r\n");
+    rc = run("set s, n gsub(\"a1b2\", \"%d\", \"x\", 1)");
+    rc = run("echo $s");
+    expect_exact("gsub stops after the given count", "axb2\r\n");
+    rc = run("echo $n");
+    expect_exact("gsub reports the limited count", "1\r\n");
 
     printf("%d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;

@@ -1,5 +1,5 @@
 /*
- * Freya - XMODEM receiver for the 'download' command.
+ * Freya - XMODEM for 'download' (receive) and 'upload' (send).
  *
  * Speaks XMODEM/CRC and XMODEM-1K, and falls back to the original
  * checksum protocol if the sender ignores the 'C' handshake.  Works with
@@ -45,7 +45,23 @@ static void flush_line(void)
     while (uart_getc_raw_timeout(300) >= 0) { }
 }
 
-int xmodem_receive_to_file(const char *path, uint32_t *received, int strip_pad)
+/* Write up to 'exact' bytes in total.  exact < 0 writes the whole buffer. */
+static int store_bytes(int fd, const uint8_t *data, int len,
+                       uint32_t *total, int32_t exact)
+{
+    if (exact >= 0) {
+        if (*total >= (uint32_t)exact) return 0;
+        if (*total + (uint32_t)len > (uint32_t)exact)
+            len = (int)((uint32_t)exact - *total);
+    }
+    if (len <= 0) return 0;
+    if (fs_fd_write(fd, data, len) != len) return -1;
+    *total += (uint32_t)len;
+    return 0;
+}
+
+int xmodem_receive_to_file(const char *path, uint32_t *received,
+                           int strip_pad, int32_t exact)
 {
     uint8_t  pkt[1024];
     uint8_t  pending[1024];
@@ -142,11 +158,10 @@ int xmodem_receive_to_file(const char *path, uint32_t *received, int strip_pad)
 
             /* Hold one packet back so the padding of the last one can go. */
             if (pending_len) {
-                if (fs_fd_write(fd, pending, pending_len) != pending_len) {
+                if (store_bytes(fd, pending, pending_len, &total, exact) != 0) {
                     rc = -6;
                     break;
                 }
-                total += (uint32_t)pending_len;
             }
             memcpy(pending, pkt, (size_t)len);
             pending_len = len;
@@ -159,10 +174,9 @@ int xmodem_receive_to_file(const char *path, uint32_t *received, int strip_pad)
     }
 
     if (rc == 0 && pending_len) {
-        if (strip_pad)
+        if (exact < 0 && strip_pad)
             while (pending_len > 0 && pending[pending_len - 1] == SUB) pending_len--;
-        if (fs_fd_write(fd, pending, pending_len) != pending_len) rc = -6;
-        else total += (uint32_t)pending_len;
+        if (store_bytes(fd, pending, pending_len, &total, exact) != 0) rc = -6;
     }
 
     if (rc != 0) cancel_transfer();
@@ -173,5 +187,106 @@ int xmodem_receive_to_file(const char *path, uint32_t *received, int strip_pad)
 
     if (received) *received = total;
     if (rc != 0 && total == 0) fat_unlink(abs);
+    return rc;
+}
+
+/* One packet, retried until ACK.  seq is the XMODEM block number. */
+static int send_packet(const uint8_t *pkt, int len, uint8_t seq, int crc_mode)
+{
+    uint8_t hdr[3];
+    int tries;
+
+    hdr[0] = (len == 1024) ? STX : SOH;
+    hdr[1] = seq;
+    hdr[2] = (uint8_t)~seq;
+
+    for (tries = 0; tries < 10; tries++) {
+        int c;
+
+        for (int i = 0; i < 3; i++) uart_putc((char)hdr[i]);
+        for (int i = 0; i < len; i++) uart_putc((char)pkt[i]);
+        if (crc_mode) {
+            uint16_t crc = crc16_xmodem(pkt, len);
+            uart_putc((char)(crc >> 8));
+            uart_putc((char)crc);
+        } else {
+            uint8_t sum = 0;
+            for (int i = 0; i < len; i++) sum = (uint8_t)(sum + pkt[i]);
+            uart_putc((char)sum);
+        }
+
+        c = uart_getc_raw_timeout(10000);
+        if (c == ACK) return 0;
+        if (c == CAN) {
+            c = uart_getc_raw_timeout(1000);
+            if (c == CAN) return -3;
+        }
+    }
+    return -4;
+}
+
+int xmodem_send_file(const char *path, uint32_t *sent)
+{
+    uint8_t pkt[1024];
+    fat_dirent_t ent;
+    int fd, crc_mode = -1, rc = 0;
+    uint8_t seq = 1;
+    uint32_t total = 0;
+    int blk;
+
+    rc = fat_stat(path, &ent);
+    if (rc != FAT_OK) return -1;
+    if (ent.attr & FAT_ATTR_DIR) return -1;
+
+    fd = fs_fd_open(path, FREYA_O_RDONLY);
+    if (fd < 0) return -6;
+
+    uart_set_raw(1);
+    uart_rx_flush();
+    rc = 0;
+
+    for (int i = 0; i < 60 && crc_mode < 0; i++) {
+        int c = uart_getc_raw_timeout(1000);
+        if (c == 'C') crc_mode = 1;
+        else if (c == NAK) crc_mode = 0;
+        else if (c == CAN) {
+            c = uart_getc_raw_timeout(1000);
+            if (c == CAN) { rc = -3; break; }
+        }
+    }
+    if (rc == 0 && crc_mode < 0) rc = -2;
+
+    blk = (crc_mode == 1) ? 1024 : 128;
+    while (rc == 0) {
+        int n = fs_fd_read(fd, pkt, blk);
+        int i;
+
+        if (n < 0) { rc = -6; break; }
+        if (n == 0) break;
+        for (i = n; i < blk; i++) pkt[i] = SUB;
+        rc = send_packet(pkt, blk, seq, crc_mode);
+        if (rc != 0) break;
+        total += (uint32_t)n;
+        seq++;
+    }
+
+    if (rc == 0) {
+        int acked = 0;
+        for (int i = 0; i < 10; i++) {
+            int c;
+            uart_putc(EOT);
+            c = uart_getc_raw_timeout(10000);
+            if (c == ACK) { acked = 1; break; }
+            if (c == CAN) { rc = -3; break; }
+        }
+        if (rc == 0 && !acked) rc = -2;
+    }
+
+    if (rc != 0) cancel_transfer();
+    fs_fd_close(fd);
+    uart_set_raw(0);
+    flush_line();
+    uart_rx_flush();
+    if (sent) *sent = total;
     return rc;
 }

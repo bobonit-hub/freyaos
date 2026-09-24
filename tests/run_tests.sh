@@ -111,6 +111,10 @@ mkfs.vfat -F 32 -n FREYA "$img" >/dev/null
 "$OUT/hostxmodem" "$img" || status=1
 fsck.vfat -n "$img" >/dev/null 2>&1 || { echo "  FAIL  image inconsistent after downloads"; status=1; }
 
+echo
+echo "================= fremote ================="
+python3 tests/host_fremote_test.py || status=1
+
 # The forth sample: its interpreter, its compiler and the machine that
 # runs what the compiler produced, driven line by line with the output
 # captured.  FREYA_APP_XIP picks the memory budget of a flash resident

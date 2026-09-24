@@ -21,6 +21,7 @@
 #define EOT 0x04
 #define ACK 0x06
 #define NAK 0x15
+#define CAN 0x18
 #define SUB 0x1A
 
 /* ------------------------------------------------- board stubs */
@@ -75,6 +76,18 @@ static int      s_corrupted;
 static int      s_dup_pkt;          /* packet number to send twice      */
 static int      s_duped;
 static int      s_noise;            /* leading garbage before packet 1  */
+
+/* The board is the sender.  uart_putc captures the stream and
+ * uart_getc_raw_timeout answers as a receiver would. */
+static int      s_board_sends;
+static uint8_t  s_tx[1024 * 80];
+static int      s_tx_len, s_tx_pos;
+static int      s_hs_done;
+static int      s_nak_first;        /* NAK the first data packet once   */
+static int      s_naked;
+static int      s_recv_crc;         /* receiver opens with 'C', else NAK */
+static uint8_t  s_got[70000];
+static int      s_got_len;
 
 static void rx_push(uint8_t b)
 {
@@ -136,6 +149,11 @@ void uart_putc(char ch)
 {
     uint8_t c = (uint8_t)ch;
 
+    if (s_board_sends) {
+        if (s_tx_len < (int)sizeof s_tx) s_tx[s_tx_len++] = c;
+        return;
+    }
+
     switch (c) {
     case 'C':
         if (!s_crc_capable) break;             /* sender does not speak CRC */
@@ -182,9 +200,61 @@ void uart_puts(const char *s) { while (*s) uart_putc(*s++); }
 void uart_set_raw(int raw) { (void)raw; }
 void uart_rx_flush(void) { }
 
+static int take_sent_packet(void)
+{
+    int len, check, need, seq, nseq;
+    const uint8_t *p;
+
+    if (s_tx_pos >= s_tx_len) return -1;
+    if (s_tx[s_tx_pos] == EOT) {
+        s_tx_pos++;
+        return ACK;
+    }
+    if (s_tx[s_tx_pos] == CAN) return CAN;
+    if (s_tx[s_tx_pos] != SOH && s_tx[s_tx_pos] != STX) {
+        s_tx_pos++;
+        return -1;
+    }
+    len = (s_tx[s_tx_pos] == STX) ? 1024 : 128;
+    check = s_recv_crc ? 2 : 1;
+    need = 3 + len + check;
+    if (s_tx_len - s_tx_pos < need) return -1;
+
+    p = s_tx + s_tx_pos;
+    seq = p[1];
+    nseq = p[2];
+    s_tx_pos += need;
+    if (((seq + nseq) & 0xFF) != 0xFF) return NAK;
+    if (s_recv_crc) {
+        uint16_t want = (uint16_t)((p[3 + len] << 8) | p[3 + len + 1]);
+        if (crc16_x(p + 3, len) != want) return NAK;
+    } else {
+        uint8_t sum = 0;
+        for (int i = 0; i < len; i++) sum = (uint8_t)(sum + p[3 + i]);
+        if (sum != p[3 + len]) return NAK;
+    }
+    if (s_nak_first && !s_naked) {
+        s_naked = 1;                    /* drop it; the sender repeats */
+        return NAK;
+    }
+    if (s_got_len + len <= (int)sizeof s_got) {
+        memcpy(s_got + s_got_len, p + 3, (size_t)len);
+        s_got_len += len;
+    }
+    (void)seq;
+    return ACK;
+}
+
 int uart_getc_raw_timeout(uint32_t ms)
 {
     (void)ms;
+    if (s_board_sends) {
+        if (!s_hs_done) {
+            s_hs_done = 1;
+            return s_recv_crc ? 'C' : NAK;
+        }
+        return take_sent_packet();
+    }
     if (s_rx_tail >= s_rx_head) return -1;      /* nothing pending: timeout */
     return s_rxq[s_rx_tail++];
 }
@@ -254,7 +324,7 @@ static void scenario(const char *title, const char *path, const uint8_t *data,
     s_dup_pkt = dup;
     s_noise = noise;
 
-    rc = xmodem_receive_to_file(path, &got, strip);
+    rc = xmodem_receive_to_file(path, &got, strip, -1);
     check(rc == 0, "  transfer completed");
     check(verify_file(path, data, len, strip), "  file content matches the source");
 }
@@ -287,8 +357,72 @@ int main(int argc, char **argv)
     {
         uint32_t got = 0;
         sender_reset(data, 1024, 1024, 1);
-        check(xmodem_receive_to_file("/xexact.bin", &got, 1) == 0, "  transfer completed");
+        check(xmodem_receive_to_file("/xexact.bin", &got, 1, -1) == 0, "  transfer completed");
         check(verify_file("/xexact.bin", data, 1024, 1), "  file content matches the source");
+    }
+
+    printf("\nboard sends a file, CRC, exact size kept\n");
+    {
+        static uint8_t body[2500];
+        fat_file_t f;
+        uint32_t put = 0, sent = 0;
+        int i;
+
+        for (i = 0; i < (int)sizeof body; i++) body[i] = (uint8_t)(i * 3 + 1);
+        body[sizeof body - 1] = SUB;          /* a real trailing SUB stays */
+        check(fat_open(&f, "/up.bin", FAT_WRITE | FAT_CREATE | FAT_TRUNC) == FAT_OK,
+              "  created /up.bin");
+        check(fat_write(&f, body, sizeof body, &put) == FAT_OK && put == sizeof body,
+              "  wrote the source");
+        fat_close(&f);
+
+        s_board_sends = 1;
+        s_recv_crc = 1;
+        s_tx_len = s_tx_pos = s_got_len = 0;
+        s_hs_done = s_naked = s_nak_first = 0;
+        check(xmodem_send_file("/up.bin", &sent) == 0, "  transfer completed");
+        check(sent == sizeof body, "  reported the file length");
+        /* Drop the SUB padding of the last packet; the payload SUB stays. */
+        while (s_got_len > (int)sizeof body && s_got[s_got_len - 1] == SUB)
+            s_got_len--;
+        check(s_got_len == (int)sizeof body && memcmp(s_got, body, sizeof body) == 0,
+              "  receiver got the same bytes");
+        s_board_sends = 0;
+    }
+
+    printf("\nboard sends, checksum mode, first packet retried\n");
+    {
+        static uint8_t body[200];
+        fat_file_t f;
+        uint32_t put = 0, sent = 0;
+
+        memset(body, 0x5A, sizeof body);
+        fat_open(&f, "/upsum.bin", FAT_WRITE | FAT_CREATE | FAT_TRUNC);
+        fat_write(&f, body, sizeof body, &put);
+        fat_close(&f);
+
+        s_board_sends = 1;
+        s_recv_crc = 0;
+        s_nak_first = 1;
+        s_tx_len = s_tx_pos = s_got_len = 0;
+        s_hs_done = s_naked = 0;
+        check(xmodem_send_file("/upsum.bin", &sent) == 0, "  transfer completed");
+        check(sent == sizeof body, "  reported the file length");
+        while (s_got_len > (int)sizeof body && s_got[s_got_len - 1] == SUB)
+            s_got_len--;
+        check(s_got_len == (int)sizeof body && memcmp(s_got, body, sizeof body) == 0,
+              "  receiver got the same bytes");
+        s_board_sends = 0;
+    }
+
+    printf("\n--size stores an exact count, padding included as data\n");
+    {
+        uint32_t got = 0;
+        sender_reset(data, 300, 128, 1);
+        check(xmodem_receive_to_file("/xsize.bin", &got, 0, 300) == 0,
+              "  transfer completed");
+        check(got == 300 && verify_file("/xsize.bin", data, 300, 1),
+              "  file is the exact length");
     }
 
     fat_unmount();

@@ -5,7 +5,7 @@ STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
 metal on the STM32F411CEU6 "Black Pill" and the STM32F103C8T6 "Blue Pill".
 No HAL, no CMSIS, no third party libraries: Freya brings the chip up itself,
 talks to the hardware through its own register definitions, and lives
-entirely in internal flash. This is release 1.1, "UFOnaut". The notes
+entirely in internal flash. This is release 2.0, "Reptiloid". The notes
 are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 Freya gives you a serial console, a real FAT filesystem on an SD card, and the
@@ -23,7 +23,7 @@ cycle and needs no card at all.
  |_|  |_|  \___|\__, |\__,_|
                  __/ |
                 |___/
-Freya 1.1 "UFOnaut" for STM32F411CEU6
+Freya 2.0 "Reptiloid" for STM32F411CEU6
 96 MHz, power-on reset. Type 'help'.
 
 [boot] clocks     : HSE 25 MHz crystal + PLL, sysclk 96 MHz, flash 3 WS
@@ -43,7 +43,7 @@ freya:/>
 | Crystal | 25 MHz | 8 MHz |
 | Flash | 512 KiB | 128 KiB |
 | SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 61312 B flash |
+| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 37760 B flash |
 | Build | `make` | `make BOARD=bluepill` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -56,7 +56,7 @@ The Blue Pill boots the same way, on three quarters of the clock and a fifth of
 the RAM:
 
 ```
-Freya 1.1 "UFOnaut" for STM32F103C8T6
+Freya 2.0 "Reptiloid" for STM32F103C8T6
 72 MHz, power-on reset. Type 'help'.
 
 [boot] clocks     : HSE 8 MHz crystal + PLL, sysclk 72 MHz, flash 2 WS
@@ -111,7 +111,7 @@ Freya 1.1 "UFOnaut" for STM32F103C8T6
   the same thing ([docs/crypt.md](docs/crypt.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
-  size from 8 KiB to 61312 bytes; on the Black Pill the flash region is 64 KiB
+  size from 8 KiB to 37760 bytes; on the Black Pill the flash region is 64 KiB
   (sector 4) and is there so the same console commands work with no card in
   the socket. The program can be copied from the card, or packed into the
   module when Freya itself is flashed.
@@ -263,13 +263,13 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `meminfo` | flash and RAM usage: .data, .bss, heap, program region, stack |
 | `mount` | initialise the card and mount the filesystem |
 | `power [sd [on\|off]]` | show the socket supply, or switch it |
-| `ls [-l] [path]` | list a directory |
-| `ll [path]` | list with sizes, dates and attributes |
+| `ls [-l] [path]` | list a directory; `-l` adds sizes, dates and attributes |
 | `cd [path]`, `pwd` | move around |
 | `mkdir <dir>...` | create directories |
 | `rm [-r] <path>...` | remove files, empty directories, or whole trees |
-| `rename <old> <new>`, `mv` | rename or move a file or directory (no data copy) |
-| `download <file> [--raw]` | receive a file over XMODEM |
+| `rename <old> <new>` | rename or move a file or directory (no data copy) |
+| `download <file> [--raw] [--size <n>]` | receive a file over XMODEM; `--size` keeps that many bytes |
+| `upload <file>` | send a file over XMODEM |
 | `cat <file>` | print a file |
 | `write <file> <text...>` | append a line to a file |
 | `hexdump <file> [off] [len]` | dump a file in hex |
@@ -292,8 +292,8 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `pwm [<pin> <hz> <duty%>]` | list the PWM channels, or start one: `pwm PB6 1000 25`, `pwm PB6 off` |
 | `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
 | `source <file>\|@flash` | run a shell script from a file, or from program flash |
-| `set`, `unset`, `$name` | integer, float and string variables |
-| `fn`, `return` | a function of 0..32 arguments and one value |
+| `set`, `unset`, `$name` | integer, float, string, array and dict variables |
+| `fn`, `return` | a function of 0..32 arguments and 1..32 values |
 | `if` / `else` / `end`, `loop <count>` | run commands when a status is 0, or repeat them |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
 
@@ -306,10 +306,10 @@ the size the MCU reports) onto the card as a raw image. It overwrites
 leaves whatever was written. `saveflash` copies only the installed program
 image (not the kernel) to `/<name>.xip.bin`, or to a path you give.
 
-`ls` prints names only; `ll` (or `ls -l`) adds sizes and timestamps:
+`ls` prints names only; `ls -l` adds sizes and timestamps:
 
 ```
-freya:/> ll
+freya:/> ls -l
 /:
   d---a      <DIR>  2026-09-21 20:14  apps
   -w--a       2048  2026-09-21 20:31  notes.txt
@@ -332,6 +332,24 @@ stty -F /dev/ttyUSB0 921600 raw -echo -crtscts             # sx uses the line as
 sx -k build/apps/hello.bin < /dev/ttyUSB0 > /dev/ttyUSB0   # lrzsz
 python3 tools/send.py /dev/ttyUSB0 build/apps/hello.bin    # no lrzsz needed, sets the rate itself
 ```
+
+`tools/fremote.py` is the other way round: it opens the console itself and
+drives the shell, in the same shape as MicroPython's `mpremote`. A path
+with a leading `:` is on the card.
+
+```sh
+python3 tools/fremote.py                          # shell; Ctrl-X leaves it
+python3 tools/fremote.py u0 fs ls :/
+python3 tools/fremote.py fs cp build/apps/hello.bin :/hello.bin
+python3 tools/fremote.py fs cp :/notes.txt .
+python3 tools/fremote.py exec "led blink" + fs df
+```
+
+`fs cp` and `fs cat` use `download --size` and `upload`, so the copy is the
+same bytes as the file, including a trailing 0x1A. `fs ls`, `fs rm`,
+`fs mkdir`, `fs df` and `fs cd` are the shell commands of the
+same name. `fs mv` is the shell's `rename`. `u0` is `/dev/ttyUSB0`, `a0` is `/dev/ttyACM0` and `c3` is
+`COM3`. With no port, the only USB serial device is used.
 
 minicom, Tera Term and ExtraPuTTY can send XMODEM from their menus. Because
 XMODEM has no length field, the sender pads the last packet; Freya strips that
@@ -569,11 +587,14 @@ Each run also writes its outcome to `/freya.log`,
 at `info` when the status is 0 and at `warn` when it is not.
 
 `;` separates commands on one line. `set n 1 + 2` stores an integer, a
-float or a string under a name, and `$n` expands it; `if $n > 1` is true
+byte, a bool, empty, none, a float, a string, an auto array, or a dict under a name, and `$n` expands it. `array(10, 20)` grows when `set a[2] 30` writes past the end, and every element stays one type. `min` and `max` pick an element, and `sort` returns the array in order. `dict("b", 2, "a", 1)` keeps its keys sorted. Four of those may exist at once, and `unset` frees them. `if $n > 1` is true
 when the comparison is. `fn add` ... `return $1 + $2` ... `end` defines a
-function; `add(2, 3)` in an expression passes up to 32 arguments and
-yields the returned value. `int`, `float`, `str` and `hex` convert a
-value between an integer, a float, text and hexadecimal. `rand()` is
+function; `add(2, 3)` in an expression passes up to 32 arguments.
+`return` leaves from anywhere in the body with 1 to 32 values, and a
+call used as one value yields the first. `int`, `float`, `byte`, `bool`, `str` and `hex` convert a
+value between an integer, a byte (0 to 255, written `65b`), a bool
+(`true` and `false`), a float, text and hexadecimal.
+`empty` is the empty value and `none` is a different value with no number. `rand()` is
 the ANSI C 1989 example generator, 0 to 32767, and `srand(seed)` sets
 its state. `pi()` is the circle constant, and `sin(angle)` and
 `cos(angle)` take an angle in radians. `now()` is the software clock as seconds since
@@ -582,13 +603,19 @@ its state. `pi()` is the circle constant, and `sin(angle)` and
 seconds from those six fields. `get`, `set`,
 `adc` and `pwm` are built in:
 `get("PB0")` reads a pin, `set("PB5", 1)` drives it, `adc("PA0")` returns
-one raw sample, and `pwm("PB6", 1000, 25)` starts a channel. `ticks()` is
+one raw sample, and `pwm("PB6", 1000, 25)` starts a channel. `open`,
+`read`, `write`, `close`, `seek` and `flush` are the file calls, in the
+shape of Lua's `io` library. `match`, `find` and `gsub` search a string
+with a Lua pattern. `ticks()` is
 milliseconds since boot. `timer(1000000, 0, "ontick")` starts a hardware
 timer and `irq("PB0", 2, "onpress")` arms a pin edge; `wait(0)` calls
 the named function when one of them fires. `break` leaves a loop. `if <command>` still runs the following commands up
 to `else` or `end` when that command's status is 0, and the `else` commands
 otherwise. `loop <count>` repeats up to `end`, and `sleep <ms>` waits that
-many milliseconds. A block left open is finished
+many milliseconds. `spawn("blink", 1)` runs a function beside the
+script until it sleeps or yields; two of those fit, and `join` waits
+for one. They share the interpreter, so they are not the threads a
+program starts. A block left open is finished
 on the next lines (`>` is the prompt); Ctrl-C throws those lines away,
 and also cuts a `sleep`, a `loop` or a `wait` short. `source <file>` runs a script
 from the card, and `source @flash` runs one kept in the program flash
@@ -606,11 +633,11 @@ built against this ABI can check before calling:
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-most of the 128 KiB of flash sits idle. So the board reserves 61312 bytes
+most of the 128 KiB of flash sits idle. So the board reserves 37760 bytes
 at the top of flash — the rest of page 48 after a 128-byte auto-start slot,
-then pages 49 to 107 — for one program image. The last 20 KiB holds the
+then pages 49 to 84 — for one program image. The last 43 KiB holds the
 kernel extension (the thread scheduler, the shell's script interpreter,
-its variables and functions, the SPI master and the cipher), which is flashed as its own image. The size register on
+its variables and functions, XMODEM, the SPI master and the cipher), which is flashed as its own image. The size register on
 these parts often still reads 64 KiB; the region runs through the 128 KiB
 anyway. The Black Pill does not need
 the size (it already has 56 KiB of program RAM) but it keeps the same
@@ -659,7 +686,7 @@ flash into the RAM region before `app_main` is called. That is what the second
 linker script (`boards/<board>/app_flash.ld`) describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
-spends the 8 KiB RAM window entirely on its variables, and gets 61312 bytes
+spends the 8 KiB RAM window entirely on its variables, and gets 37760 bytes
 for code instead of 8 KiB. On the Black Pill the RAM window is still 56 KiB and
 the flash image may be up to 64 KiB.
 
@@ -705,7 +732,7 @@ Black Pill:
 0x08010000  +--------------------------------+
             |  program flash region          |  64 KiB, sector 4
 0x08020000  +--------------------------------+
-            |  kernel extension              |  20 KiB, start of sector 5
+            |  kernel extension              |  40 KiB, start of sector 5
 0x08080000  +--------------------------------+
 
 0x20000000  +--------------------------------+
@@ -731,10 +758,10 @@ heap takes whatever `.bss` leaves behind:
 0x0800C000  +--------------------------------+
             |  auto-start flag + log level  |  128 B, page 48
 0x0800C080  +--------------------------------+
-            |  program flash region          |  61312 B, rest of page 48
-            |                                |  and pages 49..110, installed
-0x0801B000  +--------------------------------+  from the card
-            |  kernel extension              |  20 KiB, pages 108..127
+            |  program flash region          |  37760 B, rest of page 48
+            |                                |  and pages 49..84, installed
+0x08015400  +--------------------------------+  from the card
+            |  kernel extension              |  43 KiB, pages 85..127
 0x08020000  +--------------------------------+
 
 0x20000000  +--------------------------------+
@@ -775,7 +802,7 @@ is measured rather than guessed).
 | `src/crypt.c` | XTEA in CTR mode, for a program and for `crypt` |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
 | `src/fs.c` | paths, working directory, descriptor table |
-| `src/xmodem.c` | the `download` receiver |
+| `src/xmodem.c` | XMODEM receive (`download`) and send (`upload`) |
 | `src/loader.c` | program loading and installing, the service table, start and stop |
 | `boards/<board>/flash.c` | internal flash erase and program, bounded to the program region |
 | `src/fault.c` | fault containment and the kernel panic dump |
@@ -795,6 +822,7 @@ is measured rather than guessed).
 | `docs/crypt.md` | the XTEA-CTR API and the `crypt` command |
 | `docs/sd-slot.txt` | SD slot wiring for the Blue Pill and the Black Pill |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
+| `tools/fremote.py` | remote shell and SD card utility (`fs ls`, `fs cp`, …) |
 | `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
 
 ## Tests
@@ -919,7 +947,7 @@ ALL TESTS PASSED
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 128 KiB of
   flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
   KiB instead of sixty. Installing a program into flash is the answer to the
-  first half of that, not the second — such a program gets 61312 bytes of code, but
+  first half of that, not the second — such a program gets 37760 bytes of code, but
   the heap is still small and the main thread still uses the shell stack.
 * The Black Pill keeps a program in flash for the same console commands, not
   because 56 KiB of program RAM is too small. Its erase unit at the program
