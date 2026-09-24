@@ -25,7 +25,7 @@ the signal wire going to the pin.
 ## Run
 
 ```
-freya:/> run pwm.bin
+freya: run pwm.bin
 --- pwm starting (Ctrl-C stops it) ---
 pwm: PB6 at 1000 Hz, fading an LED. Ctrl-C stops it
   64.00%
@@ -109,6 +109,6 @@ board. Copy the `.bin` onto the card (or `download` it over XMODEM) and `run`
 it, or install the flash image so it needs no card:
 
 ```
-freya:/> install pwm.xip.bin
-freya:/> runflash
+freya: install pwm.xip.bin
+freya: runflash
 ```

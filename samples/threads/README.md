@@ -6,7 +6,7 @@ gets the CPU while `blink` is asleep. Both print a few lines and then
 the run ends, which stops whichever thread is still around.
 
 ```
-freya:/> run threads.bin
+freya: run threads.bin
 main is thread 0
 blink 0
 blink is thread 2

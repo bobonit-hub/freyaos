@@ -59,6 +59,6 @@ appropriate.
 count:
 
 ```
-freya:/> adc PA0
+freya: adc PA0
 PA0 = 2037 / 4095
 ```

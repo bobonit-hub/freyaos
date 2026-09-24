@@ -5,7 +5,7 @@ XMODEM-1K sender for Freya's 'download' command.
 Useful when lrzsz (sx) is not installed.  Run Freya's download command
 first, then point this script at the same serial port:
 
-    freya:/> download hello.bin
+    freya: download hello.bin
     $ python3 tools/send.py /dev/ttyUSB0 build/apps/hello.bin
 
 The Altair menu receives the same stream into the 8080's memory.

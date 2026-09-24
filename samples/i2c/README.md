@@ -30,7 +30,7 @@ already a PWM output cannot be opened as I2C until `pwm <pin> off`.
 ## Run
 
 ```
-freya:/> run i2c.bin
+freya: run i2c.bin
 --- i2c starting (Ctrl-C stops it) ---
 i2c: scanning bus 1 at 100000 Hz
   0x68

@@ -14,8 +14,8 @@ the program. On the Black Pill it is **32 KiB**. The status line shows
 `used/capacity`. A file that does not fit is refused; it is not cut off.
 
 ```
-freya:/> run edit.bin
-freya:/> run edit.bin notes.txt
+freya: run edit.bin
+freya: run edit.bin notes.txt
 ```
 
 A relative path is taken from the shell's working directory. A name that
@@ -70,15 +70,15 @@ into the program flash region.
 Copy the `.bin` onto the card (or `download` it over XMODEM), then:
 
 ```
-freya:/> run edit.bin notes.txt
+freya: run edit.bin notes.txt
 ```
 
 Install into internal flash so it survives a power cycle and needs no card
 to start (the file it edits still has to be on a card):
 
 ```
-freya:/> install edit.xip.bin
-freya:/> runflash notes.txt
+freya: install edit.xip.bin
+freya: runflash notes.txt
 ```
 
 Or pack it with the kernel when the module is programmed:

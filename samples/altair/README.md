@@ -10,8 +10,8 @@ programs are files on the SD card, in whatever form they were archived:
 a memory image, an Intel HEX file or a paper tape.
 
 ```
-freya:/> install altair.xip.bin
-freya:/> runflash ext41.tap
+freya: install altair.xip.bin
+freya: runflash ext41.tap
 --- altair starting (Ctrl-C stops it) ---
 altair: 8800b Turnkey, 48 KiB RAM at 0000, Turnkey SRAM at F800, PROM at FC00
 altair: ext41.tap: loader at 3F00, reading the rest of the tape
@@ -52,11 +52,11 @@ image. On the Blue Pill the SRAM is 20 KiB, the window is 8 KiB, and
 that 16 KiB is kept in program flash. See `samples/altair16/README.md`.
 
 ```
-freya:/> install altair.xip.bin     once, into program flash
-freya:/> runflash                   the files in /altair/
-freya:/> runflash ext41.tap         a BASIC tape, read and run
-freya:/> runflash xbasic.bin        a memory image at 0000h, run there
-freya:/> runflash prog.hex --go 100 Intel HEX, started at 0100h
+freya: install altair.xip.bin     once, into program flash
+freya: runflash                   the files in /altair/
+freya: runflash ext41.tap         a BASIC tape, read and run
+freya: runflash xbasic.bin        a memory image at 0000h, run there
+freya: runflash prog.hex --go 100 Intel HEX, started at 0100h
 ```
 
 With no image named, the emulator looks in `/altair/`:
@@ -173,7 +173,7 @@ The Turnkey's own way works too. With MBL or MBLe in the socket at FE00h
 and the tape on the reader, start the machine at the loader:
 
 ```
-freya:/> runflash --prom mble.hex --tape ext41.tap --sw 06 --go FE00
+freya: runflash --prom mble.hex --tape ext41.tap --sw 06 --go FE00
 ```
 
 The low three switches choose the port the loader reads: 6 or 7 for

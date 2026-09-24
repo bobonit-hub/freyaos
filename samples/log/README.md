@@ -4,9 +4,9 @@ Writes one Freya log line at each level so you can see the names in
 `/freya.log` and how the filter drops quieter ones.
 
 ```
-freya:/> loglevel debug
-freya:/> run log.bin
-freya:/> cat /freya.log
+freya: loglevel debug
+freya: run log.bin
+freya: cat /freya.log
 ```
 
 Optional argument sets the filter for this run (`off`, `error`, `warn`,

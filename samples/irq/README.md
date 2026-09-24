@@ -23,7 +23,7 @@ the rest for 20 ms.
 ## Run
 
 ```
-freya:/> run irq.bin
+freya: run irq.bin
 --- irq starting (Ctrl-C stops it) ---
 irq: timer every 500 ms, falling edges on PA0 (button to ground)
 press the button, or Ctrl-C to stop
@@ -99,6 +99,6 @@ Copy the `.bin` onto the card (or `download` it over XMODEM) and `run` it, or
 install the flash image so it needs no card:
 
 ```
-freya:/> install irq.xip.bin
-freya:/> runflash
+freya: install irq.xip.bin
+freya: runflash
 ```

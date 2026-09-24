@@ -114,17 +114,17 @@ them. The kernel returns `FREYA_ERR_HANDLER`.
 open. The same commands a program can make:
 
 ```
-freya:/> spi 1 1000000
+freya: spi 1 1000000
 SPI2  750000 Hz  mode 0
-freya:/> pin PB12 out 1
+freya: pin PB12 out 1
 PB12 = 1
-freya:/> pin PB12 0
+freya: pin PB12 0
 PB12 = 0
-freya:/> spi 1 x 0x9F 0xFF 0xFF 0xFF
+freya: spi 1 x 0x9F 0xFF 0xFF 0xFF
 ff ef 40 18
-freya:/> pin PB12 1
+freya: pin PB12 1
 PB12 = 1
-freya:/> spi 1 off
+freya: spi 1 off
 SPI2 off
 ```
 

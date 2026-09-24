@@ -2,7 +2,7 @@
 
 The console shell is a small language as well as a list of commands. A
 line can store a value, test it, repeat a command, call a function, and
-read or drive a pin. The same rules apply to a line typed at `freya:/>`
+read or drive a pin. The same rules apply to a line typed at `freya:`
 and to a script run with `source`. The commands themselves are listed in
 [console-commands.md](console-commands.md).
 
@@ -76,14 +76,14 @@ Any other status takes the `else`. A branch that is skipped does not
 change `$?`. A condition does: true leaves 0 and false leaves 1.
 
 ```
-freya:/> if echo hi
+freya: if echo hi
 > echo yes
 > else
 > echo no
 > end
 hi
 yes
-freya:/> if $n == 7
+freya: if $n == 7
 > echo yes
 > else
 > echo no
@@ -100,7 +100,7 @@ takes no argument. `break` inside a function does not leave a loop
 outside that function.
 
 ```
-freya:/> loop 3; echo tick; sleep 200; end
+freya: loop 3; echo tick; sleep 200; end
 tick
 tick
 tick
@@ -169,10 +169,10 @@ that.
 | `%%` | nothing | one `%` |
 
 ```
-freya:/> set n 1 + 2 * 3
-freya:/> set x 7.5 / 2
-freya:/> set s "%d %s" $n "items"
-freya:/> echo $s
+freya: set n 1 + 2 * 3
+freya: set x 7.5 / 2
+freya: set s "%d %s" $n "items"
+freya: echo $s
 7 items
 ```
 
@@ -203,10 +203,10 @@ for a bool, `name = empty` for empty, `name = none` for none,
 With no variables it prints `no variables`.
 
 ```
-freya:/> set n 1 + 2 * 3
-freya:/> echo $n
+freya: set n 1 + 2 * 3
+freya: echo $n
 7
-freya:/> set
+freya: set
 n = 7
 ```
 
@@ -239,26 +239,26 @@ per name, and leaves any further values. Fewer values than names is
 `too few values`. More than 32 values is `too many values`.
 
 ```
-freya:/> fn add
+freya: fn add
 > return $1 + $2
 > end
-freya:/> set n add(2, 3)
-freya:/> echo $n
+freya: set n add(2, 3)
+freya: echo $n
 5
-freya:/> fn pair
+freya: fn pair
 > if $1 /= 0
 > return 1, 2.5, "ok"
 > end
 > return 0, 0, "no"
 > end
-freya:/> set a, b, c pair(1)
-freya:/> echo $a
+freya: set a, b, c pair(1)
+freya: echo $a
 1
-freya:/> echo $b
+freya: echo $b
 2.5
-freya:/> echo $c
+freya: echo $c
 ok
-freya:/> fn
+freya: fn
 add
 pair
 ```
@@ -327,23 +327,23 @@ that a call is still holding. The cells live on the heap. `unset`, or
 `out of memory`.
 
 ```
-freya:/> set a array(30, 10, 20)
-freya:/> echo min($a)
+freya: set a array(30, 10, 20)
+freya: echo min($a)
 10
-freya:/> echo max($a)
+freya: echo max($a)
 30
-freya:/> set b sort($a)
-freya:/> echo $b
+freya: set b sort($a)
+freya: echo $b
 [10, 20, 30]
-freya:/> unset b
-freya:/> set a array(10, 20)
-freya:/> set a[2] 30
-freya:/> echo $a[1]
+freya: unset b
+freya: set a array(10, 20)
+freya: set a[2] 30
+freya: echo $a[1]
 20
-freya:/> set d dict("b", 2, "a", 1)
-freya:/> echo $d["a"]
+freya: set d dict("b", 2, "a", 1)
+freya: echo $d["a"]
 1
-freya:/> set
+freya: set
 a = [10, 20, 30]
 d = {"a": 1, "b": 2}
 ```
@@ -397,13 +397,13 @@ A value that is not of that form is `not a number`. One that does not
 fit in an integer is `integer overflow`.
 
 ```
-freya:/> set n int("0x10")
-freya:/> set x float($n)
-freya:/> set s hex($n)
-freya:/> echo $s
+freya: set n int("0x10")
+freya: set x float($n)
+freya: set s hex($n)
+freya: echo $s
 10
-freya:/> set n hex($s)
-freya:/> echo $n
+freya: set n hex($s)
+freya: echo $n
 16
 ```
 
@@ -462,23 +462,23 @@ replacements were made. `gsub(text, pattern, repl, n)` stops after `n`.
 A result longer than 31 characters is `string too long`.
 
 ```
-freya:/> set s match("abc-12", "%a+")
-freya:/> echo $s
+freya: set s match("abc-12", "%a+")
+freya: echo $s
 abc
-freya:/> set a, b match("abc-12", "(%a+)%-(%d+)")
-freya:/> echo $a
+freya: set a, b match("abc-12", "(%a+)%-(%d+)")
+freya: echo $a
 abc
-freya:/> echo $b
+freya: echo $b
 12
-freya:/> set a, b find("abc-12", "%d+")
-freya:/> echo $a
+freya: set a, b find("abc-12", "%d+")
+freya: echo $a
 5
-freya:/> echo $b
+freya: echo $b
 6
-freya:/> set s, n gsub("a1b2", "%d", "x")
-freya:/> echo $s
+freya: set s, n gsub("a1b2", "%d", "x")
+freya: echo $s
 axbx
-freya:/> echo $n
+freya: echo $n
 2
 ```
 
@@ -501,12 +501,12 @@ as its bit pattern and `srand(-1)` is the seed `0xFFFFFFFF`. A float, a
 byte, empty, or a string is refused. The same seed repeats the same sequence.
 
 ```
-freya:/> set n srand(1)
-freya:/> set n rand()
-freya:/> echo $n
+freya: set n srand(1)
+freya: set n rand()
+freya: echo $n
 16838
-freya:/> set n rand()
-freya:/> echo $n
+freya: set n rand()
+freya: echo $n
 5758
 ```
 
@@ -518,11 +518,11 @@ about a million radians, or a value that is not a number, is
 `not a number`.
 
 ```
-freya:/> set x sin(pi() / 2)
-freya:/> echo $x
+freya: set x sin(pi() / 2)
+freya: echo $x
 1
-freya:/> set x cos(pi())
-freya:/> echo $x
+freya: set x cos(pi())
+freya: echo $x
 -1
 ```
 
@@ -552,15 +552,15 @@ year before 1970 or a day past the end of the month, is
 `integer overflow`. A float, a byte, empty, or a string in any of these is refused.
 
 ```
-freya:/> set n time(2026, 1, 1, 0, 0, 0)
-freya:/> set s date($n)
-freya:/> echo $s
+freya: set n time(2026, 1, 1, 0, 0, 0)
+freya: set s date($n)
+freya: echo $s
 2026-01-01 00:00:00
-freya:/> set n year($n)
-freya:/> echo $n
+freya: set n year($n)
+freya: echo $n
 2026
-freya:/> set n now()
-freya:/> echo $n
+freya: set n now()
+freya: echo $n
 1767225600
 ```
 
@@ -578,11 +578,11 @@ a float (`7.5`). `pwm(pin)` stops the channel and returns 0. Stopping a
 channel that is not running is an error.
 
 ```
-freya:/> set n set("PB5", 1)
-freya:/> echo get("PB5")
+freya: set n set("PB5", 1)
+freya: echo get("PB5")
 1
-freya:/> set n adc("PA0")
-freya:/> set n pwm("PB6", 1000, 25)
+freya: set n adc("PA0")
+freya: set n pwm("PB6", 1000, 25)
 ```
 
 The console commands `pin`, `adc` and `pwm` do the same work from a
@@ -637,16 +637,16 @@ running when a program starts and when that program ends. `tclose` and
 `irq(pin, 0)` are what release it.
 
 ```
-freya:/> fn ontick
+freya: fn ontick
 > echo tick
 > return $1
 > end
-freya:/> set t timer(1000000, 0, "ontick")
-freya:/> set n wait(0)
+freya: set t timer(1000000, 0, "ontick")
+freya: set n wait(0)
 tick
-freya:/> echo $n
+freya: echo $n
 0
-freya:/> set n tclose($t)
+freya: set n tclose($t)
 ```
 
 The same calls from a program are described in
@@ -687,16 +687,16 @@ stops the one named `add`. `threads` lists them with the others.
 `run` is refused while one is still alive.
 
 ```
-freya:/> fn blink
+freya: fn blink
 > echo tick
 > sleep 200
 > echo tock
 > end
-freya:/> set n spawn("blink", 1)
+freya: set n spawn("blink", 1)
 tick
-freya:/> set n join($n)
+freya: set n join($n)
 tock
-freya:/> echo $n
+freya: echo $n
 0
 ```
 
@@ -735,17 +735,17 @@ offset may be left out and is then 0. `flush(file)` writes the card's
 pending data and returns 0.
 
 ```
-freya:/> set f open("/n.txt", "w")
-freya:/> set n write($f, "hi", 10b)
-freya:/> set n close($f)
-freya:/> set f open("/n.txt")
-freya:/> set s read($f)
-freya:/> echo $s
+freya: set f open("/n.txt", "w")
+freya: set n write($f, "hi", 10b)
+freya: set n close($f)
+freya: set f open("/n.txt")
+freya: set s read($f)
+freya: echo $s
 hi
-freya:/> set s read($f)
-freya:/> echo $s
+freya: set s read($f)
+freya: echo $s
 empty
-freya:/> set n close($f)
+freya: set n close($f)
 ```
 
 ## Scripts on the card and in flash
@@ -762,13 +762,13 @@ script may `install` or `uninstall` without erasing the text it is still
 reading. A longer one is read from the flash as it runs.
 
 ```
-freya:/> source /blink.sh
+freya: source /blink.sh
 PB5 = 1
-freya:/> install /blink.sh
+freya: install /blink.sh
 install: console input is dropped while flash is busy
   erasing 1 page ... writing ... ok
 installed script /blink.sh at 0x0800c080: 24 B in 1 page
-freya:/> source @flash
+freya: source @flash
 PB5 = 1
 ```
 

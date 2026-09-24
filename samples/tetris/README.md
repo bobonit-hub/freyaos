@@ -46,14 +46,14 @@ the RAM window is only `.data` / `.bss`.
 Copy the `.bin` onto the card (or `download` it over XMODEM), then:
 
 ```
-freya:/> run tetris.bin
+freya: run tetris.bin
 ```
 
 Install into internal flash so it survives a power cycle and needs no card:
 
 ```
-freya:/> install tetris.xip.bin
-freya:/> runflash
+freya: install tetris.xip.bin
+freya: runflash
 ```
 
 Or pack it with the kernel when the module is programmed:

@@ -63,7 +63,7 @@ the run is stopped, every thread the program created is stopped too.
 From the console, `threads` lists them:
 
 ```
-freya:/> threads
+freya: threads
   id  pri  state    name
    0    0  running  shell
    1   -1  ready    idle

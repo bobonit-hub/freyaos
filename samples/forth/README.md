@@ -7,7 +7,7 @@ the prompt or read from a file on the card, and a program can reach any
 address in the memory map with `@` and `!`.
 
 ```
-freya:/> run forth.bin
+freya: run forth.bin
 --- forth starting (Ctrl-C stops it) ---
 forth: 122 words, 43008 byte dictionary, 32-bit cells
   'words' lists them, 'bye' or Ctrl-C leaves
@@ -47,9 +47,9 @@ dictionary and the stacks, which is the arrangement the flash region
 exists for.
 
 ```
-freya:/> run forth.bin              Black Pill, from the card
-freya:/> install forth.xip.bin      either board, into internal flash
-freya:/> runflash                   and run it from there
+freya: run forth.bin              Black Pill, from the card
+freya: install forth.xip.bin      either board, into internal flash
+freya: runflash                   and run it from there
 ```
 
 ```sh
@@ -59,7 +59,7 @@ make BOARD=bluepill flash PROGRAM=forth    # packed into the module
 Any arguments are source files, interpreted before the prompt appears:
 
 ```
-freya:/> run forth.bin demo.fs
+freya: run forth.bin demo.fs
 ```
 
 ## Memory
@@ -118,7 +118,7 @@ and gcd, a blink, and reads the SysTick counter through `@` to show that
 addresses are real. Copy it onto the card next to the program:
 
 ```
-freya:/> run forth.bin demo.fs
+freya: run forth.bin demo.fs
 forth> 15 fizzbuzz
 1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz
   ok

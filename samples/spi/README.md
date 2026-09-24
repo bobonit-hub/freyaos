@@ -27,7 +27,7 @@ there; `spi 1 1000000` at the console prints the rate the hardware runs.
 ## Run
 
 ```
-freya:/> run spi.bin
+freya: run spi.bin
 --- spi starting (Ctrl-C stops it) ---
   00 -> 00
   ff -> ff

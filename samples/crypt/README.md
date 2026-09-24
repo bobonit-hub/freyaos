@@ -13,13 +13,13 @@ The calls are described in `docs/crypt.md`.
 ## Run
 
 ```
-freya:/> run crypt.bin
+freya: run crypt.bin
 crypt: self-test ok
 
-freya:/> run crypt.bin 000102030405060708090a0b0c0d0e0f 4142434445464748 /notes.txt /notes.enc
+freya: run crypt.bin 000102030405060708090a0b0c0d0e0f 4142434445464748 /notes.txt /notes.enc
 crypt: 128 bytes
 
-freya:/> run crypt.bin 000102030405060708090a0b0c0d0e0f 4142434445464748 /notes.enc /notes.txt
+freya: run crypt.bin 000102030405060708090a0b0c0d0e0f 4142434445464748 /notes.enc /notes.txt
 crypt: 128 bytes
 ```
 

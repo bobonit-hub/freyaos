@@ -113,13 +113,13 @@ The kernel returns `FREYA_ERR_HANDLER`.
 The same commands a program can make:
 
 ```
-freya:/> i2c 1 100000
+freya: i2c 1 100000
 I2C1  100000 Hz
-freya:/> i2c 1 scan
+freya: i2c 1 scan
 68
-freya:/> i2c 1 0x68 w 0x75 r 1
+freya: i2c 1 0x68 w 0x75 r 1
 68
-freya:/> i2c 1 off
+freya: i2c 1 off
 I2C1 off
 ```
 

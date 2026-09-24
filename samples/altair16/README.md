@@ -15,7 +15,7 @@ the same as the 48 KiB machine. This file covers what is different.
 `samples/altair/README.md` covers the rest.
 
 ```
-freya:/> run altair16.bin
+freya: run altair16.bin
 --- altair16 starting (Ctrl-C stops it) ---
 altair: 8800b Turnkey, 16 KiB RAM at 0000, Turnkey SRAM at F800, PROM at FC00
 altair: full speed, starting at 0000.  Ctrl-] for the menu
@@ -51,11 +51,11 @@ make BOARD=bluepill flash PROGRAM=altair16
 ```
 
 ```
-freya:/> run altair16.bin           the files in /altair/
-freya:/> run altair16.bin 8k41.tap --boot 8k
-freya:/> run altair16.bin 4k40.tap --boot 4k40
-freya:/> install altair16.xip.bin   once, into program flash
-freya:/> runflash                   the Blue Pill runs it this way
+freya: run altair16.bin           the files in /altair/
+freya: run altair16.bin 8k41.tap --boot 8k
+freya: run altair16.bin 4k40.tap --boot 4k40
+freya: install altair16.xip.bin   once, into program flash
+freya: runflash                   the Blue Pill runs it this way
 ```
 
 With no image named, it looks in `/altair/` for the same files as the

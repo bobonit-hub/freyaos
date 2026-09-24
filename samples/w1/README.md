@@ -35,7 +35,7 @@ or either line of an open I2C bus, stays that until `pwm <pin> off` or
 ## Run
 
 ```
-freya:/> run w1.bin
+freya: run w1.bin
 --- w1 starting (Ctrl-C stops it) ---
 w1: PB12
 28 aa 14 1e 0b 00 00 9a  21.875 C

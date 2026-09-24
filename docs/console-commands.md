@@ -90,11 +90,11 @@ the pin back, so what it prints is what the pin really is:
 `adc temp` and `adc vref` read the internal sources. Values are raw counts
 from 0 to 4095; [adc.md](adc.md) describes the pin set, conflicts, and
 conversion to voltage.
-freya:/> pin PB5 out
+freya: pin PB5 out
 PB5 = 0
-freya:/> pin PB5 1
+freya: pin PB5 1
 PB5 = 1
-freya:/> pin PB0 up
+freya: pin PB0 up
 PB0 = 1
 ```
 
@@ -102,9 +102,9 @@ PB0 = 1
 channel each pin is, and what each is doing:
 
 ```
-freya:/> pwm PB6 1000 25
+freya: pwm PB6 1000 25
 PB6  TIM4 CH1  1000 Hz 25.00%
-freya:/> pwm
+freya: pwm
   PA0  TIM2 CH1  off
   PA1  TIM2 CH2  off
   PB0  TIM3 CH3  off
@@ -133,7 +133,7 @@ and a timer driving pins is not one a program can open with `timer_open()`.
 `api->i2c_transfer()`. With no arguments it lists the buses and the pins:
 
 ```
-freya:/> i2c
+freya: i2c
   1  I2C1  SCL PB6  SDA PB7  off
   2  I2C2  SCL PB10  SDA PB11  off
 pull SCL and SDA up to 3.3 V
@@ -152,7 +152,7 @@ the worked transcript and the reasons a call is refused.
 `api->spi_transfer()`. With no arguments it lists the buses and the pins:
 
 ```
-freya:/> spi
+freya: spi
   1  SPI2  PB13 PB14 PB15  off
 chip select is a pin you drive
 usage: spi [<bus> <hz> [mode] | <bus> off | <bus> x <byte>...]
@@ -171,9 +171,9 @@ is refused.
 With no arguments it lists the pins that are open:
 
 ```
-freya:/> w1 PB12
+freya: w1 PB12
 PB12  1-Wire
-freya:/> w1
+freya: w1
   PB12
 pull the data pin up to 3.3 V
 usage: w1 [<pin> | <pin> off | <pin> reset | <pin> search]
@@ -192,7 +192,7 @@ cipher and prints the usage. Otherwise the key is 32 hex digits, the nonce
 is 16 and the data is one hex word, with no `0x`. The same command decrypts:
 
 ```
-freya:/> crypt 000102030405060708090a0b0c0d0e0f 4142434445464748 0000000000000000
+freya: crypt 000102030405060708090a0b0c0d0e0f 4142434445464748 0000000000000000
 497df3d072612cb5
 ```
 
@@ -233,14 +233,14 @@ While it waits, a script thread that is ready runs. `yield` does that
 and does not wait. The calls are in [shell.md](shell.md).
 
 ```
-freya:/> if echo hi
+freya: if echo hi
 > echo yes
 > else
 > echo no
 > end
 hi
 yes
-freya:/> loop 3; echo tick; sleep 200; end
+freya: loop 3; echo tick; sleep 200; end
 tick
 tick
 tick
@@ -290,10 +290,10 @@ at once. `unset`, or storing something else over the name, frees the
 cells. The full rules are in [shell.md](shell.md).
 
 ```
-freya:/> set n 1 + 2 * 3
-freya:/> set x 7.5 / 2
-freya:/> set s "%d %s" $n "items"
-freya:/> echo $s
+freya: set n 1 + 2 * 3
+freya: set x 7.5 / 2
+freya: set s "%d %s" $n "items"
+freya: echo $s
 7 items
 ```
 
@@ -309,7 +309,7 @@ Anything else after `if` is still a command, and the branch is
 chosen from its status.
 
 ```
-freya:/> if $n == 7
+freya: if $n == 7
 > echo yes
 > else
 > echo no
@@ -336,13 +336,13 @@ are those values. An argument that was not passed is an error. `$?` and
 `$name` still mean what they mean outside.
 
 ```
-freya:/> fn add
+freya: fn add
 > return $1 + $2
 > end
-freya:/> set n add(2, 3)
-freya:/> echo $n
+freya: set n add(2, 3)
+freya: echo $n
 5
-freya:/> fn
+freya: fn
 add
 ```
 
@@ -370,13 +370,13 @@ A bool is written `true` or `false`. `if true` and `if false` are
 conditions.
 
 ```
-freya:/> set n int("0x10")
-freya:/> set x float($n)
-freya:/> set s hex($n)
-freya:/> echo $s
+freya: set n int("0x10")
+freya: set x float($n)
+freya: set s hex($n)
+freya: echo $s
 10
-freya:/> set n hex($s)
-freya:/> echo $n
+freya: set n hex($s)
+freya: echo $n
 16
 ```
 
@@ -396,12 +396,12 @@ which may be negative (`srand(-1)` stores the bit pattern), and returns
 0. The same seed repeats the same sequence.
 
 ```
-freya:/> set n srand(1)
-freya:/> set n rand()
-freya:/> echo $n
+freya: set n srand(1)
+freya: set n rand()
+freya: echo $n
 16838
-freya:/> set n rand()
-freya:/> echo $n
+freya: set n rand()
+freya: echo $n
 5758
 ```
 
@@ -411,11 +411,11 @@ float. An angle past about a million, or one that is not a number, is
 `not a number`.
 
 ```
-freya:/> set x sin(pi() / 2)
-freya:/> echo $x
+freya: set x sin(pi() / 2)
+freya: echo $x
 1
-freya:/> set x cos(pi())
-freya:/> echo $x
+freya: set x cos(pi())
+freya: echo $x
 -1
 ```
 
@@ -430,11 +430,11 @@ rate; the duty is a percent and may be a float (`7.5`). `pwm(pin)`
 stops it and returns 0.
 
 ```
-freya:/> set n set("PB5", 1)
-freya:/> echo get("PB5")
+freya: set n set("PB5", 1)
+freya: echo get("PB5")
 1
-freya:/> set n adc("PA0")
-freya:/> set n pwm("PB6", 1000, 25)
+freya: set n adc("PA0")
+freya: set n pwm("PB6", 1000, 25)
 ```
 
 A `#` at the start of a statement, or after a space, comments out the
@@ -452,13 +452,13 @@ deep including the line that started it. Ctrl-C stops the script the
 same way it stops a `loop`.
 
 ```
-freya:/> source /blink.sh
+freya: source /blink.sh
 PB5 = 1
-freya:/> install /blink.sh
+freya: install /blink.sh
 install: console input is dropped while flash is busy
   erasing 1 page ... writing ... ok
 installed script /blink.sh at 0x0800c080: 24 B in 1 page
-freya:/> source @flash
+freya: source @flash
 PB5 = 1
 ```
 
@@ -473,7 +473,7 @@ when `/autorun.bin` is absent.
 These lived behind `FREYA_APP_FLASH_ADDR`, which only the Blue Pill defined.
 They are implemented on both boards now (Black Pill: 128-byte slot at the
 end of sector 3, 64 KiB program in sector 4).  Acceptance: type any of
-them at `freya:/>` on either module.
+them at `freya:` on either module.
 
 | Command | Why it was missing on the Black Pill |
 |---|---|

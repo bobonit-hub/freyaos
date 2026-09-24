@@ -18,7 +18,7 @@ not compare is where the flash ends.
 ## Run
 
 ```
-freya:/> run flashprobe.bin
+freya: run flashprobe.bin
 --- flashprobe starting (Ctrl-C stops it) ---
 flashprobe: STM32F103 reports 64 KiB (using 128), probing to 256 KiB
 flashprobe: each step writes 256 B into an erase unit that reads blank,
@@ -106,7 +106,7 @@ code is not in flash, so it keeps running; the `.xip.bin` of this same sample
 would stall inside its first erase, and it refuses to start:
 
 ```
-freya:/> runflash
+freya: runflash
 flashprobe: this one has to run from RAM - an erase stalls
             instruction fetch from flash.  Use 'run flashprobe.bin'.
 ```

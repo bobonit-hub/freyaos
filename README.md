@@ -31,7 +31,7 @@ Freya 2.0.1 "Reptiloid" for STM32F411CEU6
 [boot] SD card    : SD v2 (SDHC/SDXC), 14.8 GiB (31116288 blocks)
 [boot] filesystem : FAT32 "FREYA", cluster 16.0 KiB, mounted on /
 
-freya:/>
+freya:
 ```
 
 ## Boards
@@ -309,7 +309,7 @@ image (not the kernel) to `/<name>.xip.bin`, or to a path you give.
 `ls` prints names only; `ls -l` adds sizes and timestamps:
 
 ```
-freya:/> ls -l
+freya: ls -l
 /:
   d---a      <DIR>  2026-09-21 20:14  apps
   -w--a       2048  2026-09-21 20:31  notes.txt
@@ -323,7 +323,7 @@ The card is ordinary FAT, so a card reader works. To transfer over the console
 instead, start the receiver on Freya and then send from the host:
 
 ```
-freya:/> download hello.bin
+freya: download hello.bin
 Ready to receive 'hello.bin' over XMODEM.
 ```
 
@@ -410,7 +410,7 @@ the compiler emits. They round to nearest, ties to even, and they keep
 subnormals. A program that never uses `float` does not carry that code.
 
 ```
-freya:/> run hello.bin
+freya: run hello.bin
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program RAM region
   api version 3, table size 316 bytes
@@ -509,7 +509,7 @@ A program that crashes is contained the same way: the fault is reported with
 the faulting address and the decoded fault status, and the shell comes back.
 
 ```
-freya:/> run spin.bin fault
+freya: run spin.bin fault
 spin: about to touch 0xF0000000 ...
 
 [freya] program fault at pc=0x2001004e lr=0x20010027
@@ -562,15 +562,15 @@ the status rather than deduced from it. `run` prints both on its closing line,
 replaced — and `$?` in a command line is the number on its own:
 
 ```
-freya:/> run hello.bin 3
+freya: run hello.bin 3
 --- hello starting (Ctrl-C stops it) ---
 ...
 exiting with status 3
 
 --- hello exited, exit status 3, 12 ms ---
-freya:/> echo $?
+freya: echo $?
 3
-freya:/> status
+freya: status
   command    : 0
   program    : hello
   ended by   : exited
@@ -647,12 +647,12 @@ image there from the card, and `make flash PROGRAM=<app>` writes the same
 kind of image into the module together with the kernel:
 
 ```
-freya:/> install hello.xip.bin
+freya: install hello.xip.bin
 install: console input is dropped while flash is busy
   erasing 2 pages ... writing ... ok
 installed /hello.xip.bin at 0x0800c080: 1.2 KiB in 2 pages
 
-freya:/> run @flash
+freya: run @flash
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program flash region
   api version 3, table size 316 bytes

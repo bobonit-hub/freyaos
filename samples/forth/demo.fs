@@ -1,6 +1,6 @@
 \ demo.fs - a tour of the Freya Forth in a few definitions.
 \
-\   freya:/> run forth.bin demo.fs     load the file at start up
+\   freya: run forth.bin demo.fs     load the file at start up
 \   forth> include demo.fs             or from the prompt
 \
 \ Everything here is ordinary Forth except led, ms, ticks and cpuhz,
