@@ -39,6 +39,7 @@ typedef struct {
     uint8_t  open;
     uint8_t  running;
     uint8_t  oneshot;
+    uint8_t  from_app;       /* a run's timer, dropped when it ends     */
 } timer_state_t;
 
 static timer_state_t s_timer[ARRAY_SIZE(s_hw)];
@@ -118,6 +119,7 @@ static void hw_release(int timer)
     s_timer[timer].open = 0;
     s_timer[timer].fn = NULL;
     s_timer[timer].count = 0;
+    s_timer[timer].from_app = 0;
 }
 
 int timer_open(uint32_t period_us, int flags, freya_irq_fn fn, void *arg)
@@ -144,6 +146,7 @@ int timer_open(uint32_t period_us, int flags, freya_irq_fn fn, void *arg)
     t->psc       = psc;
     t->arr       = arr;
     t->oneshot   = (uint8_t)((flags & FREYA_TIMER_ONESHOT) ? 1 : 0);
+    t->from_app  = (uint8_t)(g_app.running ? 1 : 0);
     t->running   = 0;
     t->open      = 1;
 
@@ -224,12 +227,17 @@ uint32_t timer_count(int timer)
     return t ? t->count : 0;
 }
 
+int timer_is_open(int timer)
+{
+    return get(timer) != NULL;
+}
+
 void timer_release(void)
 {
     uint32_t pm = irq_save();
 
     for (int i = 0; i < TIMER_COUNT; i++)
-        if (s_timer[i].open) hw_release(i);
+        if (s_timer[i].open && s_timer[i].from_app) hw_release(i);
     irq_restore(pm);
 }
 
@@ -273,16 +281,22 @@ static void timer_event(int timer)
 {
     timer_state_t *t = &s_timer[timer];
 
-    if (!t->open || !g_app.running || app_should_stop()) {
+    /* A program's timer stops when the run does.  One the shell opened
+     * keeps firing, the way a console PWM channel keeps driving. */
+    if (!t->open ||
+        (t->from_app && (!g_app.running || app_should_stop()))) {
         hw_stop(timer);
         return;
     }
     if (t->oneshot) t->running = 0;         /* one pulse mode stopped it */
 
     t->count++;
-    g_irq_events++;
-
-    if (t->fn) app_handler_call(t->fn, timer, t->arg);
+    if (t->from_app) {
+        g_irq_events++;
+        if (t->fn) app_handler_call(t->fn, timer, t->arg);
+    } else if (t->fn) {
+        t->fn(timer, t->arg);               /* shell note, not a program */
+    }
 }
 
 static void timer_isr(int timer)

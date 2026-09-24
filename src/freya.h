@@ -170,6 +170,7 @@ int      timer_start(int timer);
 int      timer_stop(int timer);
 int      timer_period(int timer, uint32_t period_us);
 uint32_t timer_count(int timer);
+int      timer_is_open(int timer);        /* 1 when that handle is open  */
 void     timer_release(void);             /* drop whatever a run left     */
 uint32_t timer_clock_hz(void);
 const char *timer_name(int timer);        /* "TIM2", for the console      */

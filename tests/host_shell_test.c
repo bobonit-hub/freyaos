@@ -380,6 +380,110 @@ int  pwm_open(int pin, uint32_t hz, uint32_t duty)
 }
 int  adc_read(int source)               { (void)source; return FREYA_ADC_MAX; }
 
+static int s_timer_on;
+static int s_timer_running;
+static uint32_t s_timer_us;
+static int s_timer_flags;
+static uint32_t s_timer_count;
+static freya_irq_fn s_timer_fn;
+static void *s_timer_arg;
+
+int timer_open(uint32_t us, int flags, freya_irq_fn fn, void *arg)
+{
+    if (us < FREYA_TIMER_MIN_US || us > FREYA_TIMER_MAX_US) return FREYA_ERR_ARG;
+    if (flags & ~FREYA_TIMER_ONESHOT) return FREYA_ERR_ARG;
+    if (s_timer_on) return FREYA_ERR_BUSY;
+    s_timer_on = 1;
+    s_timer_running = 0;
+    s_timer_us = us;
+    s_timer_flags = flags;
+    s_timer_count = 0;
+    s_timer_fn = fn;
+    s_timer_arg = arg;
+    return 0;
+}
+int timer_close(int timer)
+{
+    if (!s_timer_on || timer != 0) return FREYA_ERR_ARG;
+    s_timer_on = 0;
+    s_timer_running = 0;
+    s_timer_fn = NULL;
+    return 0;
+}
+int timer_start(int timer)
+{
+    if (!s_timer_on || timer != 0) return FREYA_ERR_ARG;
+    s_timer_running = 1;
+    return 0;
+}
+int timer_stop(int timer)
+{
+    if (!s_timer_on || timer != 0) return FREYA_ERR_ARG;
+    s_timer_running = 0;
+    return 0;
+}
+int timer_period(int timer, uint32_t us)
+{
+    if (!s_timer_on || timer != 0) return FREYA_ERR_ARG;
+    if (us < FREYA_TIMER_MIN_US || us > FREYA_TIMER_MAX_US) return FREYA_ERR_ARG;
+    s_timer_us = us;
+    return 0;
+}
+uint32_t timer_count(int timer)
+{
+    if (!s_timer_on || timer != 0) return 0;
+    return s_timer_count;
+}
+int timer_is_open(int timer)
+{
+    return s_timer_on && timer == 0;
+}
+
+static int s_irq_on;
+static int s_irq_pin;
+static int s_irq_edge;
+static uint32_t s_irq_count;
+static freya_irq_fn s_irq_fn;
+static void *s_irq_arg;
+
+int gpio_irq_attach(int pin, int edge, freya_irq_fn fn, void *arg)
+{
+    if (!(edge & FREYA_EDGE_BOTH) ||
+        (edge & ~(FREYA_EDGE_BOTH | FREYA_EDGE_DEBOUNCE)))
+        return FREYA_ERR_ARG;
+    s_irq_on = 1;
+    s_irq_pin = pin;
+    s_irq_edge = edge;
+    s_irq_count = 0;
+    s_irq_fn = fn;
+    s_irq_arg = arg;
+    return 0;
+}
+int gpio_irq_detach(int pin)
+{
+    if (!s_irq_on || pin != s_irq_pin) return FREYA_ERR_ARG;
+    s_irq_on = 0;
+    s_irq_fn = NULL;
+    return 0;
+}
+uint32_t gpio_irq_count(int pin)
+{
+    if (!s_irq_on || pin != s_irq_pin) return 0;
+    return s_irq_count;
+}
+
+static void fire_timer(uint32_t count)
+{
+    s_timer_count = count;
+    if (s_timer_fn) s_timer_fn(0, s_timer_arg);
+}
+
+static void fire_irq(uint32_t count)
+{
+    s_irq_count = count;
+    if (s_irq_fn) s_irq_fn(s_irq_pin, s_irq_arg);
+}
+
 int  i2c_info(int idx, i2c_info_t *info) { (void)idx; (void)info; return -1; }
 int  i2c_close(int bus)                { (void)bus; return 0; }
 int  i2c_write(int bus, int addr, const void *buf, int len)
@@ -1389,23 +1493,23 @@ int main(void)
     rc = run("set n srand(1.5)");
     expect_rc("srand refuses a float", rc, FREYA_EXIT_FAIL);
     printf("trigonometry\n");
-    rc = run("set x pi");
-    expect_rc("pi succeeds", rc, 0);
-    rc = run("echo $x");
-    expect_exact("pi prints to four places", "3.1416\r\n");
     rc = run("set x pi()");
+    expect_rc("pi() succeeds", rc, 0);
     rc = run("echo $x");
-    expect_exact("pi() is the same constant", "3.1416\r\n");
+    expect_exact("pi() prints to four places", "3.1416\r\n");
+    rc = run("set x pi");
+    expect_rc("pi needs parentheses", rc, FREYA_EXIT_FAIL);
+    expect_has("bare pi is not a value", "bad expression");
     rc = run("set x sin(0)");
     rc = run("echo $x");
     expect_exact("sin of 0 is 0", "0\r\n");
-    rc = run("set x sin(pi / 2)");
+    rc = run("set x sin(pi() / 2)");
     rc = run("echo $x");
     expect_exact("sin of pi/2 is 1", "1\r\n");
     rc = run("set x cos(0)");
     rc = run("echo $x");
     expect_exact("cos of 0 is 1", "1\r\n");
-    rc = run("set x cos(pi)");
+    rc = run("set x cos(pi())");
     rc = run("echo $x");
     expect_exact("cos of pi is -1", "-1\r\n");
     rc = run("set x sin(1)");
@@ -1414,7 +1518,7 @@ int main(void)
     rc = run("set x cos(1)");
     rc = run("echo $x");
     expect_exact("cos of 1 radian", "0.5403\r\n");
-    rc = run("set x sin(-pi / 2)");
+    rc = run("set x sin(-pi() / 2)");
     rc = run("echo $x");
     expect_exact("sin is odd", "-1\r\n");
     rc = run("set x sin(\"a\")");
@@ -1438,6 +1542,163 @@ int main(void)
     rc = run("fn int; return 1; end");
     expect_rc("int cannot be defined", rc, FREYA_EXIT_FAIL);
     expect_has("fn refuses int", "bad name");
+
+    printf("datetime\n");
+    rc = run("set n now()");
+    expect_rc("now succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("now is the stubbed clock", "1790078400\r\n");
+    rc = run("set s date()");
+    rc = run("echo $s");
+    expect_exact("date formats the clock", "2026-09-22 12:00:00\r\n");
+    rc = run("set n year()");
+    rc = run("echo $n");
+    expect_exact("year reads the clock", "2026\r\n");
+    rc = run("set n month()");
+    rc = run("echo $n");
+    expect_exact("month reads the clock", "9\r\n");
+    rc = run("set n day()");
+    rc = run("echo $n");
+    expect_exact("day reads the clock", "22\r\n");
+    rc = run("set n hour()");
+    rc = run("echo $n");
+    expect_exact("hour reads the clock", "12\r\n");
+    rc = run("set n minute()");
+    rc = run("echo $n");
+    expect_exact("minute reads the clock", "0\r\n");
+    rc = run("set n second()");
+    rc = run("echo $n");
+    expect_exact("second reads the clock", "0\r\n");
+    rc = run("set n time(1970, 1, 1, 0, 0, 0)");
+    rc = run("echo $n");
+    expect_exact("the epoch is zero", "0\r\n");
+    rc = run("set n time(2026, 1, 1, 0, 0, 0)");
+    rc = run("echo $n");
+    expect_exact("2026-01-01 is the boot instant", "1767225600\r\n");
+    rc = run("set s date(0)");
+    rc = run("echo $s");
+    expect_exact("date formats the epoch", "1970-01-01 00:00:00\r\n");
+    rc = run("set n time(2024, 2, 29, 0, 0, 0)");
+    rc = run("set s day($n)");
+    rc = run("echo $s");
+    expect_exact("a leap day is the 29th", "29\r\n");
+    rc = run("set s month($n)");
+    rc = run("echo $s");
+    expect_exact("a leap day stays in February", "2\r\n");
+    rc = run("set s time(2024, 3, 1, 0, 0, 0) - $n");
+    rc = run("echo $s");
+    expect_exact("March follows the leap day", "86400\r\n");
+    rc = run("set n time(2038, 1, 19, 3, 14, 7)");
+    rc = run("echo $n");
+    expect_exact("the last signed instant", "2147483647\r\n");
+    rc = run("set n time(2038, 1, 19, 3, 14, 8)");
+    expect_rc("the next second does not fit", rc, FREYA_EXIT_FAIL);
+    expect_has("past 2038 is overflow", "integer overflow");
+    rc = run("set n time(2023, 2, 29, 0, 0, 0)");
+    expect_rc("a non-leap February 29 fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a missing day is a bad date", "bad expression");
+    rc = run("set n time(1969, 12, 31, 23, 59, 59)");
+    expect_rc("a year before 1970 fails", rc, FREYA_EXIT_FAIL);
+    expect_has("before the epoch is a bad date", "bad expression");
+    rc = run("set s date(-1)");
+    expect_rc("a negative count fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a negative count is overflow", "integer overflow");
+    rc = run("set n now(1)");
+    expect_rc("now takes no argument", rc, FREYA_EXIT_FAIL);
+    expect_has("now wants nothing", "bad expression");
+    rc = run("set n time(2026, 1, 1, 0, 0)");
+    expect_rc("time wants six fields", rc, FREYA_EXIT_FAIL);
+    rc = run("set n year(1.5)");
+    expect_rc("a field refuses a float", rc, FREYA_EXIT_FAIL);
+    expect_has("a field wants an integer", "bad expression");
+    rc = run("fn now; return 1; end");
+    expect_rc("now cannot be defined", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses now", "bad name");
+    rc = run("fn date; return 1; end");
+    expect_rc("date cannot be defined", rc, FREYA_EXIT_FAIL);
+
+    printf("timers and interrupts\n");
+    rc = run("set n ticks()");
+    expect_rc("ticks succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("ticks is milliseconds since boot", "90061000\r\n");
+    rc = run("fn ticks; return 1; end");
+    expect_rc("ticks cannot be defined", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses ticks", "bad name");
+
+    rc = run("fn hi; echo tick; return $1; end");
+    expect_rc("a timer function can be defined", rc, 0);
+    rc = run("set n timer(1000, 0, \"hi\")");
+    expect_rc("timer arms a periodic timer", rc, 0);
+    rc = run("echo $n");
+    expect_exact("timer returns the handle", "0\r\n");
+    if (s_timer_us == 1000) pass("the period was passed through");
+    else fail("the period was passed through");
+    if (s_timer_flags == 0) pass("the flags were periodic");
+    else fail("the flags were periodic");
+    if (s_timer_running) pass("the timer was started");
+    else fail("the timer was started");
+    fire_timer(4);
+    rc = run("set n wait(50)");
+    expect_rc("wait delivers the timer function", rc, 0);
+    expect_has("the timer function ran", "tick\r\n");
+    rc = run("echo $n");
+    expect_exact("wait returns 0 when an event arrived", "0\r\n");
+    rc = run("set n tcount(0)");
+    rc = run("echo $n");
+    expect_exact("tcount reads the expiries", "4\r\n");
+    rc = run("set n tperiod(0, 2000)");
+    expect_rc("tperiod changes the period", rc, 0);
+    if (s_timer_us == 2000) pass("the new period was stored");
+    else fail("the new period was stored");
+    rc = run("set n tstop(0)");
+    expect_rc("tstop stops the timer", rc, 0);
+    if (!s_timer_running) pass("the timer is stopped");
+    else fail("the timer is stopped");
+    rc = run("set n tstart(0)");
+    expect_rc("tstart starts it again", rc, 0);
+    if (s_timer_running) pass("the timer is running");
+    else fail("the timer is running");
+    rc = run("set n tclose(0)");
+    expect_rc("tclose closes the timer", rc, 0);
+    rc = run("set n tcount(0)");
+    expect_rc("a closed timer has no count", rc, FREYA_EXIT_FAIL);
+    expect_has("a closed timer is out of range", "out of range");
+
+    rc = run("set n timer(250, 1)");
+    expect_rc("a oneshot timer opens", rc, 0);
+    if (s_timer_flags == FREYA_TIMER_ONESHOT) pass("oneshot is the flag bit");
+    else fail("oneshot is the flag bit");
+    rc = run("set n tclose(0)");
+    rc = run("set n timer(1)");
+    expect_rc("a period below the minimum fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a short period is out of range", "out of range");
+    rc = run("set n wait(20)");
+    expect_rc("wait with nothing pending succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("a timeout is -1", "-1\r\n");
+
+    rc = run("fn id; echo edge; return $1; end");
+    rc = run("set n irq(\"PB0\", 2, \"id\")");
+    expect_rc("irq arms a falling edge", rc, 0);
+    if (s_irq_edge == FREYA_EDGE_FALLING) pass("the edge was falling");
+    else fail("the edge was falling");
+    fire_irq(2);
+    rc = run("set n wait(50)");
+    expect_rc("wait delivers the pin function", rc, 0);
+    expect_has("the pin function ran", "edge\r\n");
+    rc = run("set n irq(\"PB0\")");
+    rc = run("echo $n");
+    expect_exact("irq with one argument is the edge count", "2\r\n");
+    rc = run("set n irq(\"PB0\", 0)");
+    expect_rc("irq with edge 0 detaches", rc, 0);
+    if (!s_irq_on) pass("the line is free");
+    else fail("the line is free");
+    rc = run("set n irq(\"nope\", 1)");
+    expect_rc("irq of a bad pin fails", rc, FREYA_EXIT_FAIL);
+    expect_has("irq names a bad pin", "not a pin");
+    rc = run("fn irq; return 1; end");
+    expect_rc("irq cannot be defined", rc, FREYA_EXIT_FAIL);
 
     rc = run("fn a; break; end");
     expect_rc("break in a function fails", rc, FREYA_EXIT_FAIL);

@@ -272,6 +272,13 @@ This is the whole of the interrupt API for a program that wants the timing
 but not the hazards: a timer with no handler, `irq_wait()` in the main loop,
 and everything else in thread mode.
 
+The shell has the same shape. `timer(us, flags, "name")` and
+`irq("PB0", edge, "name")` arm a source, and `wait(ms)` calls that
+script function afterwards, in the shell, where it may do anything a
+script may do. The function does not run in the interrupt. A source
+armed from the shell is not dropped when a program ends. The expressions
+are written out in [shell.md](shell.md).
+
 ## Errors
 
 | | |

@@ -26,6 +26,7 @@ typedef struct {
     uint32_t last_ms;        /* when the last edge was taken            */
     uint8_t  port;           /* which port owns the line                */
     uint8_t  edge;           /* FREYA_EDGE_*, zero when the line is free */
+    uint8_t  from_app;       /* a run's line, dropped when it ends      */
 } exti_line_t;
 
 static exti_line_t s_line[EXTI_LINES];
@@ -141,6 +142,7 @@ static void line_free(int line)
     s_line[line].edge = 0;
     s_line[line].fn = NULL;
     s_line[line].count = 0;
+    s_line[line].from_app = 0;
 }
 
 int gpio_irq_attach(int pin, int edge, freya_irq_fn fn, void *arg)
@@ -166,8 +168,9 @@ int gpio_irq_attach(int pin, int edge, freya_irq_fn fn, void *arg)
     l->arg     = arg;
     l->count   = 0;
     l->last_ms = 0;
-    l->port    = (uint8_t)FREYA_PIN_PORT(pin);
-    l->edge    = (uint8_t)edge;
+    l->port     = (uint8_t)FREYA_PIN_PORT(pin);
+    l->edge     = (uint8_t)edge;
+    l->from_app = (uint8_t)(g_app.running ? 1 : 0);
 
     board_exti_select(l->port, line);
     line_edges(line, edge);
@@ -226,9 +229,18 @@ void gpio_irq_release(void)
 {
     uint32_t pm = irq_save();
 
+    for (int line = 0; line < EXTI_LINES; line++)
+        if (s_line[line].edge && s_line[line].from_app) line_free(line);
     for (int line = 0; line < EXTI_LINES; line++) {
-        if (s_line[line].edge) line_free(line);
-        if (line < 5 || line == 9 || line == 15) nvic_disable(line_irq(line));
+        int busy = 0, i;
+
+        if (line < 5) busy = s_line[line].edge != 0;
+        else if (line == 9) {
+            for (i = 5; i <= 9; i++) busy |= s_line[i].edge != 0;
+        } else if (line == 15) {
+            for (i = 10; i <= 15; i++) busy |= s_line[i].edge != 0;
+        } else continue;
+        if (!busy) nvic_disable(line_irq(line));
     }
     irq_restore(pm);
 }
@@ -245,7 +257,10 @@ static void line_event(int line)
     exti_line_t *l = &s_line[line];
     uint32_t now;
 
-    if (!l->edge || !g_app.running || app_should_stop()) {
+    /* A program's line is silenced when the run ends.  One the shell
+     * attached keeps counting, the way a console PWM channel keeps driving. */
+    if (!l->edge ||
+        (l->from_app && (!g_app.running || app_should_stop()))) {
         line_edges(line, 0);
         return;
     }
@@ -257,9 +272,12 @@ static void line_event(int line)
 
     l->last_ms = now;
     l->count++;
-    g_irq_events++;
-
-    if (l->fn) app_handler_call(l->fn, FREYA_PIN(l->port, line), l->arg);
+    if (l->from_app) {
+        g_irq_events++;
+        if (l->fn) app_handler_call(l->fn, FREYA_PIN(l->port, line), l->arg);
+    } else if (l->fn) {
+        l->fn(FREYA_PIN(l->port, line), l->arg);
+    }
 }
 
 static void exti_dispatch(int first, int last)

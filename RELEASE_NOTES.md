@@ -16,8 +16,20 @@ calling the new entries.
 
 ## What changed
 
-* The shell has `sin`, `cos` and the constant `pi`. The angle is in
-  radians. `sin(pi / 2)` is 1 and `cos(pi)` is -1.
+* The shell can arm a hardware timer or a pin interrupt and run a
+  script function when it fires. `timer(1000000, 0, "ontick")` starts
+  a one-second tick, `irq("PB0", 2, "onpress")` arms a falling edge,
+  and `wait(0)` calls the named function from the shell, not from the
+  interrupt. `$1` is how many times that source has fired. `ticks()`
+  is milliseconds since boot. A timer or a pin armed this way keeps
+  running across a program, until `tclose` or `irq(pin, 0)`.
+* The shell reads the software clock. `now()` is seconds since
+  1970-01-01 00:00:00, through 2038-01-19 03:14:07. `date()` is
+  `YYYY-MM-DD HH:MM:SS`, and `year`, `month`, `day`, `hour`, `minute`
+  and `second` each return one field. `time` builds the seconds from
+  those six fields. The `date` command is still what sets the clock.
+* The shell has `sin(angle)`, `cos(angle)` and `pi()`. The angle is in
+  radians. `sin(pi() / 2)` is 1 and `cos(pi())` is -1.
 * The shell has the ANSI C 1989 example generator. `rand()` returns
   an integer from 0 to 32767, and `srand(seed)` sets the 32-bit state.
   The state starts at 1, and the same seed repeats the same sequence.

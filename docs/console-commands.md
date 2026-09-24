@@ -2,7 +2,9 @@
 
 The shell on USART2 is the same program on both boards.  `help` lists
 whatever the running image was compiled with; after the Black Pill gained
-a program flash region that is the full set on both.
+a program flash region that is the full set on both.  The language — values,
+expressions, `if`, `loop`, variables and functions — is written out in
+[shell.md](shell.md).
 
 ## Blue Pill commands
 
@@ -196,7 +198,7 @@ freya:/> crypt 000102030405060708090a0b0c0d0e0f 4142434445464748 000000000000000
 A file is `samples/crypt`. [docs/crypt.md](crypt.md) is the call.
 
 Ctrl-C stops a running program and every thread it created. It also
-stops a `sleep` or a `loop`, and throws away a script that is still
+stops a `sleep`, a `loop` or a `wait`, and throws away a script that is still
 being typed. `stop` with no name does the same when a program is
 running, and unloads it otherwise;
 `stop <name>` stops that thread and leaves the run going. `threads` lists
@@ -361,16 +363,16 @@ freya:/> echo $n
 5758
 ```
 
-`pi` is the constant 3.14159265, and it is also `pi()` with no
-arguments. `sin` and `cos` take one integer or float, in radians, and
-return a float. An angle past about a million, or one that is not a
-number, is `not a number`.
+`pi()` is the constant 3.14159265 and takes no argument. `sin(angle)`
+and `cos(angle)` take one integer or float, in radians, and return a
+float. An angle past about a million, or one that is not a number, is
+`not a number`.
 
 ```
-freya:/> set x sin(pi / 2)
+freya:/> set x sin(pi() / 2)
 freya:/> echo $x
 1
-freya:/> set x cos(pi)
+freya:/> set x cos(pi())
 freya:/> echo $x
 -1
 ```

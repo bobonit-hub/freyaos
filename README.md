@@ -575,19 +575,26 @@ function; `add(2, 3)` in an expression passes up to 32 arguments and
 yields the returned value. `int`, `float`, `str` and `hex` convert a
 value between an integer, a float, text and hexadecimal. `rand()` is
 the ANSI C 1989 example generator, 0 to 32767, and `srand(seed)` sets
-its state. `pi` is the circle constant, and `sin` and `cos` take an
-angle in radians. `get`, `set`,
+its state. `pi()` is the circle constant, and `sin(angle)` and
+`cos(angle)` take an angle in radians. `now()` is the software clock as seconds since
+1970, `date()` prints it as `YYYY-MM-DD HH:MM:SS`, and `year`, `month`,
+`day`, `hour`, `minute` and `second` read one field. `time` builds the
+seconds from those six fields. `get`, `set`,
 `adc` and `pwm` are built in:
 `get("PB0")` reads a pin, `set("PB5", 1)` drives it, `adc("PA0")` returns
-one raw sample, and `pwm("PB6", 1000, 25)` starts a channel. `break` leaves a loop. `if <command>` still runs the following commands up
+one raw sample, and `pwm("PB6", 1000, 25)` starts a channel. `ticks()` is
+milliseconds since boot. `timer(1000000, 0, "ontick")` starts a hardware
+timer and `irq("PB0", 2, "onpress")` arms a pin edge; `wait(0)` calls
+the named function when one of them fires. `break` leaves a loop. `if <command>` still runs the following commands up
 to `else` or `end` when that command's status is 0, and the `else` commands
 otherwise. `loop <count>` repeats up to `end`, and `sleep <ms>` waits that
 many milliseconds. A block left open is finished
 on the next lines (`>` is the prompt); Ctrl-C throws those lines away,
-and also cuts a `sleep` or a `loop` short. `source <file>` runs a script
+and also cuts a `sleep`, a `loop` or a `wait` short. `source <file>` runs a script
 from the card, and `source @flash` runs one kept in the program flash
-region. `install` of a text file stores that script there. The same rules
-are written out in [docs/console-commands.md](docs/console-commands.md).
+region. `install` of a text file stores that script there. The language
+is written out in [docs/shell.md](docs/shell.md), and the commands in
+[docs/console-commands.md](docs/console-commands.md).
 
 A program reads the status of the run before it with `api->last_exit()`,
 which fills in the name, the reason, the status and how long that run took;
@@ -779,6 +786,7 @@ is measured rather than guessed).
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
 | `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16` |
 | `tests/` | host side tests |
+| `docs/shell.md` | the shell language: values, expressions, control, variables, functions |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
 | `docs/i2c.md` | the I2C master API, the pins, and the `i2c` command |

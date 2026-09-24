@@ -10,7 +10,10 @@
  * '$name' expands one the way '$?' expands the status.
  * int(), float(), str() and hex() convert between those and hex text.
  * rand() and srand() are the ANSI C 1989 example generator.
- * sin(), cos() and the constant pi are single-precision.
+ * sin(), cos() and pi() are single-precision.
+ * now(), date(), time() and the calendar fields read the software clock.
+ * timer() and irq() arm a hardware timer or a pin edge.  wait() runs the
+ * script function named for that source, in thread mode, then returns.
  * 'fn' defines a function of up to 32 arguments that returns one value.
  * 'source' runs the same language from a file or from program flash.
  */
@@ -1616,6 +1619,10 @@ static int pin_fail(const char *cmd, int rc)
             why = "that pin is taken, or every bus is open";
         else if (strcmp(cmd, "adc") == 0)
             why = "that pin is taken";
+        else if (strcmp(cmd, "irq") == 0)
+            why = "that interrupt line is taken";
+        else if (strcmp(cmd, "timer") == 0)
+            why = "every timer is taken";
         else why = "that timer is taken";
         break;
     case FREYA_ERR_ARG:
@@ -2866,7 +2873,11 @@ static int KEXT fn_reserved(const char *s, int n)
     static const char *const w[] = {
         "if", "else", "end", "loop", "break", "fn", "return",
         "get", "set", "adc", "pwm", "int", "float", "str", "hex",
-        "rand", "srand", "sin", "cos", "pi"
+        "rand", "srand", "sin", "cos", "pi",
+        "now", "date", "time", "year", "month", "day",
+        "hour", "minute", "second",
+        "ticks", "timer", "tstart", "tstop", "tcount", "tclose", "tperiod",
+        "irq", "wait"
     };
     int i;
 
@@ -3299,12 +3310,429 @@ static int KEXT conv_sincos(const fn_arg_t *a, int cos, val_t *out)
     return 1;
 }
 
+/* Civil time as seconds since 1970-01-01 00:00:00.  The result has to
+ * fit in a signed integer, so the last instant is 2038-01-19 03:14:07.
+ * The clock itself is the software RTC; these only convert. */
+static int KEXT dt_leap(uint32_t y)
+{
+    return (y % 4u == 0u && y % 100u != 0u) || (y % 400u == 0u);
+}
+
+static int KEXT dt_mdays(uint32_t y, int m)
+{
+    static const uint8_t md[12] = {
+        31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+    };
+    if (m == 2 && dt_leap(y)) return 29;
+    return md[m - 1];
+}
+
+/* 0 stored, -1 the fields are not a date, -2 the instant does not fit. */
+static int KEXT dt_pack(int y, int mo, int d, int h, int mi, int s, int32_t *out)
+{
+    uint32_t days = 0, year, secs;
+    int m;
+
+    if (mo < 1 || mo > 12 || d < 1 ||
+        h < 0 || h > 23 || mi < 0 || mi > 59 || s < 0 || s > 59 ||
+        y < 1970 || d > dt_mdays((uint32_t)y, mo))
+        return -1;
+    /* Later years are real dates, but they do not fit a signed count. */
+    if (y > 2038) return -2;
+    for (year = 1970; year < (uint32_t)y; year++)
+        days += dt_leap(year) ? 366u : 365u;
+    for (m = 1; m < mo; m++)
+        days += (uint32_t)dt_mdays((uint32_t)y, m);
+    days += (uint32_t)d - 1u;
+    if (days > 2147483647u / 86400u) return -2;
+    secs = days * 86400u + (uint32_t)h * 3600u +
+           (uint32_t)mi * 60u + (uint32_t)s;
+    if (secs > 2147483647u) return -2;
+    *out = (int32_t)secs;
+    return 0;
+}
+
+static int KEXT dt_unpack(int32_t secs, int *y, int *mo, int *d,
+                          int *h, int *mi, int *s)
+{
+    uint32_t u, days, rem, year;
+    int m;
+
+    if (secs < 0) return -1;
+    u = (uint32_t)secs;
+    days = u / 86400u;
+    rem = u % 86400u;
+    *h = (int)(rem / 3600u);
+    *mi = (int)((rem % 3600u) / 60u);
+    *s = (int)(rem % 60u);
+    year = 1970;
+    for (;;) {
+        uint32_t len = dt_leap(year) ? 366u : 365u;
+        if (days < len) break;
+        days -= len;
+        year++;
+    }
+    for (m = 1; m <= 12; m++) {
+        uint32_t len = (uint32_t)dt_mdays(year, m);
+        if (days < len) break;
+        days -= len;
+    }
+    *y = (int)year;
+    *mo = m;
+    *d = (int)days + 1;
+    return 0;
+}
+
+static void KEXT dt_clock(int *y, int *mo, int *d, int *h, int *mi, int *s)
+{
+    rtc_time_t t;
+
+    rtc_get(&t);
+    *y = (int)t.year;
+    *mo = (int)t.mon;
+    *d = (int)t.day;
+    *h = (int)t.hour;
+    *mi = (int)t.min;
+    *s = (int)t.sec;
+}
+
+static int KEXT dt_format(int y, int mo, int d, int h, int mi, int s, val_t *out)
+{
+    ksnprintf(out->s, VAR_STR, "%04u-%02u-%02u %02u:%02u:%02u",
+              (unsigned)y, (unsigned)mo, (unsigned)d,
+              (unsigned)h, (unsigned)mi, (unsigned)s);
+    out->type = V_STR;
+    return 1;
+}
+
+/* year month day hour minute second, or -1. */
+static int KEXT dt_which(const char *name, int nlen)
+{
+    static const char *const n[] = {
+        "year", "month", "day", "hour", "minute", "second"
+    };
+    int i;
+
+    for (i = 0; i < 6; i++) {
+        if ((int)strlen(n[i]) == nlen && strncmp(name, n[i], (size_t)nlen) == 0)
+            return i;
+    }
+    return -1;
+}
+
+static int KEXT dt_part(int which, fn_arg_t *args, int argc, val_t *out)
+{
+    int y, mo, d, h, mi, s;
+    int part[6];
+
+    if (argc == 0) dt_clock(&y, &mo, &d, &h, &mi, &s);
+    else if (argc == 1 && args[0].type == V_INT) {
+        if (dt_unpack(args[0].u.i, &y, &mo, &d, &h, &mi, &s) != 0)
+            return vfail("integer overflow");
+    } else return vfail("bad expression");
+    part[0] = y; part[1] = mo; part[2] = d;
+    part[3] = h; part[4] = mi; part[5] = s;
+    out->i = part[which];
+    return 1;
+}
+
+static int KEXT dt_builtin(const char *name, int nlen, fn_arg_t *args,
+                           int argc, val_t *out)
+{
+    int which, y, mo, d, h, mi, s, rc;
+    int32_t secs;
+
+    which = dt_which(name, nlen);
+    if (which >= 0) return dt_part(which, args, argc, out);
+
+    if (nlen == 3 && strncmp(name, "now", 3) == 0) {
+        if (argc != 0) return vfail("bad expression");
+        dt_clock(&y, &mo, &d, &h, &mi, &s);
+        rc = dt_pack(y, mo, d, h, mi, s, &secs);
+        if (rc != 0) return vfail("integer overflow");
+        out->i = secs;
+        return 1;
+    }
+    if (nlen == 4 && strncmp(name, "date", 4) == 0) {
+        if (argc == 0) dt_clock(&y, &mo, &d, &h, &mi, &s);
+        else if (argc == 1 && args[0].type == V_INT) {
+            if (dt_unpack(args[0].u.i, &y, &mo, &d, &h, &mi, &s) != 0)
+                return vfail("integer overflow");
+        } else return vfail("bad expression");
+        return dt_format(y, mo, d, h, mi, s, out);
+    }
+    if (nlen == 4 && strncmp(name, "time", 4) == 0) {
+        int i;
+        int f[6];
+
+        if (argc != 6) return vfail("bad expression");
+        for (i = 0; i < 6; i++) {
+            if (args[i].type != V_INT) return vfail("bad expression");
+            f[i] = args[i].u.i;
+        }
+        rc = dt_pack(f[0], f[1], f[2], f[3], f[4], f[5], &secs);
+        if (rc == -2) return vfail("integer overflow");
+        if (rc != 0) return vfail("bad expression");
+        out->i = secs;
+        return 1;
+    }
+    return 0;
+}
+
+/* A script function cannot run in interrupt context: the interpreter is
+ * one thread of static state.  The handler below only marks the slot.
+ * wait() calls the named function afterwards, where a script may do
+ * anything it may do between commands. */
+#define SHELL_BIND_MAX  8
+enum { BIND_NONE = 0, BIND_TIMER = 1, BIND_PIN = 2 };
+
+typedef struct {
+    uint8_t kind;
+    volatile uint8_t pending;
+    int source;
+    char name[VAR_NAME];
+} shell_bind_t;
+
+static shell_bind_t s_bind[SHELL_BIND_MAX];
+
+static void KEXT shell_irq_kick(int source, void *arg)
+{
+    shell_bind_t *b = arg;
+
+    (void)source;
+    if (b) b->pending = 1;
+}
+
+static void KEXT bind_clear(shell_bind_t *b)
+{
+    b->kind = BIND_NONE;
+    b->pending = 0;
+    b->source = 0;
+    b->name[0] = '\0';
+}
+
+static void KEXT bind_drop(int kind, int source)
+{
+    int i;
+
+    for (i = 0; i < SHELL_BIND_MAX; i++)
+        if (s_bind[i].kind == (uint8_t)kind && s_bind[i].source == source)
+            bind_clear(&s_bind[i]);
+}
+
+/* The slot for this source, or a free one.  NULL when the table is full
+ * or the name is not a function name. */
+static shell_bind_t *KEXT bind_take(int kind, int source, const char *name)
+{
+    shell_bind_t *same = NULL, *gap = NULL;
+    int i, n;
+
+    n = (int)strlen(name);
+    if (n <= 0 || n >= VAR_NAME) return NULL;
+    for (i = 0; i < SHELL_BIND_MAX; i++) {
+        if (s_bind[i].kind == (uint8_t)kind && s_bind[i].source == source)
+            same = &s_bind[i];
+        else if (!s_bind[i].kind && !gap)
+            gap = &s_bind[i];
+    }
+    if (!same) same = gap;
+    if (!same) return NULL;
+    same->kind = (uint8_t)kind;
+    same->source = source;
+    same->pending = 0;
+    memcpy(same->name, name, (size_t)n + 1U);
+    return same;
+}
+
+/* Call every function whose source has fired since the last wait.
+ * 1 when at least one ran, 0 when none were pending, -1 on error. */
+static int KEXT shell_irq_run(void)
+{
+    int i, any = 0;
+
+    for (i = 0; i < SHELL_BIND_MAX; i++) {
+        shell_bind_t *b = &s_bind[i];
+        shell_fn_t *slot;
+        fn_arg_t arg;
+        val_t out;
+        uint32_t n;
+
+        if (!b->kind || !b->pending) continue;
+        b->pending = 0;
+        any = 1;
+        slot = fn_slot(b->name, (int)strlen(b->name), 0);
+        if (!slot) {
+            kprintf("%s: no such function: %s\r\n",
+                    b->kind == BIND_TIMER ? "timer" : "irq", b->name);
+            return -1;
+        }
+        n = (b->kind == BIND_TIMER) ? timer_count(b->source)
+                                    : gpio_irq_count(b->source);
+        if (n > 2147483647u) return vfail("integer overflow");
+        arg.type = V_INT;
+        arg.u.i = (int32_t)n;
+        if (fn_invoke(slot->body, &arg, 1, &out) != 0) return -1;
+    }
+    return any;
+}
+
+/* 0 an event was delivered, -1 timed out or Ctrl-C.  Zero waits until
+ * one of those, the same rule as irq_wait(). */
+static int KEXT shell_wait(uint32_t ms, int *hit)
+{
+    uint32_t done = 0;
+
+    for (;;) {
+        int ran;
+
+        if (script_interrupted()) return -1;
+        ran = shell_irq_run();
+        if (ran < 0) return -1;
+        if (ran > 0) { *hit = 1; return 0; }
+        if (ms && done >= ms) { *hit = 0; return 0; }
+        {
+            uint32_t step = SLEEP_SLICE_MS;
+
+            if (ms && ms - done < step) step = ms - done;
+            sys_delay_ms(step);
+            done += step;
+        }
+    }
+}
+
+static int KEXT named_fn(const char *s)
+{
+    int n = (int)strlen(s);
+
+    if (n <= 0 || n >= VAR_NAME || !fn_slot(s, n, 0)) {
+        kprintf("%s: no such function: %s\r\n", s_vwho, s);
+        return -1;
+    }
+    return 0;
+}
+
+static int KEXT timer_builtin(fn_arg_t *args, int argc, val_t *out)
+{
+    shell_bind_t *b = NULL;
+    uint32_t us;
+    int flags = 0, handle, rc;
+
+    if (argc < 1 || argc > 3) return vfail("bad expression");
+    if (args[0].type != V_INT || args[0].u.i <= 0) return vfail("bad expression");
+    us = (uint32_t)args[0].u.i;
+    if (argc >= 2) {
+        if (args[1].type != V_INT || (args[1].u.i != 0 && args[1].u.i != 1))
+            return vfail("bad expression");
+        flags = (int)args[1].u.i;
+    }
+    if (argc == 3) {
+        if (args[2].type != V_STR) return vfail("bad expression");
+        if (named_fn(args[2].u.s) != 0) return -1;
+        b = bind_take(BIND_TIMER, -1, args[2].u.s);
+        if (!b) return vfail("too many interrupts");
+    }
+    handle = timer_open(us, flags, b ? shell_irq_kick : NULL, b);
+    if (handle < 0) {
+        if (b) bind_clear(b);
+        return pin_fail("timer", handle);
+    }
+    if (b) b->source = handle;
+    rc = timer_start(handle);
+    if (rc != 0) {
+        timer_close(handle);
+        if (b) bind_drop(BIND_TIMER, handle);
+        return pin_fail("timer", rc);
+    }
+    out->i = handle;
+    return 1;
+}
+
+static int KEXT timer_handle(fn_arg_t *args, int argc, int which, val_t *out)
+{
+    int handle, rc;
+
+    if (which == 0) {                       /* tperiod(handle, us) */
+        uint32_t us;
+
+        if (argc != 2 || args[0].type != V_INT || args[1].type != V_INT ||
+            args[1].u.i <= 0)
+            return vfail("bad expression");
+        us = (uint32_t)args[1].u.i;
+        rc = timer_period((int)args[0].u.i, us);
+        if (rc != 0) return pin_fail("timer", rc);
+        return 1;
+    }
+    if (argc != 1 || args[0].type != V_INT) return vfail("bad expression");
+    handle = (int)args[0].u.i;
+    if (which == 1) {                       /* tcount */
+        uint32_t n;
+
+        if (!timer_is_open(handle)) return pin_fail("timer", FREYA_ERR_ARG);
+        n = timer_count(handle);
+        if (n > 2147483647u) return vfail("integer overflow");
+        out->i = (int32_t)n;
+        return 1;
+    }
+    if (which == 2) rc = timer_start(handle);
+    else if (which == 3) rc = timer_stop(handle);
+    else {
+        rc = timer_close(handle);
+        if (rc == 0) bind_drop(BIND_TIMER, handle);
+    }
+    if (rc != 0) return pin_fail("timer", rc);
+    return 1;
+}
+
+static int KEXT irq_builtin(fn_arg_t *args, int argc, val_t *out)
+{
+    shell_bind_t *b = NULL;
+    int pin, edge, rc;
+
+    if (argc < 1 || argc > 3 || args[0].type != V_STR) return vfail("bad expression");
+    pin = parse_pin(args[0].u.s);
+    if (pin < 0) return pin_fail("irq", FREYA_ERR_PIN);
+    if (argc == 1) {
+        uint32_t n = gpio_irq_count(pin);
+        if (n > 2147483647u) return vfail("integer overflow");
+        out->i = (int32_t)n;
+        return 1;
+    }
+    if (args[1].type != V_INT) return vfail("bad expression");
+    edge = (int)args[1].u.i;
+    if (argc == 2 && edge == 0) {
+        rc = gpio_irq_detach(pin);
+        if (rc != 0) return pin_fail("irq", rc);
+        bind_drop(BIND_PIN, pin);
+        return 1;
+    }
+    if (argc == 3) {
+        if (args[2].type != V_STR) return vfail("bad expression");
+        if (named_fn(args[2].u.s) != 0) return -1;
+        b = bind_take(BIND_PIN, pin, args[2].u.s);
+        if (!b) return vfail("too many interrupts");
+    } else {
+        bind_drop(BIND_PIN, pin);
+    }
+    rc = gpio_irq_attach(pin, edge, b ? shell_irq_kick : NULL, b);
+    if (rc != 0) {
+        if (b) bind_clear(b);
+        return pin_fail("irq", rc);
+    }
+    return 1;
+}
+
 /* 1 handled, 0 not a built-in, -1 error (already printed).
  * int/float/str/hex convert.  rand() and srand(seed) are the ANSI C
  * generator.  sin and cos take one number, and pi() is the constant.
+ * now() is the clock as seconds since 1970.  date() is that clock as
+ * text, and time() builds the seconds from six calendar fields.
+ * year, month, day, hour, minute and second read one field.
  * get(pin) reads a pin.  set(pin, 0|1) drives it and reads it back.
  * adc(pin|temp|vref) is one raw count.  pwm(pin, hz, duty)
- * starts a channel and returns the rate; pwm(pin) stops it and returns 0. */
+ * starts a channel and returns the rate; pwm(pin) stops it and returns 0.
+ * ticks() is milliseconds since boot.  timer() arms a hardware timer,
+ * irq() arms a pin edge, and wait() runs the script function either one
+ * named, then returns 0.  A timeout returns -1. */
 static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
                            int argc, val_t *out)
 {
@@ -3315,6 +3743,8 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
     out->i = 0;
     out->f = 0.f;
     out->s[0] = '\0';
+
+    if ((rc = dt_builtin(name, nlen, args, argc, out)) != 0) return rc;
 
     if ((nlen == 3 && strncmp(name, "int", 3) == 0) ||
         (nlen == 5 && strncmp(name, "float", 5) == 0) ||
@@ -3419,6 +3849,40 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         rc = pwm_open(pin, hz, duty);
         if (rc < 0) return pin_fail("pwm", rc);
         out->i = (int32_t)hz;
+        return 1;
+    }
+
+    if (nlen == 5 && strncmp(name, "ticks", 5) == 0) {
+        uint32_t ms;
+
+        if (argc != 0) return vfail("bad expression");
+        ms = sys_uptime_ms();
+        if (ms > 2147483647u) return vfail("integer overflow");
+        out->i = (int32_t)ms;
+        return 1;
+    }
+    if (nlen == 5 && strncmp(name, "timer", 5) == 0)
+        return timer_builtin(args, argc, out);
+    if (nlen == 6 && strncmp(name, "tstart", 6) == 0)
+        return timer_handle(args, argc, 2, out);
+    if (nlen == 5 && strncmp(name, "tstop", 5) == 0)
+        return timer_handle(args, argc, 3, out);
+    if (nlen == 6 && strncmp(name, "tcount", 6) == 0)
+        return timer_handle(args, argc, 1, out);
+    if (nlen == 6 && strncmp(name, "tclose", 6) == 0)
+        return timer_handle(args, argc, 4, out);
+    if (nlen == 7 && strncmp(name, "tperiod", 7) == 0)
+        return timer_handle(args, argc, 0, out);
+    if (nlen == 3 && strncmp(name, "irq", 3) == 0)
+        return irq_builtin(args, argc, out);
+    if (nlen == 4 && strncmp(name, "wait", 4) == 0) {
+        int hit = 0;
+
+        if (argc != 1 || args[0].type != V_INT || args[0].u.i < 0 ||
+            args[0].u.i > 1000000)
+            return vfail("bad expression");
+        if (shell_wait((uint32_t)args[0].u.i, &hit) != 0) return -1;
+        out->i = hit ? 0 : -1;
         return 1;
     }
     return 0;
@@ -3663,14 +4127,7 @@ static int KEXT parse_primary(const char **pp, val_t *out)
         while (name_char(s[n], 0)) n++;
         *pp = s + n;
         vskip(pp);
-        if (**pp != '(') {
-            if (n == 2 && s[0] == 'p' && s[1] == 'i') {
-                out->type = V_FLT;
-                out->f = shell_pi();
-                return 0;
-            }
-            return vfail("bad expression");
-        }
+        if (**pp != '(') return vfail("bad expression");
         return parse_call(s, n, pp, out);
     }
 
