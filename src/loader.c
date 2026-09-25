@@ -359,7 +359,10 @@ static int api_console_raw(int on)
     return was;
 }
 
-static const freya_api_t s_api = {
+/* The table is a few hundred bytes.  The Blue Pill kernel image has no
+ * room left for the three virtual-machine pointers, so the whole table
+ * lives in the kernel extension on both boards. */
+static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .size            = sizeof(freya_api_t),
     .version         = FREYA_ABI_VERSION,
     .putc            = uart_putc,
@@ -442,6 +445,9 @@ static const freya_api_t s_api = {
     .console_raw     = api_console_raw,
     .power           = board_power,
     .adc_read        = adc_read,
+    .vm_reset        = vm_reset,
+    .vm_step         = vm_step,
+    .vm_run          = vm_run,
 };
 
 const freya_api_t *app_api(void)

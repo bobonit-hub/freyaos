@@ -316,6 +316,14 @@ int      crypt_block(const void *key, const void *in, void *out);
 int      crypt_apply(const void *key, const void *nonce, uint32_t off,
                      const void *in, void *out, int len);
 
+/* ---------------------------------------------------- PDP-11, 32-bit */
+/* vm_reset() clears the registers and sets Z.  vm_step() runs one
+ * instruction.  vm_run() runs up to steps of them.  See freya_api.h. */
+int      vm_reset(freya_vm_t *vm);
+int      vm_step(freya_vm_t *vm, void *mem, uint32_t size);
+int      vm_run(freya_vm_t *vm, void *mem, uint32_t size,
+                uint32_t steps, uint32_t *ran);
+
 /* ------------------------------------------------------------ SD card */
 enum { SD_TYPE_NONE = 0, SD_TYPE_MMC, SD_TYPE_SD1, SD_TYPE_SD2, SD_TYPE_SDHC };
 

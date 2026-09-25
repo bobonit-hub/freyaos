@@ -254,6 +254,13 @@ echo "================= XTEA ================="
 $CC $CFLAGS tests/host_crypt_test.c src/crypt.c -o "$OUT/hostcrypt"
 "$OUT/hostcrypt" || status=1
 
+# PDP-11 opcodes on 32-bit registers, compiled unchanged from src/vm.c.
+echo
+echo "================= PDP-11 virtual machine ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_vm_test.c src/vm.c -o "$OUT/hostvm"
+"$OUT/hostvm" || status=1
+
 # ---------------------------------------------------------------------
 # Program image layout.
 #

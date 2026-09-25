@@ -11,8 +11,8 @@
  * it fits.  The size register on these parts often still reads 64 KiB.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
  *   0x0800C000 .. 0x0800C07F   auto-start flag + reserved          (128 B)
- *   0x0800C080 .. 0x080153FF   program flash region             (37760 B)
- *   0x08015400 .. 0x0801FFFF   kernel extension              (43 KiB)
+ *   0x0800C080 .. 0x080143FF   program flash region             (33664 B)
+ *   0x08014400 .. 0x0801FFFF   kernel extension              (47 KiB)
  *
  * The extension is its own image at the top of the 128 KiB.  The program
  * region stops short of it, so install and uninstall never erase it,
@@ -37,7 +37,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x08015400, LENGTH = 43K
+    KEXT  (rx)  : ORIGIN = 0x08014400, LENGTH = 47K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
@@ -53,7 +53,7 @@ __shell_stack_limit  = __worker_stacks + __worker_count * __worker_stack_size;
 __autostart_start    = 0x0800C000;
 __autostart_end      = 0x0800C080;
 __app_flash_start    = 0x0800C080;
-__app_flash_end      = 0x08015400;
+__app_flash_end      = 0x08014400;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;
@@ -71,8 +71,9 @@ SECTIONS
     /*
      * Threads, the switch, the console commands that talk to them, and
      * the SPI master and the cipher.  Claimed before .text so the
-     * wildcard below does not take them.  The extension is 43 KiB so
-     * SPI, XTEA, the shell variables and functions fit beside the scheduler.
+     * wildcard below does not take them.  The extension is 47 KiB so
+     * SPI, XTEA, the virtual machine and the shell variables fit beside
+     * the scheduler.
      * Float helpers for the variables live here too: the 48 KiB image
      * has no room for them.
      * A call across the two images is an ordinary branch.
@@ -92,6 +93,7 @@ SECTIONS
         *shell.o(.text.pin_fail*)
         *shell.o(.text.cmd_crypt)
         *crypt.o(.text .text.*)
+        *vm.o(.text .text.*)
         /* Socket power is left for .text.  This extension has no room
          * for it; the 48 KiB image still does.  The Black Pill script
          * claims those sections up here instead. */
@@ -116,10 +118,12 @@ SECTIONS
         *shell.o(.rodata.pin_fail*)
         *shell.o(.rodata.cmd_crypt*)
         *crypt.o(.rodata .rodata.*)
+        *vm.o(.rodata .rodata.*)
         *shell.o(.rodata.shell_poll_runtime*)
         *softfp.o(.rodata .rodata.*)
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)
+        *loader.o(.rodata.kext_api)
         . = ALIGN(4);
         __kext_end = .;
     } > KEXT

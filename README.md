@@ -44,7 +44,7 @@ freya:
 | Crystal | 25 MHz | 8 MHz |
 | Flash | 512 KiB | 128 KiB |
 | SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 37760 B flash |
+| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 33664 B flash |
 | Build | `make` | `make BOARD=bluepill` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -110,9 +110,14 @@ Freya 2.0.1 "Reptiloid" for STM32F103C8T6
   nonce is 8; the same call does both, and a message longer than 4096 bytes
   is handed over in pieces. `crypt` at the console and `samples/crypt` do
   the same thing ([docs/crypt.md](docs/crypt.md)).
+* Runs a PDP-11 whose eight registers and whose words are 32 bits. The
+  opcodes and the condition codes are the PDP-11's. A program steps it
+  with `api->vm_step()` or runs a stretch of instructions with
+  `api->vm_run()`. `samples/vm` adds two numbers and returns
+  ([docs/vm.md](docs/vm.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
-  size from 8 KiB to 37760 bytes; on the Black Pill the flash region is 64 KiB
+  size from 8 KiB to 33664 bytes; on the Black Pill the flash region is 64 KiB
   (sector 4) and is there so the same console commands work with no card in
   the socket. The program can be copied from the card, or packed into the
   module when Freya itself is flashed.
@@ -636,11 +641,12 @@ built against this ABI can check before calling:
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-most of the 128 KiB of flash sits idle. So the board reserves 37760 bytes
+most of the 128 KiB of flash sits idle. So the board reserves 33664 bytes
 at the top of flash — the rest of page 48 after a 128-byte auto-start slot,
-then pages 49 to 84 — for one program image. The last 43 KiB holds the
+then pages 49 to 80 — for one program image. The last 47 KiB holds the
 kernel extension (the thread scheduler, the shell's script interpreter,
-its variables and functions, XMODEM, the SPI master and the cipher), which is flashed as its own image. The size register on
+its variables and functions, XMODEM, the SPI master, the cipher and the
+virtual machine), which is flashed as its own image. The size register on
 these parts often still reads 64 KiB; the region runs through the 128 KiB
 anyway. The Black Pill does not need
 the size (it already has 56 KiB of program RAM) but it keeps the same
@@ -689,7 +695,7 @@ flash into the RAM region before `app_main` is called. That is what the second
 linker script (`boards/<board>/app_flash.ld`) describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
-spends the 8 KiB RAM window entirely on its variables, and gets 37760 bytes
+spends the 8 KiB RAM window entirely on its variables, and gets 33664 bytes
 for code instead of 8 KiB. On the Black Pill the RAM window is still 56 KiB and
 the flash image may be up to 64 KiB.
 
@@ -761,10 +767,10 @@ heap takes whatever `.bss` leaves behind:
 0x0800C000  +--------------------------------+
             |  auto-start flag + log level  |  128 B, page 48
 0x0800C080  +--------------------------------+
-            |  program flash region          |  37760 B, rest of page 48
-            |                                |  and pages 49..84, installed
-0x08015400  +--------------------------------+  from the card
-            |  kernel extension              |  43 KiB, pages 85..127
+            |  program flash region          |  33664 B, rest of page 48
+            |                                |  and pages 49..80, installed
+0x08014400  +--------------------------------+  from the card
+            |  kernel extension              |  47 KiB, pages 81..127
 0x08020000  +--------------------------------+
 
 0x20000000  +--------------------------------+
@@ -951,7 +957,7 @@ ALL TESTS PASSED
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 128 KiB of
   flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
   KiB instead of sixty. Installing a program into flash is the answer to the
-  first half of that, not the second — such a program gets 37760 bytes of code, but
+  first half of that, not the second — such a program gets 33664 bytes of code, but
   the heap is still small and the main thread still uses the shell stack.
 * The Black Pill keeps a program in flash for the same console commands, not
   because 56 KiB of program RAM is too small. Its erase unit at the program

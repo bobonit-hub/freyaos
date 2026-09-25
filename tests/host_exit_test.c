@@ -100,10 +100,14 @@ int main(void)
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
     api.size = sizeof(freya_api_t);
-    check("ADC is the last call in the table",
+    check("the virtual machine is the last call in the table",
           (int)sizeof(freya_api_t),
-          (int)(__builtin_offsetof(freya_api_t, adc_read) +
-                sizeof(api.adc_read)));
+          (int)(__builtin_offsetof(freya_api_t, vm_run) +
+                sizeof(api.vm_run)));
+    api.size = __builtin_offsetof(freya_api_t, vm_reset);
+    check("a kernel from before the virtual machine does not offer it",
+          0, FREYA_API_HAS(&api, vm_run) ? 1 : 0);
+    check("but still offers ADC", 1, FREYA_API_HAS(&api, adc_read) ? 1 : 0);
     api.size = __builtin_offsetof(freya_api_t, adc_read);
     check("a kernel from before ADC does not offer it",
           0, FREYA_API_HAS(&api, adc_read) ? 1 : 0);

@@ -62,10 +62,11 @@
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
-/* The last 43 KiB of the 128 KiB holds the kernel extension (threads,
+/* The last 47 KiB of the 128 KiB holds the kernel extension (threads,
  * the shell's script interpreter, its variables and functions, the SPI
- * master, XMODEM and the cipher), so an install does not erase it. */
-#define FREYA_APP_FLASH_SIZE   (0x08015400UL - FREYA_APP_FLASH_ADDR)
+ * master, XMODEM, the cipher and the virtual machine), so an install
+ * does not erase it. */
+#define FREYA_APP_FLASH_SIZE   (0x08014400UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)
@@ -405,6 +406,42 @@ typedef void (*freya_thread_fn)(void *arg);
 /* A supply the kernel can take away.  FREYA_PWR_SD is the card socket. */
 #define FREYA_PWR_SD         1
 
+/* ---------------------------------------------------- PDP-11, 32-bit */
+/*
+ * Eight general registers, as on a PDP-11.  R6 is the stack and R7 the
+ * program counter.  Each register is 32 bits, and a memory word is 32
+ * bits too; the opcodes and the condition codes are the PDP-11's.
+ * Instructions are 32-bit little-endian words whose low 16 bits are the
+ * PDP-11 opcode.  A following index or immediate is a whole 32-bit word.
+ * The stack and the program counter step by 4.  R0-R5 step by 1 on a
+ * byte operand and by 4 on a word.
+ *
+ * vm_step() and vm_run() return 0 when the instruction completed,
+ * FREYA_VM_HALT when it executed HALT, FREYA_VM_TRAP for EMT, TRAP, BPT
+ * or IOT, FREYA_VM_FAULT when an address is outside mem or a word is
+ * not aligned, FREYA_VM_ILLEGAL for an opcode this machine does not
+ * have, or FREYA_ERR_ARG.  vm_run() returns FREYA_VM_LIMIT when steps
+ * (or FREYA_VM_MAX_STEPS, when steps is 0) run out first.
+ */
+#define FREYA_VM_NREGS       8
+#define FREYA_VM_SP          6
+#define FREYA_VM_PC          7
+#define FREYA_VM_C           0x1u
+#define FREYA_VM_V           0x2u
+#define FREYA_VM_Z           0x4u
+#define FREYA_VM_N           0x8u
+#define FREYA_VM_HALT        1
+#define FREYA_VM_TRAP        2
+#define FREYA_VM_FAULT       3
+#define FREYA_VM_ILLEGAL     4
+#define FREYA_VM_LIMIT       5
+#define FREYA_VM_MAX_STEPS   1000000u
+
+typedef struct {
+    uint32_t r[FREYA_VM_NREGS];
+    uint32_t psw;            /* FREYA_VM_N | Z | V | C                    */
+} freya_vm_t;
+
 /*
  * Service table handed to the program.  Fields are only ever appended,
  * and 'size' lets a program check what the running kernel provides.
@@ -592,6 +629,19 @@ typedef struct freya_api {
      * ADC-capable pin, FREYA_ADC_TEMP or FREYA_ADC_VREF.  An external
      * pin is put in analog mode and left there. */
     int      (*adc_read)(int source);              /* 0..FREYA_ADC_MAX */
+
+    /* appended: a PDP-11, with its registers and opcodes, on a 32-bit
+     * data path.  R6 is the stack pointer and R7 the program counter.
+     * A word is 32 bits; a byte is still 8.  The processor status keeps
+     * N, Z, V and C in the same bits as a PDP-11.  mem is the machine's
+     * whole address space, little-endian.  vm_step() runs one
+     * instruction.  vm_run() runs up to steps of them, or
+     * FREYA_VM_MAX_STEPS when steps is 0, and writes how many completed
+     * to ran when ran is not null. */
+    int      (*vm_reset)(freya_vm_t *vm);
+    int      (*vm_step)(freya_vm_t *vm, void *mem, uint32_t size);
+    int      (*vm_run)(freya_vm_t *vm, void *mem, uint32_t size,
+                       uint32_t steps, uint32_t *ran);
 } freya_api_t;
 
 /*

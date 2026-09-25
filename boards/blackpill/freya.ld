@@ -88,6 +88,7 @@ SECTIONS
         *shell.o(.text.pin_fail*)
         *shell.o(.text.cmd_crypt)
         *crypt.o(.text .text.*)
+        *vm.o(.text .text.*)
         /* Socket power.  The 48 KiB image has no room; this extension does.
          * The Blue Pill is the other way around, so its script leaves
          * these sections for .text. */
@@ -133,11 +134,13 @@ SECTIONS
         *shell.o(.rodata.pin_fail*)
         *shell.o(.rodata.cmd_crypt*)
         *crypt.o(.rodata .rodata.*)
+        *vm.o(.rodata .rodata.*)
         *power.o(.rodata .rodata.*)
         *shell.o(.rodata.cmd_power*)
         *shell.o(.rodata.shell_poll_runtime*)
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)
+        *loader.o(.rodata.kext_api)
         . = ALIGN(4);
         __kext_end = .;
     } > KEXT

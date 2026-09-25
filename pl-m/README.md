@@ -2,7 +2,7 @@
 
 `plmc.py` compiles a PL/M module to a GNU assembler listing for an
 ARM Cortex-M3. The listing is only a Freya flash program: code is linked
-for the Blue Pill program flash region (`0x0800C080`, 37760 bytes) and
+for the Blue Pill program flash region (`0x0800C080`, 33664 bytes) and
 started with `runflash`. There is no floating point. `ADDRESS` and
 `POINTER` are 32 bits.
 
