@@ -112,6 +112,8 @@ void freya_main(void)
             g_clocks.clock_source ? BOARD_HSE_NAME : BOARD_HSI_NAME,
             g_clocks.hclk_hz / 1000000UL, (unsigned)BOARD_FLASH_WS);
     kprintf("[boot] console    : %s\r\n", BOARD_CONSOLE_NAME);
+    kprintf("[boot] checksum   : ");
+    fw_cksum_show();
 
     boot_storage();
     boot_autorun();

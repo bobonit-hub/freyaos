@@ -1230,16 +1230,18 @@ static int slot_can_program(uint32_t cur, uint32_t want)
 }
 
 /*
- * Rewrite the auto-start slot, keeping whichever of the three words the
- * caller did not intend to change.  flash_erase() of the 128-byte slot
- * restores anything else that shares the same erase unit (the start of
- * the program image on the Blue Pill; nothing on the Black Pill).
+ * Rewrite the auto-start slot, keeping whichever of the flag words the
+ * caller did not intend to change, and always keeping the firmware
+ * control sum.  flash_erase() of the 128-byte slot restores anything
+ * else that shares the same erase unit (the start of the program image
+ * on the Blue Pill; nothing on the Black Pill).
  */
 static int slot_write(uint32_t magic, uint32_t level, uint32_t ramdump)
 {
     uint32_t cur_m = slot_word(0);
     uint32_t cur_l = slot_word(FREYA_LOGLEVEL_OFF);
     uint32_t cur_d = slot_word(FREYA_RAMDUMP_OFF);
+    uint32_t cur_c = slot_word(FREYA_CKSUM_OFF);
     int rc;
 
     if (cur_m == magic && cur_l == level && cur_d == ramdump) return FLASH_OK;
@@ -1259,6 +1261,14 @@ static int slot_write(uint32_t magic, uint32_t level, uint32_t ramdump)
         cur_m = SLOT_ERASED;
         cur_l = SLOT_ERASED;
         cur_d = SLOT_ERASED;
+        if (cur_c != SLOT_ERASED) {
+            rc = flash_program(FREYA_AUTOSTART_ADDR + FREYA_CKSUM_OFF,
+                               &cur_c, sizeof(cur_c));
+            if (rc != FLASH_OK) {
+                flash_end();
+                return rc;
+            }
+        }
     }
     if (cur_m != magic) {
         rc = flash_program(FREYA_AUTOSTART_ADDR, &magic, sizeof(magic));

@@ -29,6 +29,7 @@ int main(void)
     printf("autostart_addr %lu\n",  (unsigned long)FREYA_AUTOSTART_ADDR);
     printf("autostart_size %lu\n",  (unsigned long)FREYA_AUTOSTART_SIZE);
     printf("ramdump_off %lu\n",     (unsigned long)FREYA_RAMDUMP_OFF);
+    printf("cksum_off %lu\n",       (unsigned long)FREYA_CKSUM_OFF);
 #endif
     return 0;
 }

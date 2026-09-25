@@ -321,7 +321,7 @@ test:
 # linker reserved.  The region bounds and the auto-start slot are read from
 # the kernel ELF so they cannot drift away from boards/<board>/freya.ld.
 ifneq ($(PROGRAM)$(SCRIPT),)
-$(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PACK_INPUT) tools/pack_image.py
+$(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PACK_INPUT) tools/pack_image.py tools/fwsum.py
 	@echo "  PACK  $@"
 	@set -eu; \
 	 start=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__app_flash_start" { print "0x" $$1 }'); \
@@ -337,7 +337,14 @@ $(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PACK_INPUT) tool
 	     --slot-addr $$slot \
 	     --slot-end $$slot_end \
 	     $(PACK_AUTOSTART) \
-	     --out $@
+	     --out $@; \
+	 kext=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
+	 test -n "$$kext"; \
+	 python3 tools/fwsum.py \
+	     --span 0x08000000:$(BUILD)/$(TARGET).bin \
+	     --span $$kext:$(BUILD)/$(TARGET)-kext.bin \
+	     --store-addr $$(( $$slot + 12 )) \
+	     --patch $@
 
 all: $(FLASH_IMAGE)
 endif
@@ -346,12 +353,32 @@ image: $(FLASH_IMAGE)
 
 # The thread scheduler is a second image (__kext_start).  It is written on
 # its own so the gap between the kernel and that address is not erased.
-flash: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin
+# The control sum lives in the auto-start slot.  On the Blue Pill that
+# slot shares a 1 KiB page with the start of the program; on the F4 it
+# shares sector 3 with nothing else that is used.  The page is read back
+# and written with only the sum word changed.
+ifeq ($(BOARD),bluepill)
+CKSUM_PAGE_BASE := 0x0800C000
+CKSUM_PAGE_SIZE := 1024
+else
+CKSUM_PAGE_BASE := 0x0800C000
+CKSUM_PAGE_SIZE := 16384
+endif
+
+flash: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin tools/fwsum.py
 	@set -eu; \
 	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
-	test -n "$$addr"; \
+	slot=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__autostart_start" { print "0x" $$1 }'); \
+	test -n "$$addr" && test -n "$$slot"; \
 	st-flash $(STFLASH_OPTS) write $(FLASH_IMAGE) 0x08000000; \
-	st-flash $(STFLASH_OPTS) --reset write $(BUILD)/$(TARGET)-kext.bin $$addr
+	st-flash $(STFLASH_OPTS) write $(BUILD)/$(TARGET)-kext.bin $$addr; \
+	python3 tools/fwsum.py --device \
+	    $(patsubst %,--st-opt %,$(STFLASH_OPTS)) \
+	    --span 0x08000000:$(BUILD)/$(TARGET).bin \
+	    --span $$addr:$(BUILD)/$(TARGET)-kext.bin \
+	    --store-addr $$(( $$slot + 12 )) \
+	    --page-base $(CKSUM_PAGE_BASE) --page-size $(CKSUM_PAGE_SIZE); \
+	st-flash $(STFLASH_OPTS) reset
 
 ifeq ($(PROGRAM)$(SCRIPT),)
 openocd: $(BUILD)/$(TARGET).elf

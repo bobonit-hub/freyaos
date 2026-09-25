@@ -46,8 +46,10 @@
  * program is stored there and copied to RAM before it executes when code
  * and writable state fit together; larger programs retain XIP execution.
  * A 128-byte aligned slot immediately before that region holds the
- * auto-start flag (first word), the default log level (second word) and
- * the ram-dump-on-BusFault flag (third word).
+ * auto-start flag (first word), the default log level (second word),
+ * the ram-dump-on-BusFault flag (third word) and the firmware control
+ * sum (fourth word).  That sum covers the kernel image and the kernel
+ * extension; the four bytes it occupies are left out of the sum.
  *
  * Every supported board has at least 128 KiB of internal flash.  The Blue
  * Pill size register often still reads 64; the program region runs to the
@@ -61,6 +63,7 @@
 #define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
+#define FREYA_CKSUM_OFF        12U              /* fourth word: firmware sum */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
 /* The last 47 KiB of the 128 KiB holds the kernel extension (threads,
  * the shell's script interpreter, its variables and functions, the SPI
@@ -86,6 +89,7 @@
 #define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
 #define FREYA_LOGLEVEL_OFF     4U
 #define FREYA_RAMDUMP_OFF      8U
+#define FREYA_CKSUM_OFF        12U              /* fourth word: firmware sum */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
 #define FREYA_APP_FLASH_SIZE   (0x08020000UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \

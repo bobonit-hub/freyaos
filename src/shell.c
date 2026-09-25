@@ -402,6 +402,7 @@ static uint32_t mcu_flash_kib(void)
 
 /* ----------------------------------------------------------- commands */
 static int cmd_help(int argc, char **argv);
+static int cmd_cksum(int argc, char **argv);
 static int cmd_script(int argc, char **argv);
 static int KEXT cmd_unset(int argc, char **argv);
 
@@ -440,6 +441,8 @@ static int cmd_sysinfo(int argc, char **argv)
     inf("auto-start"); kprintf("%s\r\n", onoff(app_autostart_enabled()));
     inf("ram dump");   kprintf("%s\r\n", onoff(app_ramdump_enabled()));
 #endif
+    inf("checksum");
+    fw_cksum_show();
 
     inf("sd card");
     if (!sd_powered()) {
@@ -2249,6 +2252,13 @@ static int cmd_crypt(int argc, char **argv)
     return 0;
 }
 
+static int cmd_cksum(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    return fw_cksum_show() == FW_CKSUM_OK ? 0 : -1;
+}
+
 /* ------------------------------------------------------ command table */
 typedef struct {
     const char *name;
@@ -2259,6 +2269,7 @@ typedef struct {
 static const command_t s_cmds[] = {
     { "help",     cmd_help,     "help([\"command\"])" },
     { "sysinfo",  cmd_sysinfo,  "sysinfo()" },
+    { "cksum",    cmd_cksum,    "cksum()" },
     { "meminfo",  cmd_meminfo,  "meminfo()" },
     { "mount",    cmd_mount,    "mount()" },
     { "power",    cmd_power,    "power([\"sd\" [, \"on\"|\"off\"]])" },

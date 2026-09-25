@@ -212,6 +212,13 @@ $CC $CFLAGS tests/host_shell_test.c "$OUT/shell_host.o" src/print.c \
     src/crypt.c -o "$OUT/hostshell"
 "$OUT/hostshell" || status=1
 
+echo
+echo "================= firmware sum ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_cksum_test.c src/cksum.c -o "$OUT/hostcksum"
+"$OUT/hostcksum" || status=1
+python3 tools/fwsum.py --self-test || status=1
+
 # Single precision on the Cortex-M3: the helpers in src/softfp.c against
 # the host FPU, then a soft-float link that must not need libgcc for them.
 echo
@@ -330,6 +337,8 @@ else
     check "the auto-start slot is 128 bytes" "$(macro autostart_size)" 128
     check "the ram-dump flag is the third word of the auto-start slot" \
           "$(macro ramdump_off)" 8
+    check "the firmware sum is the fourth word of the auto-start slot" \
+          "$(macro cksum_off)" 12
     check "the auto-start slot is 128-byte aligned" \
           0 "$(( $(macro autostart_addr) % 128 ))"
     check "the program flash region is 128-byte aligned" \
@@ -441,6 +450,25 @@ PY
         check "the rest of the program region is erased" 0 "$tail"
         check "the packed image covers the kernel and the whole program region" \
               "$(( end - 0x08000000 ))" "$(wc -c < "$packed" | tr -d ' ')"
+        cp "$packed" "$OUT/stamped.bin"
+        kext_addr=$(sym "$kelf" __kext_start)
+        store=$(( $(macro autostart_addr) + $(macro cksum_off) ))
+        if python3 tools/fwsum.py \
+                --span "0x08000000:$kbin" \
+                --span "$kext_addr:build/$BOARD/freya-kext.bin" \
+                --store-addr "$store" \
+                --patch "$OUT/stamped.bin" >/dev/null; then
+            want=$(python3 tools/fwsum.py \
+                --span "0x08000000:$kbin" \
+                --span "$kext_addr:build/$BOARD/freya-kext.bin" \
+                --store-addr "$store")
+            check "the stamped firmware sum matches a fresh computation" \
+                  "$((want))" "$(fld "$OUT/stamped.bin" $((store - 0x08000000)))"
+            before=$(dd if="$packed" bs=1 skip=$((store - 0x08000000)) count=4 status=none | tr -d '\377' | wc -c | tr -d ' ')
+            check "the sum word was erased before it was stamped" 0 "$before"
+        else
+            check "stamping the firmware sum into the packed image" 1 0
+        fi
     else
         check "packing the kernel and hello.xip.bin" 1 0
     fi

@@ -45,6 +45,7 @@
 /* Symbols provided by the linker script (addresses, not objects). */
 extern char __data_start[], __data_end[], __bss_start[], __bss_end[];
 extern char __heap_start[], __heap_end[], __etext[], __kernel_flash_end[];
+extern char __kext_start[], __kext_end[];
 extern char __app_ram_start[], __app_ram_end[];
 extern char __stack_top[], __stack_limit[], __ram_start[], __ram_end[];
 extern char __thread_stack_top[];      /* shell stack: PSP, below the IRQ stack */
@@ -518,6 +519,21 @@ const char *log_level_str(int level);
  * BusFault trampoline and does not return. */
 void ramdump_write(void);
 void ramdump_then_halt(void) __attribute__((noreturn));
+
+/* ---------------------------------------------------- firmware sum */
+/* Byte sum of the kernel image and the kernel extension.  The four
+ * bytes at FREYA_AUTOSTART_ADDR + FREYA_CKSUM_OFF are not added.
+ * status is FW_CKSUM_OK, FW_CKSUM_MISMATCH or FW_CKSUM_BLANK. */
+enum { FW_CKSUM_OK = 0, FW_CKSUM_MISMATCH = 1, FW_CKSUM_BLANK = 2 };
+typedef struct {
+    uint32_t stored;
+    uint32_t computed;
+    int      status;
+} fw_cksum_t;
+uint32_t fw_sum_bytes(const uint8_t *p, uint32_t addr, uint32_t len,
+                      uint32_t skip_addr, uint32_t skip_len);
+void     fw_cksum_read(fw_cksum_t *out);
+int      fw_cksum_show(void);   /* prints one line, returns FW_CKSUM_* */
 
 /* ------------------------------------------------------------ threads */
 /*

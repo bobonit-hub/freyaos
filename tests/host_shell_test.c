@@ -368,6 +368,11 @@ int  app_autostart_enabled(void)       { return 0; }
 int  app_autostart_set(int enable)     { (void)enable; return 0; }
 int  app_ramdump_enabled(void)         { return 0; }
 int  app_ramdump_set(int enable)       { (void)enable; return 0; }
+int fw_cksum_show(void)
+{
+    kprintf("0x%08x  ok\r\n", 0xA1B2C3D4UL);
+    return FW_CKSUM_OK;
+}
 const freya_app_header_t *app_flash_header(void)
 {
     static freya_app_header_t h;
@@ -955,8 +960,12 @@ int main(void)
 #endif
     expect_has("sysinfo reads the unique id", "11111111-22222222-33333333");
     expect_has("sysinfo reports the reset", "power-on");
+    expect_has("sysinfo reports the firmware sum", "0xa1b2c3d4  ok");
     expect_has("sysinfo before mount", "not mounted");
     expect_has("sysinfo with nothing loaded", "none loaded");
+    rc = run("cksum");
+    expect_rc("cksum succeeds", rc, 0);
+    expect_has("cksum prints the sum", "0xa1b2c3d4  ok");
 
     rc = run("meminfo");
     expect_rc("meminfo succeeds", rc, 0);
