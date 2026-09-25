@@ -1,0 +1,42 @@
+diff --git a/Makefile b/Makefile
+index 79d9a99..f8aead9 100644
+--- a/Makefile
++++ b/Makefile
+@@ -10,7 +10,8 @@ COMMOBJ  = main.o util.o parse.o abi.o cfg.o mem.o ssa.o alias.o load.o \
+ AMD64OBJ = amd64/targ.o amd64/sysv.o amd64/isel.o amd64/emit.o
+ ARM64OBJ = arm64/targ.o arm64/abi.o arm64/isel.o arm64/emit.o
+ RV64OBJ  = rv64/targ.o rv64/abi.o rv64/isel.o rv64/emit.o
+-OBJ      = $(COMMOBJ) $(AMD64OBJ) $(ARM64OBJ) $(RV64OBJ)
++FREYAOBJ = freya/targ.o freya/abi.o freya/isel.o freya/emit.o
++OBJ      = $(COMMOBJ) $(AMD64OBJ) $(ARM64OBJ) $(RV64OBJ) $(FREYAOBJ)
+ 
+ SRCALL   = $(OBJ:.o=.c)
+ 
+@@ -27,6 +28,7 @@ $(OBJ): all.h ops.h
+ $(AMD64OBJ): amd64/all.h
+ $(ARM64OBJ): arm64/all.h
+ $(RV64OBJ): rv64/all.h
++$(FREYAOBJ): freya/all.h
+ main.o: config.h
+ 
+ config.h:
+diff --git a/main.c b/main.c
+index 61065dd..f57e88e 100644
+--- a/main.c
++++ b/main.c
+@@ -24,6 +24,7 @@ extern Target T_amd64_apple;
+ extern Target T_arm64;
+ extern Target T_arm64_apple;
+ extern Target T_rv64;
++extern Target T_freya;
+ 
+ static Target *tlist[] = {
+ 	&T_amd64_sysv,
+@@ -31,6 +32,7 @@ static Target *tlist[] = {
+ 	&T_arm64,
+ 	&T_arm64_apple,
+ 	&T_rv64,
++	&T_freya,
+ 	0
+ };
+ static FILE *outf;

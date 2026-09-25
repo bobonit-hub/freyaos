@@ -1,0 +1,32 @@
+function w $abs(w %x) {
+@start
+	%c =w csltw %x, 0
+	jnz %c, @neg, @pos
+@neg
+	%n =w neg %x
+	ret %n
+@pos
+	ret %x
+}
+function w $arith(w %a, w %b) {
+@start
+	%p =w mul %a, %b
+	%q =w div %p, %b
+	%r =w rem %p, 5
+	%s =w udiv %p, 3
+	%t =w urem %p, 3
+	%u =w shl %a, 2
+	%v =w shr %u, 1
+	%w =w sar %v, 1
+	%x =w and %w, 255
+	%y =w or %x, 1
+	%z =w xor %y, 1
+	ret %z
+}
+export function w $main() {
+@start
+	%a =w call $abs(w -20)
+	%b =w call $arith(w 6, w 7)
+	%c =w add %a, %b
+	ret %c
+}

@@ -1,0 +1,150 @@
+diff --git a/configure b/configure
+index f66f594..4b13487 100755
+--- a/configure
++++ b/configure
+@@ -78,6 +78,13 @@ aarch64-*)
+ 	"-D", "__aarch64__",
+ '
+ 	;;
++freya*)
++	model=ilp32
++	defines=$defines'
++	"-D", "__freya__",
++	"-D", "__pdp11__",
++'
++	;;
+ riscv64-*)
+ 	model=lp64
+ 	defines=$defines'
+@@ -107,11 +114,24 @@ lp64)
+ 	"-D", "__SIZEOF_PTRDIFF_T__=8",
+ '
+ 	;;
++ilp32)
++	defines=$defines'
++	"-D", "__ILP32__",
++	"-D", "__SIZEOF_LONG__=4",
++	"-D", "__SIZEOF_POINTER__=4",
++	"-D", "__SIZEOF_SIZE_T__=4",
++	"-D", "__SIZEOF_PTRDIFF_T__=4",
++'
++	;;
+ *)
+ 	fail "unsupported model '$target'";;
+ esac
+ 
+ case "$target" in
++freya*)
++	startfiles=
++	endfiles=
++	;;
+ *-linux-*musl*)
+ 	test "${DEFAULT_LDSO+set}" || case "$target" in
+ 	x86_64*)  DEFAULT_LDSO=/lib/ld-musl-x86_64.so.1  ;;
+diff --git a/driver.c b/driver.c
+index 4fe2cca..e4763f9 100644
+--- a/driver.c
++++ b/driver.c
+@@ -401,6 +401,9 @@ main(int argc, char *argv[])
+ 	} else if (hasprefix(target, "riscv64-")) {
+ 		arch = "riscv64";
+ 		qbearch = "rv64";
++	} else if (hasprefix(target, "freya")) {
++		arch = "freya";
++		qbearch = "freya";
+ 	} else {
+ 		fatal("unsupported target '%s'", target);
+ 	}
+diff --git a/qbe.c b/qbe.c
+index 9fae0f0..e89a3c2 100644
+--- a/qbe.c
++++ b/qbe.c
+@@ -196,13 +196,20 @@ qbetype(struct type *t)
+ 
+ 	if (t == &typevoid)
+ 		return v;
++	/* QBE addresses are l temporaries. A Freya pointer is 32 bits wide,
++	 * so it is loaded and stored as a word and held in an l temporary. */
++	if (t->kind == TYPEPOINTER && targ && strcmp(targ->name, "freya") == 0)
++		return (struct qbetype){'l', 'w', ILOADW, ISTOREW};
+ 	if (!(t->prop & PROPSCALAR))
+ 		return l;
+ 	switch (t->size) {
+ 	case 1: return t->u.arith.issigned ? sb : ub;
+ 	case 2: return t->u.arith.issigned ? sh : uh;
+ 	case 4: return t->prop & PROPFLOAT ? s : w;
+-	case 8: return t->prop & PROPFLOAT ? d : l;
++	case 8:
++		if (!(t->prop & PROPFLOAT) && targ && strcmp(targ->name, "freya") == 0)
++			fatal("64-bit integers are not supported on freya");
++		return t->prop & PROPFLOAT ? d : l;
+ 	case 16: fatal("long double is not yet supported");
+ 	}
+ 	assert(0);
+@@ -1174,8 +1181,6 @@ emitvalue(struct value *v)
+ 		printf("d_%.17g", v->u.f);
+ 		break;
+ 	case VALUE_GLOBAL:
+-		if (v->kind & VALUE_EXTERN)
+-			fputs("extern ", stdout);
+ 		if (v->kind & VALUE_THREAD)
+ 			fputs("thread ", stdout);
+ 		/* fallthrough */
+diff --git a/targ.c b/targ.c
+index b70d1c2..3960f2b 100644
+--- a/targ.c
++++ b/targ.c
+@@ -37,6 +37,15 @@ static const struct target alltargs[] = {
+ 		},
+ 		.typewchar = &typeint,
+ 	},
++	{
++		.name = "freya",
++		.typevalist = &(struct type){
++			.kind = TYPEPOINTER, .prop = PROPSCALAR,
++			.align = 4, .size = 4,
++			.base = &typevoid,
++		},
++		.typewchar = &typeuint,
++	},
+ };
+ 
+ void
+@@ -55,6 +64,13 @@ targinit(const char *name)
+ 	}
+ 	if (!targ)
+ 		fatal("unknown target '%s'", name);
++	if (strcmp(name, "freya") == 0) {
++		/* ILP32: int, long and pointers are 32 bits. long long stays 64. */
++		typelong.size = typeulong.size = 4;
++		typelong.align = typeulong.align = 4;
++		typelong.u.arith.width = typeulong.u.arith.width = 32;
++		typenullptr.size = typenullptr.align = 4;
++	}
+ 	typechar.u.arith.issigned = targ->signedchar;
+ 	qual = QUALNONE;
+ 	typeadjvalist = typeadjust(targ->typevalist, &qual);
+diff --git a/type.c b/type.c
+index 17fb983..2925bd2 100644
+--- a/type.c
++++ b/type.c
+@@ -65,8 +65,8 @@ mkpointertype(struct type *base, enum typequal qual)
+ 	t = mktype(TYPEPOINTER, PROPSCALAR);
+ 	t->base = base;
+ 	t->qual = qual;
+-	t->size = 8;
+-	t->align = 8;
++	t->size = typenullptr.size;
++	t->align = typenullptr.align;
+ 	if (base)
+ 		t->prop |= base->prop & PROPVM;
+ 
+@@ -129,7 +129,7 @@ typerank(struct type *t)
+ 	case TYPECHAR:   return 0x081;
+ 	case TYPESHORT:  return 0x101;
+ 	case TYPEINT:    return 0x201;
+-	case TYPELONG:   return t->size << 3 + 4 | 0x1;
++	case TYPELONG:   return t->size == 4 ? 0x202 : t->size << 3 + 4 | 0x1;
+ 	case TYPELLONG:  return 0x402;
+ 	case TYPEBITINT: return t->u.arith.width << 4;
+ 	}
