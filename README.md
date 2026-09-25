@@ -243,15 +243,20 @@ make BOARD=bluepill flash PROGRAM=hello
 make BOARD=bluepill flash PROGRAM=blink
 make BOARD=bluepill flash PROGRAM=path/to/mine.xip.bin
 make flash PROGRAM=hello AUTOSTART=1
+make flash SCRIPT=boot.sh
+make flash SCRIPT=boot.sh AUTOSTART=1
 ```
 
 The file written is `build/<board>/freya+hello.bin` (the tag follows the
-program; `AUTOSTART=1` adds `+autostart`). `make image PROGRAM=hello` builds
-that file without programming the chip. A kernel-only `make flash` still
-leaves whatever is already in the region alone. `runflash` starts the
-program afterwards. `AUTOSTART=1` writes the auto-start flag into the packed
-image so the next reset runs it; the default is off, so packing a program
-does not autorun on every reset unless you asked.
+program or the script name; `AUTOSTART=1` adds `+autostart`). `make image
+PROGRAM=hello` builds that file without programming the chip. A kernel-only
+`make flash` still leaves whatever is already in the region alone. `runflash`
+starts a packed program afterwards. `SCRIPT=` stores a shell script in that
+same region, in the form `install` writes, so `source @flash` runs it.
+`AUTOSTART=1` writes the auto-start flag into the packed image so the next
+reset runs the program or the script; the default is off, so packing does
+not autorun on every reset unless you asked. `/autorun.bin` on the card
+still overrides either one.
 
 Then open the console:
 
@@ -725,7 +730,8 @@ flash, an installed image is started the same way when the auto-start flag is
 on — `autostart on` after `install`, or `AUTOSTART=1` when the program is
 packed into the module, so a board with nothing in the card socket still
 boots Freya and runs a program. An installed shell script is started the
-same way when that is what the region holds.
+same way when that is what the region holds. `make flash SCRIPT=boot.sh
+AUTOSTART=1` packs that script with the flag already on.
 
 ## Memory map
 
@@ -833,7 +839,7 @@ is measured rather than guessed).
 | `docs/sd-slot.txt` | SD slot wiring for the Blue Pill and the Black Pill |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/fremote.py` | remote shell and SD card utility (`fs ls`, `fs cp`, …) |
-| `tools/pack_image.py` | packs the kernel and one `.xip.bin` into the image `make flash PROGRAM=` writes |
+| `tools/pack_image.py` | packs the kernel and one `.xip.bin` or shell script into the image `make flash PROGRAM=` / `SCRIPT=` writes |
 
 ## Tests
 

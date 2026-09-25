@@ -5,7 +5,11 @@
 #   make flash              flash the image with st-flash
 #   make flash PROGRAM=hello
 #                           flash the kernel and one program into the module
+#   make flash SCRIPT=boot.sh
+#                           flash the kernel and one shell script into the
+#                           program flash region
 #   make BOARD=bluepill flash PROGRAM=hello AUTOSTART=1
+#   make BOARD=bluepill flash SCRIPT=boot.sh AUTOSTART=1
 #                           same, with the auto-start flag already on
 #   make size               show the section sizes
 #   make clean
@@ -129,20 +133,33 @@ endif
 # path of a .xip.bin linked for that region.  Unset, the image is the kernel
 # alone and whatever already occupies the region is left untouched.
 PROGRAM ?=
+# A shell script to store in that same region, in place of a program.
+# The next boot runs it when AUTOSTART=1 and /autorun.bin is absent.
+SCRIPT ?=
 # Set the auto-start flag in the packed image.  Off unless asked, so a
-# module programmed with PROGRAM= still boots to the shell on every reset.
+# module programmed with PROGRAM= or SCRIPT= still boots to the shell
+# on every reset.
 AUTOSTART ?=
 
+ifneq ($(PROGRAM),)
+ifneq ($(SCRIPT),)
+$(error PROGRAM and SCRIPT cannot both be set)
+endif
+endif
+
 ifeq ($(AUTOSTART),1)
-ifeq ($(PROGRAM),)
-$(error AUTOSTART=1 needs PROGRAM= so there is a flash image to set the flag in)
+ifeq ($(PROGRAM)$(SCRIPT),)
+$(error AUTOSTART=1 needs PROGRAM= or SCRIPT= so there is a flash image to set the flag in)
+endif
+endif
+
+ifneq ($(PROGRAM)$(SCRIPT),)
+ifeq ($(APP_XIP_LD),)
+$(error '$(BOARD)' keeps no program in flash)
 endif
 endif
 
 ifneq ($(PROGRAM),)
-ifeq ($(APP_XIP_LD),)
-$(error PROGRAM=$(PROGRAM): '$(BOARD)' keeps no program in flash)
-endif
 ifneq ($(filter $(PROGRAM),$(SKIP_$(BOARD))),)
 $(error PROGRAM=$(PROGRAM): that sample does not fit '$(BOARD)')
 endif
@@ -153,12 +170,21 @@ PROGRAM_BIN := $(BUILD)/samples/$(PROGRAM).xip.bin
 else
 PROGRAM_BIN := $(PROGRAM)
 endif
-PROGRAM_TAG := $(patsubst %.xip.bin,%,$(notdir $(PROGRAM_BIN)))
+PACK_INPUT := $(PROGRAM_BIN)
+PACK_KIND := --app $(PROGRAM_BIN)
+PAYLOAD_TAG := $(patsubst %.xip.bin,%,$(notdir $(PROGRAM_BIN)))
+else ifneq ($(SCRIPT),)
+PACK_INPUT := $(SCRIPT)
+PACK_KIND := --script $(SCRIPT)
+PAYLOAD_TAG := $(basename $(notdir $(SCRIPT)))
+endif
+
+ifneq ($(PROGRAM)$(SCRIPT),)
 ifeq ($(AUTOSTART),1)
-FLASH_IMAGE := $(BUILD)/$(TARGET)+$(PROGRAM_TAG)+autostart.bin
+FLASH_IMAGE := $(BUILD)/$(TARGET)+$(PAYLOAD_TAG)+autostart.bin
 PACK_AUTOSTART := --autostart
 else
-FLASH_IMAGE := $(BUILD)/$(TARGET)+$(PROGRAM_TAG).bin
+FLASH_IMAGE := $(BUILD)/$(TARGET)+$(PAYLOAD_TAG).bin
 PACK_AUTOSTART :=
 endif
 else
@@ -287,11 +313,11 @@ disasm: $(BUILD)/$(TARGET).lst
 test:
 	@BOARD=$(BOARD) sh tests/run_tests.sh
 
-# Kernel plus, when PROGRAM is set, the one program image at the address the
+# Kernel plus, when PROGRAM or SCRIPT is set, that image at the address the
 # linker reserved.  The region bounds and the auto-start slot are read from
 # the kernel ELF so they cannot drift away from boards/<board>/freya.ld.
-ifneq ($(PROGRAM),)
-$(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PROGRAM_BIN) tools/pack_image.py
+ifneq ($(PROGRAM)$(SCRIPT),)
+$(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PACK_INPUT) tools/pack_image.py
 	@echo "  PACK  $@"
 	@set -eu; \
 	 start=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__app_flash_start" { print "0x" $$1 }'); \
@@ -301,7 +327,7 @@ $(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PROGRAM_BIN) too
 	 test -n "$$start" && test -n "$$end" && test -n "$$slot" && test -n "$$slot_end"; \
 	 python3 tools/pack_image.py \
 	     --kernel $(BUILD)/$(TARGET).bin \
-	     --app $(PROGRAM_BIN) \
+	     $(PACK_KIND) \
 	     --load-addr $$start \
 	     --region-end $$end \
 	     --slot-addr $$slot \
@@ -323,7 +349,7 @@ flash: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin
 	st-flash $(STFLASH_OPTS) write $(FLASH_IMAGE) 0x08000000; \
 	st-flash $(STFLASH_OPTS) --reset write $(BUILD)/$(TARGET)-kext.bin $$addr
 
-ifeq ($(PROGRAM),)
+ifeq ($(PROGRAM)$(SCRIPT),)
 openocd: $(BUILD)/$(TARGET).elf
 	openocd $(OPENOCD_PRE) -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
 	        -c "program $< verify reset exit"

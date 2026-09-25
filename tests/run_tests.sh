@@ -473,6 +473,42 @@ PY
     else
         check "a RAM image is refused" 1 1
     fi
+
+    # make flash SCRIPT= stores the text the way install does: 'SCRT',
+    # the length, the bytes, and a NUL.  AUTOSTART=1 sets the same flag.
+    printf 'echo fromflash\n' > "$OUT/boot.sh"
+    packed_sh="$OUT/freya+boot.bin"
+    if python3 tools/pack_image.py \
+            --kernel "$kbin" --script "$OUT/boot.sh" \
+            --load-addr "$(macro app_flash_addr)" --region-end "$end" \
+            --slot-addr "$(macro autostart_addr)" --slot-end "$slot_end" \
+            --autostart --out "$packed_sh" >/dev/null; then
+        check "a packed script has the SCRT magic" \
+              "$(( 0x54524353 ))" "$(fld "$packed_sh" "$off")"
+        check "a packed script records its text length" \
+              15 "$(fld "$packed_sh" $((off + 4)))"
+        printf 'echo fromflash\n\0' > "$OUT/expect-script.bin"
+        dd if="$packed_sh" bs=1 skip=$((off + 8)) count=16 status=none \
+            > "$OUT/got-script.bin"
+        got=$(cmp -s "$OUT/expect-script.bin" "$OUT/got-script.bin" && echo 1 || echo 0)
+        check "a packed script is the text plus a NUL" 1 "$got"
+        check "a packed script turns auto-start on" \
+              "$(( 0x31415946 ))" "$(fld "$packed_sh" "$slot")"
+        tail=$(dd if="$packed_sh" bs=1 skip=$((off + 8 + 16)) status=none \
+               | tr -d '\377' | wc -c | tr -d ' ')
+        check "the rest of the region stays erased after a script" 0 "$tail"
+    else
+        check "packing a shell script into the program region" 1 0
+    fi
+
+    if python3 tools/pack_image.py \
+            --kernel "$kbin" --script "$kbin" \
+            --load-addr "$(macro app_flash_addr)" --region-end "$end" \
+            --out "$OUT/rejected-script.bin" >/dev/null 2>&1; then
+        check "a binary file is refused as a script" 1 0
+    else
+        check "a binary file is refused as a script" 1 1
+    fi
 fi
 
 echo

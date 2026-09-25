@@ -468,7 +468,8 @@ PB5 = 1
 in place of a program image. `saveflash` copies it back (default
 `/script.sh`). `uninstall` erases it. `runflash` on a script says to
 use `source @flash`. With `autostart on`, the next boot runs the script
-when `/autorun.bin` is absent.
+when `/autorun.bin` is absent. `make flash SCRIPT=boot.sh AUTOSTART=1`
+packs that script with the flag already on.
 
 ## Commands that were Blue Pill only
 
