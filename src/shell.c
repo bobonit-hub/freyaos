@@ -2355,7 +2355,7 @@ static int cmd_help(int argc, char **argv)
 /*
  * A script is a list of commands.  ';' and a new line both separate
  * them, except inside quotes.  A '#' at the start of a statement, or
- * after a space, comments out the rest of that statement.  'if' runs
+ * after a space, comments out the rest of that line.  'if' runs
  * one command and then either the lines up to 'else' or the lines up
  * to 'end', depending on whether that command's status was 0.  'loop'
  * repeats the lines up to 'end'.  A block left open at the end of a
@@ -2388,7 +2388,7 @@ static int  s_script_len;
  * does not fit in dst (the message is already printed).  Quotes hide a
  * ';' or a newline, the way they hide a space when the line is split.
  * A '#' at the start of a statement, or after a space, is a comment
- * through the next separator. */
+ * through the end of that line.  A ';' inside the comment is text. */
 static int KEXT next_stmt(const char **pp, char *dst, int size)
 {
     const char *s = *pp;
@@ -2402,7 +2402,7 @@ static int KEXT next_stmt(const char **pp, char *dst, int size)
             return 1;
         }
         if (*s != '#') break;
-        while (*s && *s != ';' && *s != '\n' && *s != '\r') s++;
+        while (*s && *s != '\n' && *s != '\r') s++;
     }
 
     while (*s) {
@@ -2412,7 +2412,7 @@ static int KEXT next_stmt(const char **pp, char *dst, int size)
         else if (!q && (c == ';' || c == '\n' || c == '\r')) break;
         else if (!q && c == '#' &&
                  (i == 0 || dst[i - 1] == ' ' || dst[i - 1] == '\t')) {
-            while (*s && *s != ';' && *s != '\n' && *s != '\r') s++;
+            while (*s && *s != '\n' && *s != '\r') s++;
             break;
         }
         if (i < size - 1) dst[i++] = c;

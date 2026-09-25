@@ -22,9 +22,11 @@ language syntax rather than console commands and do not take parentheses.
 way. Quotes hide a semicolon, so `echo("a;b")` is one command. A command
 is at most 159 characters.
 
-A `#` at the start of a statement, or after a space, comments out the
-rest of that statement. Quotes hide it, so `echo("a # b")` prints the
-hash. A line that is only a comment is skipped.
+A comment is one line and starts with `#`. Spaces or tabs may come
+before it, and a `#` after a space starts one too. The comment runs to
+the end of the line, so a semicolon there does not start another
+command. Quotes hide the hash, so `echo("a # b")` prints the hash. A
+line that is only a comment is skipped.
 
 `$?` anywhere in a command becomes the status of the previous command,
 as decimal text. `$name` becomes that variable, also as text. `$0` is

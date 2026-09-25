@@ -437,9 +437,11 @@ freya: set n adc("PA0")
 freya: set n pwm("PB6", 1000, 25)
 ```
 
-A `#` at the start of a statement, or after a space, comments out the
-rest of that statement. Quotes hide it, so `echo "a # b"` prints the
-hash. A line that is only a comment is skipped.
+A comment is one line and starts with `#`. Spaces or tabs may come
+before it, and a `#` after a space starts one too. The comment runs to
+the end of the line, so a semicolon there does not start another
+command. Quotes hide the hash, so `echo "a # b"` prints the hash. A
+line that is only a comment is skipped.
 
 `source <file>` reads a script from the card and runs it. The file is
 plain text, at most 1024 bytes, and each command is still one line of

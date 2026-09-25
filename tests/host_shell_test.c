@@ -1200,6 +1200,18 @@ int main(void)
     rc = run("# only a comment\necho z");
     expect_rc("a comment line succeeds", rc, 0);
     expect_exact("a comment line is skipped", "z\r\n");
+    rc = run("# note; echo hidden\necho z");
+    expect_rc("a comment line with a semicolon succeeds", rc, 0);
+    expect_exact("a comment runs to the end of the line", "z\r\n");
+    rc = run("echo a # note; echo hidden\necho z");
+    expect_rc("a trailing comment with a semicolon succeeds", rc, 0);
+    expect_exact("a trailing comment hides the rest of the line", "a\r\nz\r\n");
+    rc = run("echo hi#there");
+    expect_rc("a hash inside a word succeeds", rc, 0);
+    expect_exact("a hash inside a word is not a comment", "hi#there\r\n");
+    rc = run("  # indented\necho z");
+    expect_rc("an indented comment succeeds", rc, 0);
+    expect_exact("spaces before a hash still start a comment", "z\r\n");
 
     rc = run("source");
     expect_rc("source without a path fails", rc, FREYA_EXIT_FAIL);
@@ -1230,6 +1242,11 @@ int main(void)
     rc = run("source /t.sh");
     expect_rc("source of two commands succeeds", rc, 0);
     expect_exact("source splits on a semicolon", "a\r\nb\r\n");
+
+    plant_script("/t.sh", "# setup; not a command\n  # indented\necho fromfile\n");
+    rc = run("source /t.sh");
+    expect_rc("source of a commented script succeeds", rc, 0);
+    expect_exact("source skips comment lines", "fromfile\r\n");
 
     plant_script("/t.sh", "# setup\nif echo hi\necho THEN\nelse\necho ELSE\nend\n");
     rc = run("source /t.sh");
