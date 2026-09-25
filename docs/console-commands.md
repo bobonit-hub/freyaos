@@ -47,6 +47,9 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `adc(["pin"\|"temp"\|"vref"])` | take one raw 12-bit ADC sample |
 | `i2c([bus [, hz\|"off"\|"scan"\|addr, ...]])` | list the I2C buses, or open, scan and talk to one |
 | `spi([bus [, hz\|"off"\|"x", ...]])` | list the SPI buses, or open one and shift bytes |
+| `wifi(["on"\|"off"\|"status"\|"scan"\|"connect"\|"disconnect"\|"credentials", ...])` | control the ESP32-C6 Wi-Fi coprocessor |
+| `ping("host" [, timeout_ms])` | resolve and ping a host through the ESP32-C6 |
+| `curl([options,] "http[s]://...")` | make a bounded HTTP request through the ESP32-C6 |
 | `w1(["pin"\|"off"\|"search"\|...])` | list open 1-Wire pins, or open one and talk to it |
 | `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts |
 | `sleep(ms)` | wait that many milliseconds; Ctrl-C returns early |
@@ -70,6 +73,29 @@ turns the rail on when it was off. A program does the same with
 `api->power(FREYA_PWR_SD, 0)` and `api->power(FREYA_PWR_SD, 1)`. The call
 returns the state it found. A kernel from before this call is detected
 with `FREYA_API_HAS(api, power)`.
+
+## Network coprocessor
+
+`wifi("status")` prints association and DHCP parameters. `wifi("scan")` and
+`ping()` remain Ctrl-C responsive while their asynchronous jobs run.
+`wifi("credentials", ssid, password)` persists credentials in ESP32 NVS and
+does not expose a read-back operation; the entered command is still present
+in shell history. See [network.md](network.md) for wiring, firmware and API
+limits. Blue Pill commands report that the transport is unsupported.
+
+`curl` supports only `--basic user:password`, `--compressed`, `--data text`,
+`--output file`, `--user-agent text`, `--insecure`, and `--verbose`.
+`--data` selects POST; without it the method is GET. `--compressed` requests
+gzip and returns the decompressed body. A response is bounded to 192 KiB.
+`--insecure` disables HTTPS certificate and hostname verification for that
+request and prints a warning with `--verbose`; ordinary TLS calls remain
+verified. Examples:
+
+```text
+curl("https://example.com/")
+curl("--compressed", "--output", "/page.html", "https://example.com/")
+curl("--basic", "user:password", "--data", "a=1", "https://example.com/form")
+```
 
 ## Pins and PWM at the prompt
 
@@ -493,3 +519,16 @@ Related behaviour that followed the same `#ifdef`, and is now common too:
 `load @flash` / `run @flash`, persistent `loglevel` in the slot, `sysinfo`
 and `meminfo` lines for auto-start / ram-dump / program flash, and a
 BusFault dump of SRAM to `/freya.ram` when the flag is on.
+
+## Network coprocessor
+
+`wifi()` and `wifi("status")` print Wi-Fi state and, when connected, the
+DHCP address, gateway and mask. `wifi("on")` claims SPI2 for the ESP32-C6;
+`wifi("off")` releases it. Other forms are `wifi("scan")`,
+`wifi("connect")`, `wifi("disconnect")`, and
+`wifi("credentials", ssid, password)`. Credentials persist in ESP32 NVS.
+They cannot be read back, but the command remains in shell history.
+
+`ping(host [, timeout_ms])` resolves and pings on the C6 while checking
+Ctrl-C between transport polls. These calls report unsupported on the Blue
+Pill. See [network.md](network.md) for wiring and program API details.

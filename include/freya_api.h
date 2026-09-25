@@ -65,11 +65,11 @@
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
 #define FREYA_CKSUM_OFF        12U              /* fourth word: firmware sum */
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
-/* The last 47 KiB of the 128 KiB holds the kernel extension (threads,
+/* The last 48 KiB of the 128 KiB holds the kernel extension (threads,
  * the shell's script interpreter, its variables and functions, the SPI
  * master, XMODEM, the cipher and the virtual machine), so an install
  * does not erase it. */
-#define FREYA_APP_FLASH_SIZE   (0x08014400UL - FREYA_APP_FLASH_ADDR)
+#define FREYA_APP_FLASH_SIZE   (0x08014000UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)
@@ -363,6 +363,57 @@ typedef struct {
                                    * finish, or a 1-Wire line stayed low */
 #define FREYA_ERR_IO         -7   /* a bus error, or the run was asked
                                    * to stop mid-transfer                */
+#define FREYA_ERR_AGAIN      -8   /* nonblocking operation is not ready */
+#define FREYA_ERR_UNSUPPORTED -9  /* feature is absent on this board    */
+
+/* ------------------------------------------------------------ network */
+#define FREYA_NET_SOCKETS       4
+#define FREYA_NET_PAYLOAD_MAX   480
+#define FREYA_WIFI_SSID_MAX     32
+#define FREYA_WIFI_PASS_MAX     63
+#define FREYA_AF_INET           2
+#define FREYA_SOCK_STREAM       1
+#define FREYA_SOCK_DGRAM        2
+#define FREYA_IPPROTO_TCP       6
+#define FREYA_IPPROTO_UDP       17
+
+enum {
+    FREYA_WIFI_OFF = 0,
+    FREYA_WIFI_IDLE,
+    FREYA_WIFI_CONNECTING,
+    FREYA_WIFI_CONNECTED,
+    FREYA_WIFI_ERROR
+};
+
+typedef struct {
+    uint32_t addr;      /* IPv4 in network byte order */
+    uint16_t port;      /* host byte order             */
+    uint16_t reserved;
+} freya_net_addr_t;
+
+typedef struct {
+    int32_t  state;     /* FREYA_WIFI_* */
+    int32_t  rssi;
+    uint32_t ip;
+    uint32_t gateway;
+    uint32_t netmask;
+    char     ssid[FREYA_WIFI_SSID_MAX + 1];
+} freya_wifi_status_t;
+
+typedef struct {
+    int32_t rssi;
+    uint8_t channel;
+    uint8_t auth;
+    uint8_t reserved[2];
+    char    ssid[FREYA_WIFI_SSID_MAX + 1];
+} freya_wifi_scan_t;
+
+typedef struct {
+    uint32_t addr;
+    uint32_t elapsed_ms;
+    uint32_t replies;
+    uint32_t lost;
+} freya_ping_result_t;
 
 /*
  * A pin or timer handler.  It runs in interrupt context, on the same
@@ -651,6 +702,40 @@ typedef struct freya_api {
     int      (*vm_step)(freya_vm_t *vm, void *mem, uint32_t size);
     int      (*vm_run)(freya_vm_t *vm, void *mem, uint32_t size,
                        uint32_t steps, uint32_t *ran);
+
+    /* appended: ESP32-C6 network coprocessor.  Every operation is
+     * nonblocking; FREYA_ERR_AGAIN means call net_poll() and retry.
+     * Credentials are persisted by the C6 and are never readable back. */
+    int      (*wifi_on)(void);
+    int      (*wifi_off)(void);
+    int      (*wifi_credentials)(const char *ssid, const char *password);
+    int      (*wifi_connect)(void);
+    int      (*wifi_disconnect)(void);
+    int      (*wifi_status)(freya_wifi_status_t *status);
+    int      (*wifi_scan_start)(void);
+    int      (*wifi_scan_next)(freya_wifi_scan_t *entry);
+    int      (*ping_start)(const char *host, uint32_t timeout_ms);
+    int      (*ping_result)(freya_ping_result_t *result);
+    int      (*net_socket)(int domain, int type, int protocol);
+    int      (*net_close)(int socket);
+    int      (*net_connect)(int socket, const freya_net_addr_t *addr);
+    int      (*net_bind)(int socket, const freya_net_addr_t *addr);
+    int      (*net_listen)(int socket, int backlog);
+    int      (*net_accept)(int socket, freya_net_addr_t *peer);
+    int      (*net_send)(int socket, const void *buf, int len);
+    int      (*net_recv)(int socket, void *buf, int len);
+    int      (*net_sendto)(int socket, const void *buf, int len,
+                           const freya_net_addr_t *to);
+    int      (*net_recvfrom)(int socket, void *buf, int len,
+                             freya_net_addr_t *from);
+    int      (*net_poll)(uint32_t timeout_ms);
+
+    /* appended: upgrade an unconnected stream socket to a TLS client and
+     * connect it.  TLS terminates on the ESP32-C6; this side sends and
+     * receives plaintext.  The C6 verifies hostname and certificate and
+     * permits TLS 1.3 only. */
+    int      (*net_tls_connect)(int socket, const char *hostname,
+                                uint16_t port);
 } freya_api_t;
 
 /*

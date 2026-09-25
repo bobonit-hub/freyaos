@@ -448,6 +448,28 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .vm_reset        = vm_reset,
     .vm_step         = vm_step,
     .vm_run          = vm_run,
+    .wifi_on         = wifi_on,
+    .wifi_off        = wifi_off,
+    .wifi_credentials = wifi_credentials,
+    .wifi_connect    = wifi_connect,
+    .wifi_disconnect = wifi_disconnect,
+    .wifi_status     = wifi_status,
+    .wifi_scan_start = wifi_scan_start,
+    .wifi_scan_next  = wifi_scan_next,
+    .ping_start      = ping_start,
+    .ping_result     = ping_result,
+    .net_socket      = net_socket,
+    .net_close       = net_close,
+    .net_connect     = net_connect,
+    .net_tls_connect = net_tls_connect,
+    .net_bind        = net_bind,
+    .net_listen      = net_listen,
+    .net_accept      = net_accept,
+    .net_send        = net_send,
+    .net_recv        = net_recv,
+    .net_sendto      = net_sendto,
+    .net_recvfrom    = net_recvfrom,
+    .net_poll        = net_poll,
 };
 
 const freya_api_t *app_api(void)
@@ -1410,6 +1432,7 @@ int app_run(int argc, char **argv)
     i2c_release();
     w1_release();
     spi_release();
+    net_release();
     g_app.last_run_ms = sys_ticks() - t0;
     g_app.last_status = status;
     g_app.last_stop_reason = g_app_stop_reason;

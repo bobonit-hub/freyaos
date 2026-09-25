@@ -102,6 +102,7 @@ int  str_to_u32(const char *s, uint32_t *out)
 }
 
 uint32_t sys_uptime_ms(void)           { return 90061000UL; }
+uint32_t sys_ticks(void)               { return 1234UL; }
 void     sys_reboot(void)              { s_rebooted = 1; }
 const char *sys_reset_cause_str(void)  { return "power-on"; }
 void     sys_delay_ms(uint32_t ms)     { (void)ms; }
@@ -685,6 +686,29 @@ int  spi_transfer(int bus, const void *tx, void *rx, int len)
 }
 int  spi_owns_pin(int pin)             { (void)pin; return 0; }
 
+int wifi_on(void) { return FREYA_ERR_UNSUPPORTED; }
+int wifi_off(void) { return 0; }
+int wifi_credentials(const char *s, const char *p)
+{ (void)s; (void)p; return FREYA_ERR_UNSUPPORTED; }
+int wifi_connect(void) { return FREYA_ERR_UNSUPPORTED; }
+int wifi_disconnect(void) { return FREYA_ERR_UNSUPPORTED; }
+int wifi_status(freya_wifi_status_t *st)
+{
+    memset(st, 0, sizeof *st);
+    st->state = FREYA_WIFI_OFF;
+    return 0;
+}
+int wifi_scan_start(void) { return FREYA_ERR_UNSUPPORTED; }
+int wifi_scan_next(freya_wifi_scan_t *e)
+{ (void)e; return FREYA_ERR_UNSUPPORTED; }
+int ping_start(const char *h, uint32_t t)
+{ (void)h; (void)t; return FREYA_ERR_UNSUPPORTED; }
+int ping_result(freya_ping_result_t *r)
+{ (void)r; return FREYA_ERR_UNSUPPORTED; }
+int net_poll(uint32_t timeout) { (void)timeout; return FREYA_ERR_UNSUPPORTED; }
+int cmd_curl(int argc, char **argv)
+{ (void)argc; (void)argv; return FREYA_ERR_UNSUPPORTED; }
+
 int xmodem_receive_to_file(const char *path, uint32_t *received, int strip,
                            int32_t exact)
 {
@@ -911,6 +935,18 @@ int main(void)
     rc = run("spi");
     expect_rc("spi with no bus succeeds", rc, 0);
     expect_has("spi names chip select", "chip select is a pin you drive");
+    rc = run("help wifi");
+    expect_rc("help wifi succeeds", rc, 0);
+    expect_has("help wifi shows an action", "action");
+    rc = run("wifi()");
+    expect_rc("wifi status succeeds", rc, 0);
+    expect_has("wifi status reports off", "wifi: off");
+    rc = run("wifi(\"credentials\", \"lab\", \"secret\")");
+    expect_rc("unsupported credentials fail", rc, FREYA_EXIT_FAIL);
+    expect_has("credentials warn about history", "remain in shell history");
+    rc = run("ping()");
+    expect_rc("ping needs a host", rc, FREYA_EXIT_FAIL);
+    expect_has("ping prints its usage", "usage: ping");
     rc = run("help crypt");
     expect_rc("help crypt succeeds", rc, 0);
     expect_exact("help crypt shows call syntax",

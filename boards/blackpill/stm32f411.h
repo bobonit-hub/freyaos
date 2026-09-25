@@ -71,6 +71,7 @@ typedef struct {
 #define RCC_AHB1ENR_GPIOAEN (1UL << 0)
 #define RCC_AHB1ENR_GPIOBEN (1UL << 1)
 #define RCC_AHB1ENR_GPIOCEN (1UL << 2)
+#define RCC_AHB1ENR_DMA1EN  (1UL << 21)
 #define RCC_APB1ENR_TIM2EN  (1UL << 0)
 #define RCC_APB1ENR_TIM3EN  (1UL << 1)
 #define RCC_APB1ENR_TIM4EN  (1UL << 2)
@@ -266,9 +267,51 @@ typedef struct {
 #define SPI_CR1_SPE         (1UL << 6)
 #define SPI_CR1_SSI         (1UL << 8)
 #define SPI_CR1_SSM         (1UL << 9)
+#define SPI_CR2_RXDMAEN     (1UL << 0)
+#define SPI_CR2_TXDMAEN     (1UL << 1)
 #define SPI_SR_RXNE         (1UL << 0)
 #define SPI_SR_TXE          (1UL << 1)
 #define SPI_SR_BSY          (1UL << 7)
+
+/* --------------------------------------------------------------- DMA */
+typedef struct {
+    __IO uint32_t CR;
+    __IO uint32_t NDTR;
+    __IO uint32_t PAR;
+    __IO uint32_t M0AR;
+    __IO uint32_t M1AR;
+    __IO uint32_t FCR;
+} DMA_Stream_TypeDef;
+
+typedef struct {
+    __IO uint32_t LISR;
+    __IO uint32_t HISR;
+    __IO uint32_t LIFCR;
+    __IO uint32_t HIFCR;
+    DMA_Stream_TypeDef STREAM[8];
+} DMA_TypeDef;
+
+#define DMA1                ((DMA_TypeDef *)0x40026000UL)
+#define DMA1_Stream3        (&DMA1->STREAM[3])
+#define DMA1_Stream4        (&DMA1->STREAM[4])
+#define DMA_SxCR_EN         (1UL << 0)
+#define DMA_SxCR_TEIE       (1UL << 2)
+#define DMA_SxCR_TCIE       (1UL << 4)
+#define DMA_SxCR_DIR_M2P    (1UL << 6)
+#define DMA_SxCR_MINC       (1UL << 10)
+#define DMA_SxCR_PL_HIGH    (2UL << 16)
+#define DMA_LISR_FEIF3      (1UL << 22)
+#define DMA_LISR_DMEIF3     (1UL << 24)
+#define DMA_LISR_TEIF3      (1UL << 25)
+#define DMA_LISR_HTIF3      (1UL << 26)
+#define DMA_LISR_TCIF3      (1UL << 27)
+#define DMA_LIFCR_CSTREAM3  (0x3DUL << 22)
+#define DMA_HISR_FEIF4      (1UL << 0)
+#define DMA_HISR_DMEIF4     (1UL << 2)
+#define DMA_HISR_TEIF4      (1UL << 3)
+#define DMA_HISR_HTIF4      (1UL << 4)
+#define DMA_HISR_TCIF4      (1UL << 5)
+#define DMA_HIFCR_CSTREAM4  0x3DUL
 
 /* --------------------------------------------------------------- I2C */
 /* The F4 I2C is not the F1's.  A transfer is a byte count in CR2, and
@@ -415,6 +458,8 @@ typedef struct {
 #define EXTI2_IRQn          8
 #define EXTI3_IRQn          9
 #define EXTI4_IRQn          10
+#define DMA1_Stream3_IRQn   14
+#define DMA1_Stream4_IRQn   15
 #define EXTI9_5_IRQn        23
 #define TIM2_IRQn           28
 #define TIM3_IRQn           29

@@ -219,6 +219,15 @@ $CC $CFLAGS tests/host_cksum_test.c src/cksum.c -o "$OUT/hostcksum"
 "$OUT/hostcksum" || status=1
 python3 tools/fwsum.py --self-test || status=1
 
+echo
+echo "================= network framing ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_esp_link_test.c src/string.c -o "$OUT/hostnetframe"
+"$OUT/hostnetframe" || status=1
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_net_test.c -o "$OUT/hostnet"
+"$OUT/hostnet" || status=1
+
 # Single precision on the Cortex-M3: the helpers in src/softfp.c against
 # the host FPU, then a soft-float link that must not need libgcc for them.
 echo

@@ -81,6 +81,9 @@ Freya 2.0.1 "Reptiloid" for STM32F103C8T6
   supply is a power domain: `power sd off` drops VDD, `power sd on` brings
   it back, and a program does the same with `api->power(FREYA_PWR_SD, on)`.
 * Receives files over the console with XMODEM / XMODEM-1K.
+* Uses an optional ESP32-C6 for Wi-Fi, DHCP, DNS, ping, bounded nonblocking
+  IPv4 TCP/UDP sockets and verified TLS 1.3 client connections on the F4 boards
+  ([docs/network.md](docs/network.md)).
 * Logs dated messages from programs and the kernel to `/freya.log` on the card,
   keeping one previous file when the log reaches 1 MiB.
 * Loads a program from the card into a RAM region and executes it as machine
@@ -107,6 +110,11 @@ Freya 2.0.1 "Reptiloid" for STM32F103C8T6
   division of the bus clock that does not exceed the rate asked for,
   from 187.5 kHz to 24 MHz. `spi 1 1000000` at the console and
   `samples/spi` do the same thing ([docs/spi.md](docs/spi.md)).
+* Uses an optional ESP32-C6 network coprocessor for nonblocking Wi-Fi,
+  DHCP, DNS, ping, four bounded TCP/UDP sockets and TLS 1.3 clients whose
+  cryptography and credentials stay on the C6. While Wi-Fi is on the C6
+  owns SPI2; turning it off returns the bus to the SPI API
+  ([docs/network.md](docs/network.md)).
 * Encrypts and decrypts with XTEA in CTR mode. The key is 16 bytes and the
   nonce is 8; the same call does both, and a message longer than 4096 bytes
   is handed over in pieces. `crypt` at the console and `samples/crypt` do
@@ -862,6 +870,7 @@ is measured rather than guessed).
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
 | `docs/i2c.md` | the I2C master API, the pins, and the `i2c` command |
 | `docs/spi.md` | the SPI master API, the pins, and the `spi` command |
+| `docs/network.md` | ESP32-C6 wiring, Wi-Fi commands and the asynchronous network API |
 | `docs/w1.md` | the 1-Wire master API, the pin, and the `w1` command |
 | `docs/crypt.md` | the XTEA-CTR API and the `crypt` command |
 | `docs/sd-slot.txt` | SD slot wiring for the Blue Pill and the Black Pill |

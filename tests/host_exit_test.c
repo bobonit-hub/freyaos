@@ -100,10 +100,17 @@ int main(void)
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
     api.size = sizeof(freya_api_t);
-    check("the virtual machine is the last call in the table",
+    check("TLS connect is the last call in the table",
           (int)sizeof(freya_api_t),
-          (int)(__builtin_offsetof(freya_api_t, vm_run) +
-                sizeof(api.vm_run)));
+          (int)(__builtin_offsetof(freya_api_t, net_tls_connect) +
+                sizeof(api.net_tls_connect)));
+    check("a full table includes the appended network API",
+          1, FREYA_API_HAS(&api, net_poll) ? 1 : 0);
+    check("a full table includes TLS 1.3 connect",
+          1, FREYA_API_HAS(&api, net_tls_connect) ? 1 : 0);
+    api.size = __builtin_offsetof(freya_api_t, net_tls_connect);
+    check("a pre-TLS network table does not expose TLS connect",
+          0, FREYA_API_HAS(&api, net_tls_connect) ? 1 : 0);
     api.size = __builtin_offsetof(freya_api_t, vm_reset);
     check("a kernel from before the virtual machine does not offer it",
           0, FREYA_API_HAS(&api, vm_run) ? 1 : 0);

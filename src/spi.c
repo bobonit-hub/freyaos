@@ -20,6 +20,15 @@
  * 562.5 kHz on the Blue Pill.
  */
 #include "freya.h"
+#include "esp_link.h"
+
+#ifdef FREYA_HOST
+#define network_owns_pin(pin)  0
+#define network_is_open()      0
+#else
+#define network_owns_pin(pin)  esp_link_owns_pin(pin)
+#define network_is_open()      esp_link_is_open()
+#endif
 
 /* ------------------------------------------------------- the SD card */
 #define CS_PORT     BOARD_SD_CS_PORT
@@ -254,6 +263,7 @@ static void spi_bus_close(int idx)
 int spi_owns_pin(int pin)
 {
     if (pin < 0 || pin > 0xFF) return 0;
+    if (network_owns_pin(pin)) return 1;
     for (int i = 0; i < SPI_COUNT; i++) {
         if (!s_spi[i].open) continue;
         if (s_spi_bus[i].sck == (uint8_t)pin ||
@@ -273,6 +283,7 @@ int spi_open(int bus, uint32_t hz, int mode)
     if (idx < 0 || mode < FREYA_SPI_MODE0 || mode > FREYA_SPI_MODE3 ||
         hz < FREYA_SPI_MIN_HZ || hz > FREYA_SPI_MAX_HZ)
         return FREYA_ERR_ARG;
+    if (network_is_open()) return FREYA_ERR_BUSY;
     if (s_spi[idx].open && !spi_caller_owns(idx)) return FREYA_ERR_BUSY;
 
     b = &s_spi_bus[idx];

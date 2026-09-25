@@ -19,6 +19,13 @@ functions, and the calls below. See [docs/shell.md](docs/shell.md).
 
 ## What changed
 
+* Black Pill and STM32F405 builds can delegate Wi-Fi, DHCP, DNS, ping and
+  four bounded nonblocking TCP/UDP sockets to an ESP32-C6 over SPI2 DMA.
+  Verified TLS client sockets enforce TLS 1.3 on the C6, with no older
+  protocol fallback; STM32 sees plaintext but no TLS keys or cryptographic
+  state.
+  The append-only API keeps ABI version 3; `wifi()` and `ping()` expose the
+  same service at the shell. See [docs/network.md](docs/network.md).
 * `upload` sends a file on the card to the host as XMODEM or XMODEM-1K.
   The line before the transfer states the size in bytes. `download`
   takes `--size <bytes>` and stores that many, so the padding byte is

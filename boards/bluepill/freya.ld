@@ -11,8 +11,8 @@
  * it fits.  The size register on these parts often still reads 64 KiB.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
  *   0x0800C000 .. 0x0800C07F   auto-start flag + reserved          (128 B)
- *   0x0800C080 .. 0x080143FF   program flash region             (33664 B)
- *   0x08014400 .. 0x0801FFFF   kernel extension              (47 KiB)
+ *   0x0800C080 .. 0x08013FFF   program flash region             (32640 B)
+ *   0x08014000 .. 0x0801FFFF   kernel extension              (48 KiB)
  *
  * The extension is its own image at the top of the 128 KiB.  The program
  * region stops short of it, so install and uninstall never erase it,
@@ -37,7 +37,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x08014400, LENGTH = 47K
+    KEXT  (rx)  : ORIGIN = 0x08014000, LENGTH = 48K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
@@ -53,7 +53,7 @@ __shell_stack_limit  = __worker_stacks + __worker_count * __worker_stack_size;
 __autostart_start    = 0x0800C000;
 __autostart_end      = 0x0800C080;
 __app_flash_start    = 0x0800C080;
-__app_flash_end      = 0x08014400;
+__app_flash_end      = 0x08014000;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;
@@ -85,6 +85,8 @@ SECTIONS
         *thread.o(.text .text.*)
         *thread.o(.rodata .rodata.*)
         *switch.o(.text .text.*)
+        *net.o(.text .text.* .rodata .rodata.*)
+        *curl.o(.text .text.* .rodata .rodata.*)
         *shell.o(.text.cmd_spi)
         *spi.o(.text.spi_*)
         *adc.o(.text .text.*)
@@ -124,6 +126,7 @@ SECTIONS
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_api)
+        *shell.o(.rodata.s_cmds)
         . = ALIGN(4);
         __kext_end = .;
     } > KEXT

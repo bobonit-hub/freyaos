@@ -298,6 +298,51 @@ typedef struct {
 
 int      spi_info(int idx, spi_info_t *info);   /* -1 past the last bus   */
 
+/* ------------------------------------------------------------ network */
+int      wifi_on(void);
+int      wifi_off(void);
+int      wifi_credentials(const char *ssid, const char *password);
+int      wifi_connect(void);
+int      wifi_disconnect(void);
+int      wifi_status(freya_wifi_status_t *status);
+int      wifi_scan_start(void);
+int      wifi_scan_next(freya_wifi_scan_t *entry);
+int      ping_start(const char *host, uint32_t timeout_ms);
+int      ping_result(freya_ping_result_t *result);
+int      net_socket(int domain, int type, int protocol);
+int      net_close(int socket);
+int      net_connect(int socket, const freya_net_addr_t *addr);
+int      net_tls_connect(int socket, const char *hostname, uint16_t port);
+int      net_bind(int socket, const freya_net_addr_t *addr);
+int      net_listen(int socket, int backlog);
+int      net_accept(int socket, freya_net_addr_t *peer);
+int      net_send(int socket, const void *buf, int len);
+int      net_recv(int socket, void *buf, int len);
+int      net_sendto(int socket, const void *buf, int len,
+                    const freya_net_addr_t *to);
+int      net_recvfrom(int socket, void *buf, int len,
+                      freya_net_addr_t *from);
+int      net_poll(uint32_t timeout_ms);
+void     net_release(void);
+int      net_unsupported(void);          /* compact Blue Pill API stub */
+
+#define HTTP_FLAG_COMPRESSED  0x01U
+#define HTTP_FLAG_INSECURE    0x02U
+#define HTTP_FLAG_VERBOSE     0x04U
+#define HTTP_HEADERS_MAX      400U
+typedef struct {
+    uint32_t body_length;
+    uint16_t status;
+    uint16_t header_length;
+    char headers[HTTP_HEADERS_MAX];
+} freya_http_info_t;
+int      net_http_start(uint8_t flags, const char *url, const char *user_agent,
+                        const char *basic, const char *data);
+int      net_http_info(freya_http_info_t *info);
+int      net_http_read(void *buf, int len);
+int      net_http_close(void);
+int      cmd_curl(int argc, char **argv);
+
 /* ---------------------------------------------------------------- ADC */
 /*
  * One polled conversion from an external pin or an internal source.

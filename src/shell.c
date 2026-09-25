@@ -2115,6 +2115,8 @@ static int cmd_spi(int argc, char **argv)
     return 0;
 }
 
+/* ---------------------------------------------------------- network */
+
 /* ----------------------------------------------------------- 1-Wire */
 /* Byte reads, writes and the strong pull-up are the program calls.
  * The prompt opens a pin, checks presence and walks the ROMs. */
@@ -2259,6 +2261,168 @@ static int cmd_cksum(int argc, char **argv)
     return fw_cksum_show() == FW_CKSUM_OK ? 0 : -1;
 }
 
+#if BOARD_ESP_LINK
+static void KEXT print_ipv4(uint32_t a)
+{
+    kprintf("%u.%u.%u.%u", (a >> 24) & 255U, (a >> 16) & 255U,
+            (a >> 8) & 255U, a & 255U);
+}
+
+static int KEXT net_wait_call(int (*fn)(void), uint32_t timeout_ms)
+{
+    uint32_t start = sys_ticks();
+    int rc;
+
+    do {
+        rc = fn();
+        if (rc != FREYA_ERR_AGAIN) return rc;
+        rc = net_poll(20);
+        if (rc < 0) return rc;
+        if (script_interrupted()) return FREYA_ERR_IO;
+    } while ((uint32_t)(sys_ticks() - start) < timeout_ms);
+    return FREYA_ERR_TIMEOUT;
+}
+
+static int KEXT wifi_on_call(void) { return wifi_on(); }
+static int KEXT wifi_off_call(void) { return wifi_off(); }
+static int KEXT wifi_connect_call(void) { return wifi_connect(); }
+static int KEXT wifi_disconnect_call(void) { return wifi_disconnect(); }
+static int KEXT wifi_scan_call(void) { return wifi_scan_start(); }
+
+static int KEXT print_wifi_status(void)
+{
+    freya_wifi_status_t st;
+    uint32_t start = sys_ticks();
+    int rc;
+
+    do {
+        rc = wifi_status(&st);
+        if (rc != FREYA_ERR_AGAIN) break;
+        rc = net_poll(20);
+        if (rc < 0 || script_interrupted()) return -1;
+    } while ((uint32_t)(sys_ticks() - start) < 1000U);
+    if (rc != 0) return -1;
+
+    kprintf("wifi: %s", st.state == FREYA_WIFI_OFF ? "off" :
+            st.state == FREYA_WIFI_IDLE ? "idle" :
+            st.state == FREYA_WIFI_CONNECTING ? "connecting" :
+            st.state == FREYA_WIFI_CONNECTED ? "connected" : "error");
+    if (st.ssid[0]) kprintf(" to \"%s\"", st.ssid);
+    if (st.state == FREYA_WIFI_CONNECTED) {
+        kprintf(", RSSI %d dBm\r\n  DHCP address ", st.rssi);
+        print_ipv4(st.ip);
+        kprintf(", gateway ");
+        print_ipv4(st.gateway);
+        kprintf(", mask ");
+        print_ipv4(st.netmask);
+    }
+    kprintf("\r\n");
+    return 0;
+}
+
+static int KEXT cmd_wifi(int argc, char **argv)
+{
+    int rc;
+
+    if (argc == 1) return print_wifi_status();
+    if (argc == 2 && strcmp(argv[1], "on") == 0)
+        rc = net_wait_call(wifi_on_call, 1000);
+    else if (argc == 2 && strcmp(argv[1], "off") == 0)
+        rc = net_wait_call(wifi_off_call, 1000);
+    else if (argc == 2 && strcmp(argv[1], "connect") == 0)
+        rc = net_wait_call(wifi_connect_call, 1000);
+    else if (argc == 2 && strcmp(argv[1], "disconnect") == 0)
+        rc = net_wait_call(wifi_disconnect_call, 1000);
+    else if (argc == 2 && strcmp(argv[1], "status") == 0)
+        return print_wifi_status();
+    else if (argc == 4 && strcmp(argv[1], "credentials") == 0) {
+        uint32_t start = sys_ticks();
+        kprintf("wifi: warning: credentials remain in shell history\r\n");
+        do {
+            rc = wifi_credentials(argv[2], argv[3]);
+            if (rc != FREYA_ERR_AGAIN) break;
+            if (net_poll(20) < 0 || script_interrupted()) return -1;
+        } while ((uint32_t)(sys_ticks() - start) < 1000U);
+    } else if (argc == 2 && strcmp(argv[1], "scan") == 0) {
+        freya_wifi_scan_t entry;
+
+        rc = net_wait_call(wifi_scan_call, 1000);
+        if (rc != 0) goto fail;
+        for (;;) {
+            uint32_t start = sys_ticks();
+            do {
+                rc = wifi_scan_next(&entry);
+                if (rc != FREYA_ERR_AGAIN) break;
+                if (net_poll(20) < 0 || script_interrupted()) return -1;
+            } while ((uint32_t)(sys_ticks() - start) < 15000U);
+            if (rc == FREYA_ERR_NACK) break;
+            if (rc != 0) goto fail;
+            kprintf("%4d dBm  ch %u  auth %u  %s\r\n",
+                    entry.rssi, entry.channel, entry.auth, entry.ssid);
+        }
+        return 0;
+    } else {
+        return usage("wifi [\"on\"|\"off\"|\"status\"|\"scan\"|\"connect\"|"
+                     "\"disconnect\"|\"credentials\", ssid, password]");
+    }
+    if (rc == 0) return 0;
+fail:
+    if (rc == FREYA_ERR_UNSUPPORTED)
+        kprintf("wifi: unsupported on this board\r\n");
+    else
+        kprintf("wifi: error %d\r\n", rc);
+    return -1;
+}
+
+static const char *s_ping_host;
+static uint32_t s_ping_timeout;
+static int KEXT ping_start_call(void)
+{ return ping_start(s_ping_host, s_ping_timeout); }
+
+static int KEXT cmd_ping(int argc, char **argv)
+{
+    freya_ping_result_t result;
+    uint32_t start;
+    int rc;
+
+    if (argc != 2 && argc != 3) return usage("ping \"host\" [, timeout_ms]");
+    s_ping_host = argv[1];
+    s_ping_timeout = 5000;
+    if (argc == 3 && (str_to_u32(argv[2], &s_ping_timeout) != 0 ||
+                      !s_ping_timeout))
+        return usage("ping \"host\" [, timeout_ms]");
+    rc = net_wait_call(ping_start_call, 1000);
+    if (rc != 0) goto fail;
+    start = sys_ticks();
+    do {
+        uint16_t dummy = 0;
+        (void)dummy;
+        rc = ping_result(&result);
+        if (rc != FREYA_ERR_AGAIN) break;
+        if (net_poll(20) < 0 || script_interrupted()) return -1;
+    } while ((uint32_t)(sys_ticks() - start) <= s_ping_timeout + 1000U);
+    if (rc != 0) goto fail;
+    kprintf("%u repl%s, %u lost, %u ms from ", result.replies,
+            result.replies == 1 ? "y" : "ies", result.lost,
+            result.elapsed_ms);
+    print_ipv4(result.addr);
+    kprintf("\r\n");
+    return result.replies ? 0 : -1;
+fail:
+    kprintf("ping: error %d\r\n", rc);
+    return -1;
+}
+#else
+static int KEXT cmd_network_unsupported(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    kprintf("network unsupported on this board\r\n");
+    return -1;
+}
+#define cmd_wifi cmd_network_unsupported
+#define cmd_ping cmd_network_unsupported
+#endif
+
 /* ------------------------------------------------------ command table */
 typedef struct {
     const char *name;
@@ -2310,6 +2474,9 @@ static const command_t s_cmds[] = {
     { "adc",      cmd_adc,      "adc([\"pin\"|\"temp\"|\"vref\"])" },
     { "i2c",      cmd_i2c,      "i2c([bus [, hz|\"off\"|\"scan\"|addr, ...]])" },
     { "spi",      cmd_spi,      "spi([bus [, hz|\"off\"|\"x\", ...]])" },
+    { "wifi",     cmd_wifi,     "wifi([action [, ...]])" },
+    { "ping",     cmd_ping,     "ping(\"host\" [, ms])" },
+    { "curl",     cmd_curl,     "curl([options,] \"http[s]://...\")" },
     { "w1",       cmd_w1,       "w1([\"pin\"|\"off\"|\"search\"|...])" },
     { "crypt",    cmd_crypt,    "crypt([\"key\", \"nonce\", \"hex\"])" },
     { "echo",     cmd_echo,     "echo([value [, ...]])" },

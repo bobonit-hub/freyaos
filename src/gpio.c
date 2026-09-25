@@ -16,6 +16,7 @@
  * block on every STM32 Freya runs on.
  */
 #include "freya.h"
+#include "esp_link.h"
 
 #define EXTI_LINES  16
 
@@ -50,6 +51,9 @@ static int pin_resolve(int pin, GPIO_TypeDef **port, int *bit)
 
     if (pin < 0 || pin > 0xFF || p >= BOARD_PIN_PORTS) return FREYA_ERR_PIN;
     if (s_reserved[p] & (1U << n)) return FREYA_ERR_PIN;
+#ifndef FREYA_HOST
+    if (esp_link_owns_pin(pin)) return FREYA_ERR_BUSY;
+#endif
 
     *port = board_gpio_port(p);
     if (!*port) return FREYA_ERR_PIN;

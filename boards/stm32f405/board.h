@@ -107,6 +107,21 @@
     { { SPI2, 1, FREYA_PB(13), FREYA_PB(14), FREYA_PB(15), 5 } }
 #define BOARD_SPI_NAMES { "SPI2" }
 
+#define BOARD_NET_SUPPORTED  1
+#define BOARD_NET_SPI        SPI2
+#define BOARD_NET_SPI_BUS    1
+#define BOARD_NET_SCK        FREYA_PB(13)
+#define BOARD_NET_MISO       FREYA_PB(14)
+#define BOARD_NET_MOSI       FREYA_PB(15)
+#define BOARD_NET_CS         FREYA_PB(12)
+#define BOARD_NET_READY      FREYA_PB(10)
+#define BOARD_NET_SPI_AF     5
+#define BOARD_NET_SPI_BR     2
+#define BOARD_ESP_LINK       1
+#define BOARD_ESP_CS         BOARD_NET_CS
+#define BOARD_ESP_READY      BOARD_NET_READY
+#define BOARD_ESP_SPI_AF     BOARD_NET_SPI_AF
+
 /* --------------------------------------------------------------- ADC */
 /* ADC1 channels shared with the other ports and not kept by Freya.
  * The internal temperature sensor is channel 18; Vref is 17. */
