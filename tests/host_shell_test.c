@@ -1122,7 +1122,7 @@ int main(void)
     expect_exact("bare if is usage", "usage: if <command>\r\n");
     rc = run("loop");
     expect_rc("bare loop fails", rc, FREYA_EXIT_FAIL);
-    expect_exact("bare loop is usage", "usage: loop <count>\r\n");
+    expect_exact("bare loop is usage", "usage: loop <count|condition>\r\n");
     rc = run("else");
     expect_rc("bare else fails", rc, FREYA_EXIT_FAIL);
     expect_exact("bare else is unexpected", "unexpected else\r\n");
@@ -1161,6 +1161,31 @@ int main(void)
     rc = run("loop 2; echo tick; end");
     expect_rc("loop succeeds", rc, 0);
     expect_exact("loop repeats the body", "tick\r\ntick\r\n");
+
+    rc = run("loop false; echo no; end");
+    expect_rc("loop false leaves a failed condition", rc, FREYA_EXIT_FAIL);
+    expect_exact("loop false runs nothing", "");
+
+    rc = run("loop true; echo hi; break; end");
+    expect_rc("loop true stops at break", rc, 0);
+    expect_exact("loop true ran until break", "hi\r\n");
+
+    rc = run("set n 0; loop $n < 3; set n $n + 1; echo $n; end");
+    expect_rc("loop condition ends false", rc, FREYA_EXIT_FAIL);
+    expect_exact("loop condition repeats while true", "1\r\n2\r\n3\r\n");
+
+    rc = run("set n 0; loop bool(1); set n $n + 1; echo $n; if $n == 3; break; end; end");
+    expect_rc("loop bool(1) stops at break", rc, 0);
+    expect_exact("loop bool(1) repeated", "1\r\n2\r\n3\r\n");
+
+    rc = run("# note\n\nset n 0\nloop bool(1)\nset n $n + 1\necho $n\nif $n == 2\nbreak\nend\nend");
+    expect_rc("a comment before a loop succeeds", rc, 0);
+    expect_exact("a comment does not hide the condition", "1\r\n2\r\n");
+
+    rc = run("loop bool(0); echo no; end");
+    expect_rc("loop bool(0) is false", rc, FREYA_EXIT_FAIL);
+    expect_exact("loop bool(0) runs nothing", "");
+    rc = run("unset n");
 
     rc = run("loop 2; sleep 5; echo s; end");
     expect_rc("sleep in a loop succeeds", rc, 0);

@@ -96,6 +96,13 @@ yes
 `loop <count>` repeats the commands up to `end` that many times. The
 count is a decimal integer from 0 to 1000000, or `$?`, or `$name` after
 expansion. It is read once, when the loop starts. `loop 0` runs nothing.
+`loop <condition>` repeats while that condition is true, and tests it
+again before every pass. A condition is the same text `if` accepts: a
+comparison, or `true`, `false`, or `bool(...)`. `loop true` does not
+stop on its own. A script thread still repeats by count: `loop true` runs
+at the prompt and from `source`, not inside `spawn`. A false condition runs nothing and leaves `$?` as 1,
+the way a false `if` does. The condition is read again after each pass,
+so a variable it names can change in the body.
 `break` leaves the innermost loop and continues after its `end`. A
 `break` outside a loop is refused before anything runs, and `break`
 takes no argument. `break` inside a function does not leave a loop
@@ -106,6 +113,10 @@ freya: loop 3; echo tick; sleep 200; end
 tick
 tick
 tick
+freya: set n 0; loop $n < 3; set n $n + 1; echo $n; end
+1
+2
+3
 ```
 
 `sleep <ms>` waits that many milliseconds. The count has the same shape

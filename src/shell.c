@@ -2312,7 +2312,7 @@ static const command_t s_cmds[] = {
     { "if",       cmd_script,   "if <command>" },
     { "else",     cmd_script,   "else" },
     { "end",      cmd_script,   "end" },
-    { "loop",     cmd_script,   "loop <count>" },
+    { "loop",     cmd_script,   "loop <count|condition>" },
     { "break",    cmd_script,   "break" },
     { "clear",    cmd_clear,    "clear()" },
     { "reboot",   cmd_reboot,   "reboot()" },
@@ -2358,7 +2358,8 @@ static int cmd_help(int argc, char **argv)
  * after a space, comments out the rest of that line.  'if' runs
  * one command and then either the lines up to 'else' or the lines up
  * to 'end', depending on whether that command's status was 0.  'loop'
- * repeats the lines up to 'end'.  A block left open at the end of a
+ * repeats the lines up to 'end', by a count or while a condition holds.
+ * A block left open at the end of a
  * typed line is finished on the next lines; the prompt changes so that
  * is visible.
  *
@@ -2468,10 +2469,13 @@ static int KEXT parse_count(const char *s, uint32_t *out)
 static int KEXT count_error(int pr)
 {
     if (pr < -1) kprintf("loop: count too large\r\n");
-    else usage("loop <count>");
+    else usage("loop <count|condition>");
     s_status = FREYA_EXIT_FAIL;
     return -1;
 }
+
+static int KEXT is_bool_cond(const char *s);
+static int KEXT is_condition(const char *s);
 
 /* 0 when the text is a finished script, 1 when a block is still open,
  * -1 when the shape is wrong (the message is already printed). */
@@ -2498,8 +2502,9 @@ static int KEXT script_check(const char *text, char *walk)
             stk[sp++] = BLK_IF;
         } else if (word_is(walk, "loop", &rest)) {
             if (!*rest) return count_error(-1);
-            /* '$?' is a count, but not until the loop actually runs. */
-            if (!strchr(rest, '$')) {
+            /* A condition is checked when the loop runs, the same way
+             * 'if' checks one.  '$?' is a count, also not until then. */
+            if (!is_condition(rest) && !is_bool_cond(rest) && !strchr(rest, '$')) {
                 uint32_t n;
                 int pr = parse_count(rest, &n);
 
@@ -6780,11 +6785,11 @@ static int KEXT is_condition(const char *s)
 }
 
 /* 1 true, 0 false, -1 bad (a message is already printed). */
-static int KEXT cond_eval(const char *s)
+static int KEXT cond_eval(const char *s, const char *who)
 {
     val_t v;
 
-    s_vwho = "if";
+    s_vwho = who;
     memset(&v, 0, sizeof v);
     if (parse_expr(&s, &v) != 0) {
         val_drop(&v);
@@ -6799,6 +6804,42 @@ static int KEXT cond_eval(const char *s)
     val_drop(&v);
     rets_drop();
     return v.i ? 1 : 0;
+}
+
+/* The condition as it sits in the script, through the end of that
+ * statement.  The pointer stays valid for the whole run. */
+static const char *KEXT loop_test_src(const char *stmt)
+{
+    /* The same preamble next_stmt skips, including a comment line
+     * above the loop.  A script in flash starts there; a block typed
+     * at the prompt starts at the word itself. */
+    for (;;) {
+        while (*stmt == ' ' || *stmt == '\t' || *stmt == ';' ||
+               *stmt == '\n' || *stmt == '\r')
+            stmt++;
+        if (*stmt != '#') break;
+        while (*stmt && *stmt != '\n' && *stmt != '\r') stmt++;
+    }
+    stmt += 4;                              /* the word 'loop' */
+    while (*stmt == ' ' || *stmt == '\t') stmt++;
+    return stmt;
+}
+
+/* Copy one statement and test it.  1 true, 0 false, -1 bad.
+ * A statement already fits in LINE_MAX, so the copy cannot overflow. */
+static int KEXT cond_stmt(const char *src)
+{
+    char buf[LINE_MAX];
+    int i = 0, q = 0;
+
+    while (src[i] && !(!q && (src[i] == ';' || src[i] == '\n' || src[i] == '\r'))) {
+        if (src[i] == '"') q = !q;
+        buf[i] = src[i];
+        i++;
+    }
+    while (i > 0 && (buf[i - 1] == ' ' || buf[i - 1] == '\t')) i--;
+    buf[i] = '\0';
+    return cond_eval(buf, "loop");
 }
 
 /* A line that is an expression, not a command word. */
@@ -7173,7 +7214,7 @@ static int KEXT sh_step(sh_thr_t *t)
 
         if (!skip) {
             if (is_condition(rest) || is_bool_cond(rest)) {
-                int c = cond_eval(rest);
+                int c = cond_eval(rest, "if");
 
                 if (c < 0) {
                     s_status = FREYA_EXIT_FAIL;
@@ -7466,9 +7507,13 @@ static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
 {
     int ns = 1;
 
-    while ((ns = next_stmt(pp, walk, LINE_MAX)) == 0) {
+    for (;;) {
         const char *rest;
+        const char *mark = *pp;
         int rc;
+
+        ns = next_stmt(pp, walk, LINE_MAX);
+        if (ns != 0) break;
 
         if (script_interrupted()) return SCR_ERR;
         if (sh_pump() < 0) return SCR_ERR;
@@ -7526,7 +7571,7 @@ static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
              * run before that call reuses it. */
             if (!skip) {
                 if (is_condition(rest) || is_bool_cond(rest)) {
-                    int t = cond_eval(rest);
+                    int t = cond_eval(rest, "if");
 
                     if (t < 0) {
                         s_status = FREYA_EXIT_FAIL;
@@ -7579,8 +7624,19 @@ static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
         if (word_is(walk, "loop", &rest)) {
             uint32_t count = 0;
             const char *body;
+            const char *test = NULL;
+            int cond = 0, took = 1;
 
-            if (!skip) {
+            if (!skip && (is_condition(rest) || is_bool_cond(rest))) {
+                cond = 1;
+                test = loop_test_src(mark);
+                took = cond_stmt(test);
+                if (took < 0) {
+                    s_status = FREYA_EXIT_FAIL;
+                    return SCR_ERR;
+                }
+                s_status = took ? 0 : FREYA_EXIT_FAIL;
+            } else if (!skip) {
                 int pr;
 
                 if (expand_status(rest, one, LINE_MAX) != 0)
@@ -7592,14 +7648,15 @@ static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
                 }
             }
             body = *pp;
-            if (skip || count == 0) {
+            if (skip || (cond ? !took : count == 0)) {
                 rc = exec_block(pp, 1, walk, one);
                 if (!block_closed(rc)) return SCR_ERR;
                 continue;
             }
-            while (count--) {
+            for (;;) {
                 const char *q = body;
 
+                if (!cond && count-- == 0) break;
                 if (script_interrupted()) return SCR_ERR;
                 rc = exec_block(&q, 0, walk, one);
                 if (rc == SCR_RETURN) return SCR_RETURN;
@@ -7611,6 +7668,14 @@ static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
                 }
                 if (!block_closed(rc)) return SCR_ERR;
                 *pp = q;
+                if (!cond) continue;
+                took = cond_stmt(test);
+                if (took < 0) {
+                    s_status = FREYA_EXIT_FAIL;
+                    return SCR_ERR;
+                }
+                s_status = took ? 0 : FREYA_EXIT_FAIL;
+                if (!took) break;
             }
             continue;
         }

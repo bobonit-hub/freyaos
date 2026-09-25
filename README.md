@@ -258,6 +258,25 @@ reset runs the program or the script; the default is off, so packing does
 not autorun on every reset unless you asked. `/autorun.bin` on the card
 still overrides either one.
 
+A first script blinks a pin until Ctrl-C. Save it as `blink.sh`:
+
+```
+# Blink PB2 until Ctrl-C.
+
+loop bool(1)
+    pin("PB2", "toggle")
+    sleep(500)
+end
+```
+
+`loop bool(1)` repeats while that condition is true, and tests it again
+before every pass. `pin("PB2", "toggle")` flips the pin; `sleep(500)` waits
+half a second. Pack it so the board runs it at boot:
+
+```sh
+make BOARD=bluepill flash SCRIPT=blink.sh AUTOSTART=1
+```
+
 Then open the console:
 
 ```sh
@@ -307,7 +326,7 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `source <file>\|@flash` | run a shell script from a file, or from program flash |
 | `set`, `unset`, `$name` | integer, float, string, array and dict variables |
 | `fn`, `return` | a function of 0..32 arguments and 1..32 values |
-| `if` / `else` / `end`, `loop <count>` | run commands when a status is 0, or repeat them |
+| `if` / `else` / `end`, `loop <count\|condition>` | run commands when a status is 0, or repeat them |
 | `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
 
 Ctrl-C stops a running program, Ctrl-U clears the input line, and the up and
@@ -624,7 +643,9 @@ milliseconds since boot. `timer(1000000, 0, "ontick")` starts a hardware
 timer and `irq("PB0", 2, "onpress")` arms a pin edge; `wait(0)` calls
 the named function when one of them fires. `break` leaves a loop. `if <command>` still runs the following commands up
 to `else` or `end` when that command's status is 0, and the `else` commands
-otherwise. `loop <count>` repeats up to `end`, and `sleep <ms>` waits that
+otherwise. `loop <count>` repeats up to `end`, and `loop <condition>`
+repeats while that condition is true (`loop true` does not stop on its
+own). `sleep <ms>` waits that
 many milliseconds. `spawn("blink", 1)` runs a function beside the
 script until it sleeps or yields; two of those fit, and `join` waits
 for one. They share the interpreter, so they are not the threads a

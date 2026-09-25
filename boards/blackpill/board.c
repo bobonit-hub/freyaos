@@ -208,6 +208,11 @@ void board_pin_mode(GPIO_TypeDef *port, int pin, int mode)
     default:                    break;          /* floating input */
     }
 
+    /* Already this output: leave the latch.  Writing the mode again
+     * drops the pad, so toggle would set it once and then stick. */
+    if (moder == 1 && ((port->MODER >> pair) & 3UL) == 1UL &&
+        ((port->OTYPER >> pin) & 1UL) == (uint32_t)(mode == FREYA_PIN_OUT_OD))
+        return;
     port->MODER   = (port->MODER   & ~(3UL << pair)) | (moder << pair);
     port->PUPDR   = (port->PUPDR   & ~(3UL << pair)) | (pupdr << pair);
     port->OSPEEDR = (port->OSPEEDR & ~(3UL << pair)) | (1UL << pair);  /* medium */

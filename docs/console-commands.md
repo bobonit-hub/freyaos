@@ -57,7 +57,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `fn [<name>]` | list functions, or define one up to `end` |
 | `return <expr> [, <expr>]...` | leave the function with those values |
 | `if <command>` ... `else` ... `end` | run the following commands when that command's status is 0 |
-| `loop <count>` ... `end` | repeat the commands up to `end` |
+| `loop <count\|condition>` ... `end` | repeat the commands up to `end` |
 | `uptime()`, `led(...)`, `echo(...)`, `clear()`, `reboot()` | the usual small change |
 
 ## Socket power
@@ -224,7 +224,9 @@ way, and quotes hide a semicolon, so `echo "a;b"` is one command.
 `if` runs the command written after it. When that command's status is
 0, the commands up to `else` or `end` run. Otherwise they are skipped,
 and the commands between `else` and `end` run if an `else` was written.
-`loop` repeats the commands up to `end` the number of times given.
+`loop` repeats the commands up to `end` the number of times given, or
+while a condition stays true. `loop true` keeps going. A condition is
+the same text `if` accepts, and it is tested again before each pass.
 `break` leaves the innermost loop and continues after its `end`. A
 `break` outside a loop is refused before anything runs.
 `sleep` waits that many milliseconds. A count is a decimal number, at

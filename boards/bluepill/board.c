@@ -206,6 +206,15 @@ void board_pin_mode(GPIO_TypeDef *port, int pin, int mode)
     case FREYA_PIN_ANALOG: cfg = GPIO_IN_ANALOG;  break;
     default:               cfg = GPIO_IN_FLOATING; break;
     }
+    /* A pin that is already this configuration is left alone.  Writing
+     * the same nibble again drops the pad, so a toggle would set it
+     * and the next pass would set it the same way. */
+    {
+        __IO uint32_t *cr = (pin < 8) ? &port->CRL : &port->CRH;
+        int shift = (pin & 7) * 4;
+
+        if (((*cr >> shift) & 0xFUL) == (cfg & 0xFUL)) return;
+    }
     gpio_config(port, pin, cfg);
 }
 
