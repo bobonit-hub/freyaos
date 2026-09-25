@@ -414,14 +414,18 @@ typedef void (*freya_thread_fn)(void *arg);
  * Instructions are 32-bit little-endian words whose low 16 bits are the
  * PDP-11 opcode.  A following index or immediate is a whole 32-bit word.
  * The stack and the program counter step by 4.  R0-R5 step by 1 on a
- * byte operand and by 4 on a word.
+ * byte operand and by 4 on a word.  MOVB into a register sign-extends
+ * the byte through it, as on a PDP-11; every other byte instruction
+ * leaves the rest of a register alone.
  *
  * vm_step() and vm_run() return 0 when the instruction completed,
  * FREYA_VM_HALT when it executed HALT, FREYA_VM_TRAP for EMT, TRAP, BPT
  * or IOT, FREYA_VM_FAULT when an address is outside mem or a word is
  * not aligned, FREYA_VM_ILLEGAL for an opcode this machine does not
  * have, or FREYA_ERR_ARG.  vm_run() returns FREYA_VM_LIMIT when steps
- * (or FREYA_VM_MAX_STEPS, when steps is 0) run out first.
+ * (or FREYA_VM_MAX_STEPS, when steps is 0) run out first.  An illegal
+ * opcode leaves R7 on the instruction itself; HALT and a trap leave it
+ * on the next one.
  */
 #define FREYA_VM_NREGS       8
 #define FREYA_VM_SP          6

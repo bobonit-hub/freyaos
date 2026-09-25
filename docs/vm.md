@@ -53,12 +53,14 @@ if (!FREYA_API_HAS(api, vm_run)) {
 | `FREYA_VM_FAULT` | the address is outside `mem`, or a word is not on a 4-byte boundary |
 | `FREYA_VM_ILLEGAL` | the opcode is not one this machine executes, or the high 16 bits of the instruction are not zero |
 | `FREYA_VM_LIMIT` | a run with `steps` 0 used `FREYA_VM_MAX_STEPS` without halting |
-| `FREYA_ERR_ARG` | `vm` is null, or `mem` is null while `size` is not |
+| `FREYA_ERR_ARG` | `vm` is null, `mem` is null, or `size` is less than one word |
 
-HALT, a trap and an illegal opcode leave R7 on the next instruction,
-except an illegal opcode whose high half is not zero: R7 stays on that
-word. A fault leaves the registers as far as the instruction got,
-including an autoincrement that already happened.
+HALT and a trap leave R7 on the next instruction. An illegal opcode
+leaves R7 on the instruction itself, wherever in the decode that was
+found out, so the caller can look at the word and decide what to do. A
+fault leaves the registers as far as the instruction got, including an
+autoincrement that already happened; so does an illegal opcode whose
+addressing mode had already stepped a register.
 
 ## Instructions
 
@@ -70,7 +72,14 @@ BPL, BMI, BHI, BLOS, BVC, BVS, BCC, BCS. Also JMP, JSR, RTS, SOB, MUL,
 DIV, ASH, ASHC, XOR, the condition-code operators, RTI, RTT, WAIT and
 RESET. WAIT and RESET do nothing. MARK, MFPI and MTPI are illegal.
 
-SWAB exchanges the two 16-bit halves of a 32-bit word. MUL multiplies
+MOVB into a register sign-extends the byte through the whole register,
+as it does on a PDP-11. Every other byte instruction leaves the rest of
+a register alone, and a byte written to memory is one byte. So `movb`
+is a signed byte load on its own, and an unsigned one is `movb`
+followed by `bic #-256`.
+
+SWAB exchanges the two 16-bit halves of a 32-bit word. N and Z come
+from the whole result, V and C are cleared. MUL multiplies
 two signed 32-bit values. An even register receives the high half and
 the following register the low half. DIV divides the signed 64-bit
 value in an even register pair. ASH and ASHC take the shift count from
@@ -82,6 +91,10 @@ Addressing is the PDP-11's eight modes. Mode 0 is the register. Modes
 2 and 4 step R0–R5 by 1 for a byte and by 4 for a word. R6 and R7
 always step by 4. An immediate is mode 2 on R7, and the immediate is
 the following 32-bit word.
+
+JMP and JSR take an address rather than a word or a byte, so an
+autoincrement of theirs steps by 4 on any register, and mode 0 is
+illegal for both: a register has no address to give.
 
 ## The sample
 

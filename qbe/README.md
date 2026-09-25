@@ -13,6 +13,11 @@ Floating point is rejected. QBE still spells an address temporary `l`,
 because that is the class its memory operands use; on this target that
 temporary holds 32 bits. A pointer in memory is a 32-bit word.
 
+`movb` into a register sign-extends, so a `signed char` load is that
+one instruction and an `unsigned char` load is `movb` then
+`bic #-256`. A 16-bit load is two byte loads joined with `ash` and
+`bis`, through r4 and a word of stack.
+
 ## Calling convention
 
 Arguments are 32-bit words on the stack, pushed by the caller. An

@@ -277,12 +277,13 @@ emitload(FILE *f, Ins *i, Fn *fn, int kind)
 
 	dst = i->to.val;
 	memstr(m0, sizeof m0, i->arg[0], fn, 0);
+	/* movb into a register sign-extends the byte through it, so a
+	 * signed load is the one instruction and an unsigned load clears
+	 * what the sign filled in. */
 	if (kind == 0 || kind == 1) {
 		fprintf(f, "\tmovb %s, %s\n", m0, rname[dst]);
-		if (kind == 0) {
-			fprintf(f, "\tash #24, %s\n", rname[dst]);
-			fprintf(f, "\tash #-24, %s\n", rname[dst]);
-		}
+		if (kind == 1)
+			fprintf(f, "\tbic #-256, %s\n", rname[dst]);
 		return;
 	}
 	if (kind == 2 || kind == 3) {
@@ -291,6 +292,7 @@ emitload(FILE *f, Ins *i, Fn *fn, int kind)
 		fprintf(f, "\tmov #0, -(sp)\n");
 		fprintf(f, "\tmovb %s, (sp)\n", m0);
 		fprintf(f, "\tmovb %s, r4\n", m1);
+		fprintf(f, "\tbic #-256, r4\n");
 		fprintf(f, "\tash #8, r4\n");
 		fprintf(f, "\tbis r4, (sp)\n");
 		fprintf(f, "\tmov (sp)+, r4\n");

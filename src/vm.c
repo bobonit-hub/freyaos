@@ -71,18 +71,28 @@ typedef struct {
     uint32_t addr;
 } ea_t;
 
+/*
+ * What an operand is, which decides how far modes 2 and 4 step and
+ * whether mode 0 means anything.  EA_JUMP is the address JMP and JSR
+ * want: it is neither a word nor a byte, it steps by a word, and a
+ * register has no address to give.
+ */
+#define EA_WORD 0
+#define EA_BYTE 1
+#define EA_JUMP 2
+
 static int fetch_ea(freya_vm_t *vm, uint8_t *m, uint32_t size,
-                    unsigned mode, unsigned reg, int byte, int is_dst, ea_t *ea)
+                    unsigned mode, unsigned reg, int kind, ea_t *ea)
 {
     uint32_t x, step, addr;
 
     ea->reg = -1;
     if (mode == 0) {
-        if (is_dst && byte == 2) return FREYA_VM_ILLEGAL; /* JMP/JSR */
+        if (kind == EA_JUMP) return FREYA_VM_ILLEGAL;
         ea->reg = (int)reg;
         return 0;
     }
-    step = (byte && reg < 6) ? 1u : 4u;
+    step = (kind == EA_BYTE && reg < 6) ? 1u : 4u;
     switch (mode) {
     case 1:
         addr = vm->r[reg];
@@ -230,7 +240,7 @@ static int unary(freya_vm_t *vm, uint8_t *m, uint32_t size,
     uint32_t d, r, sign, mask, c;
     int rc;
 
-    rc = fetch_ea(vm, m, size, op >> 3 & 7, op & 7, byte, 1, &ea);
+    rc = fetch_ea(vm, m, size, op >> 3 & 7, op & 7, byte, &ea);
     if (rc) return rc;
     rc = read_op(vm, m, size, &ea, byte, &d);
     if (rc) return rc;
@@ -313,9 +323,9 @@ static int binary(freya_vm_t *vm, uint8_t *m, uint32_t size,
     uint32_t s, d, r;
     int rc;
 
-    rc = fetch_ea(vm, m, size, (op >> 9) & 7, (op >> 6) & 7, byte, 0, &src);
+    rc = fetch_ea(vm, m, size, (op >> 9) & 7, (op >> 6) & 7, byte, &src);
     if (rc) return rc;
-    rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, byte, 1, &dst);
+    rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, byte, &dst);
     if (rc) return rc;
     rc = read_op(vm, m, size, &src, byte, &s);
     if (rc) return rc;
@@ -335,6 +345,14 @@ static int binary(freya_vm_t *vm, uint8_t *m, uint32_t size,
     case 0: /* MOV */
         r = s;
         logic_flags(vm, r, byte, 0, 0);
+        /* MOVB into a register sign-extends the byte through the whole
+         * register, as on a PDP-11.  Every other byte instruction
+         * leaves the rest of a register alone. */
+        if (byte && dst.reg >= 0) {
+            r &= 0xffu;
+            vm->r[dst.reg] = (r & 0x80u) ? (r | 0xffffff00u) : r;
+            return 0;
+        }
         return write_op(vm, m, size, &dst, byte, r);
     case 1: /* CMP: flags from src - dst, nothing stored */
         r = s - d;
@@ -381,7 +399,7 @@ static int eis(freya_vm_t *vm, uint8_t *m, uint32_t size, unsigned op)
             vm->r[FREYA_VM_PC] -= (op & 077) * 4u;
         return 0;
     }
-    rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, 0, 0, &src);
+    rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, EA_WORD, &src);
     if (rc) return rc;
     rc = read_op(vm, m, size, &src, 0, &s);
     if (rc) return rc;
@@ -407,7 +425,7 @@ static int eis(freya_vm_t *vm, uint8_t *m, uint32_t size, unsigned op)
         uint32_t mag, bit;
         uint64_t ud, uq, remv;
         if (reg & 1u) return FREYA_VM_ILLEGAL;
-        acc = ((int64_t)(uint64_t)vm->r[reg] << 32) | vm->r[reg | 1u];
+        acc = (int64_t)(((uint64_t)vm->r[reg] << 32) | vm->r[reg | 1u]);
         vm->psw &= ~(FREYA_VM_N | FREYA_VM_Z | FREYA_VM_V | FREYA_VM_C);
         if (dv == 0 || (dv == -1 &&
                         acc == (int64_t)((uint64_t)1 << 63))) {
@@ -499,15 +517,13 @@ static int eis(freya_vm_t *vm, uint8_t *m, uint32_t size, unsigned op)
     return 0;
 }
 
-int vm_step(freya_vm_t *vm, void *mem, uint32_t size)
+static int execute(freya_vm_t *vm, uint8_t *m, uint32_t size)
 {
-    uint8_t *m = mem;
     uint32_t word, pc;
     unsigned op;
     int taken, rc;
     ea_t ea;
 
-    if (!vm || (!mem && size) || size < 4u) return FREYA_ERR_ARG;
     pc = vm->r[FREYA_VM_PC];
     if (rd32(m, size, pc, &word)) return FREYA_VM_FAULT;
     if (word >> 16) return FREYA_VM_ILLEGAL;
@@ -546,14 +562,14 @@ int vm_step(freya_vm_t *vm, void *mem, uint32_t size)
         return 0;
     }
     if ((op & 0177700) == 0000100) {                       /* JMP */
-        rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, 2, 1, &ea);
+        rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, EA_JUMP, &ea);
         if (rc) return rc;
         vm->r[FREYA_VM_PC] = ea.addr;
         return 0;
     }
     if ((op & 0177700) == 0000300) {                       /* SWAB: swap halves */
         uint32_t d, r;
-        rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, 0, 1, &ea);
+        rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, EA_WORD, &ea);
         if (rc) return rc;
         rc = read_op(vm, m, size, &ea, 0, &d);
         if (rc) return rc;
@@ -563,7 +579,7 @@ int vm_step(freya_vm_t *vm, void *mem, uint32_t size)
     }
     if ((op & 0177000) == 0004000) {                       /* JSR */
         unsigned reg = (op >> 6) & 7;
-        rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, 2, 1, &ea);
+        rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, EA_JUMP, &ea);
         if (rc) return rc;
         rc = push(vm, m, size, vm->r[reg]);
         if (rc) return rc;
@@ -576,7 +592,7 @@ int vm_step(freya_vm_t *vm, void *mem, uint32_t size)
         (op & 0177700) == 0006700) {
         if ((op & 0177700) == 0006700) {                   /* SXT */
             uint32_t r = (vm->psw & FREYA_VM_N) ? 0xffffffffu : 0;
-            rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, 0, 1, &ea);
+            rc = fetch_ea(vm, m, size, (op >> 3) & 7, op & 7, EA_WORD, &ea);
             if (rc) return rc;
             vm->psw &= ~FREYA_VM_V;
             nz(vm, r, 0);
@@ -603,8 +619,23 @@ int vm_step(freya_vm_t *vm, void *mem, uint32_t size)
     if ((op & 0170000) == 0070000) return eis(vm, m, size, op);
     if ((op & 0177400) == 0104000 || (op & 0177400) == 0104400)
         return FREYA_VM_TRAP;
-    vm->r[FREYA_VM_PC] = pc;
     return FREYA_VM_ILLEGAL;
+}
+
+int vm_step(freya_vm_t *vm, void *mem, uint32_t size)
+{
+    uint32_t pc;
+    int rc;
+
+    if (!vm || (!mem && size) || size < 4u) return FREYA_ERR_ARG;
+    pc = vm->r[FREYA_VM_PC];
+    rc = execute(vm, mem, size);
+    /* An opcode this machine does not have leaves R7 on it, wherever in
+     * the decode that was found out, so a caller can look at the word.
+     * A register an addressing mode already stepped keeps its new
+     * value, as it does after a fault. */
+    if (rc == FREYA_VM_ILLEGAL) vm->r[FREYA_VM_PC] = pc;
+    return rc;
 }
 
 int vm_run(freya_vm_t *vm, void *mem, uint32_t size, uint32_t steps, uint32_t *ran)

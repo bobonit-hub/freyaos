@@ -933,6 +933,17 @@ published block vector pins the 32 rounds and the big-endian words. CTR is
 then checked against that block: a split message, a counter that carries,
 and a piece that starts in the middle of a block.
 
+The virtual machine is an instruction set, so what would be quietly wrong
+about it is the addressing and the flags rather than the arithmetic.
+`src/vm.c` is compiled unchanged and driven an instruction at a time: each
+of the eight modes, against both the value it produces and the register it
+stepped; the word a byte operand does not shorten on R6 and R7; the address
+JMP and JSR take, which is neither; MOVB into a register, which is the one
+byte instruction that reaches the whole of it; V and C on the shifts and
+the subtractions; a dividend whose high word is negative and the two ways a
+quotient can fail to exist; and every opcode the machine does not have,
+each of which has to leave R7 where a caller can read it.
+
 The flash programming itself cannot be reached from the host, which is the main
 argument for keeping that driver small and its bounds check absolute. What can
 be checked off the board is the part most likely to be quietly wrong: a last
@@ -952,6 +963,7 @@ the kernel compares them at boot, and this compares them at build time.
 26 checks, 0 failures     exit status
 168 checks, 0 failures    pins, timers, PWM, I2C, 1-Wire and SPI
 42 checks, 0 failures     XTEA
+136 checks, 0 failures    PDP-11 virtual machine
 39 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```
