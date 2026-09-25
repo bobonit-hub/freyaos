@@ -43,6 +43,24 @@ class Pipe:
             return take
 
 
+class FakePort:
+    def __init__(self, data):
+        self.data = bytearray(data)
+        self.written = bytearray()
+        self.timeout = 0
+
+    def write(self, data):
+        self.written.extend(data)
+
+    def flush(self):
+        pass
+
+    def read(self, n):
+        take = bytes(self.data[:n])
+        del self.data[:n]
+        return take
+
+
 def test_parse():
     print("\npaths, listings, command chain")
     check(fremote.resolve_port("u0") == "/dev/ttyUSB0", "u0 is ttyUSB0")
@@ -66,6 +84,28 @@ def test_parse():
     check(rows == [("apps", True, 0), ("notes.txt", False, 2048)], "ll lines become names")
     groups = fremote.split_chain(["fs", "ls", "+", "exec", "led blink"])
     check(groups == [["fs", "ls"], ["exec", "led blink"]], "a plus chains commands")
+
+
+def test_transfer_start():
+    print("\ntransfer framing")
+    reply = (
+        b'download("/x", "--size", 3); echo("FREMabcdef", $?)\r\n'
+        b"Ready to receive '/x' over XMODEM.\r\n"
+        b"Start the transfer on the host now (Ctrl-X twice on the host to abort).\r\n"
+        b"C"
+    )
+    board = fremote.Board.__new__(fremote.Board)
+    board.port = FakePort(reply)
+    board._pending = b""
+    old_token_hex = fremote.secrets.token_hex
+    fremote.secrets.token_hex = lambda _n: "abcdef"
+    try:
+        marker, pre = board.begin_transfer('download("/x", "--size", 3)')
+    finally:
+        fremote.secrets.token_hex = old_token_hex
+    check(marker == "FREMabcdef", "transfer marker is retained")
+    check(pre.endswith(b"abort).\r\n"), "both informational lines are consumed")
+    check(board.read(1, 0) == b"C", "the real CRC handshake remains unread")
 
 
 def test_xmodem():
@@ -92,6 +132,7 @@ def test_xmodem():
 
 def main():
     test_parse()
+    test_transfer_start()
     test_xmodem()
     print(f"\n{fails} failures")
     return 1 if fails else 0

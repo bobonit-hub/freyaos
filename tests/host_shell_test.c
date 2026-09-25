@@ -1114,6 +1114,13 @@ int main(void)
     rc = run_console("meminfo()");
     expect_rc("function console command syntax succeeds", rc, 0);
     expect_has("the console call runs meminfo", "Flash ");
+    rc = run_console("download()");
+    expect_rc("an eight-character command call is recognized",
+              rc, FREYA_EXIT_FAIL);
+    expect_has("download call reaches its command handler",
+               "usage: download");
+    expect_lacks("download call is not mistaken for a function",
+                 "no such function");
     rc = run("nosuch()");
     expect_rc("an unknown call fails", rc, FREYA_EXIT_FAIL);
     expect_has("an unknown call is not a function", "no such function");

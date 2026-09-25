@@ -5779,9 +5779,11 @@ static int KEXT parse_call(const char *name, int nlen, const char **pp, val_t *o
     const char *beg[FN_ARGS], *end[FN_ARGS];
     int argc = 0, mark, i, root = s_root_call;
     shell_fn_t *slot;
-    char nb[VAR_NAME];
+    char nb[LINE_MAX];
 
     s_root_call = 0;
+    if (nlen <= 0 || nlen >= (int)sizeof nb)
+        return vfail("bad name");
     memcpy(nb, name, (size_t)nlen);
     nb[nlen] = '\0';
     if (s_fn_depth >= FN_NEST || s_fn_stack + (int)sizeof beg > FN_STACK)

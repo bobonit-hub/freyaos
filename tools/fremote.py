@@ -61,6 +61,12 @@ def quote_path(path: str) -> str:
     return path
 
 
+def string_arg(value: str) -> str:
+    """Make a shell string argument, rejecting characters it cannot escape."""
+    quote_path(value)
+    return f'"{value}"'
+
+
 def parse_remote(path: str):
     """Return (on_board, path). A leading ':' marks the card."""
     if path == ":":
@@ -282,8 +288,8 @@ class Board:
         nonce = secrets.token_hex(3)
         marker = f"FREM{nonce}"
         self.write(b"\x15")
-        self.write(f"{line}; echo {marker} $?\r".encode())
-        raw = self._read_until(marker.encode(), timeout)
+        self.write(f'{line}; echo("{marker}", $?)\r'.encode())
+        raw = self._read_until_status(marker, timeout)
         status, _tail = self._status_after(raw, marker)
         body = self._strip_echo(raw, marker)
         if status != 0:
@@ -296,16 +302,36 @@ class Board:
         nonce = secrets.token_hex(3)
         marker = f"FREM{nonce}"
         self.write(b"\x15")
-        self.write(f"{line}; echo {marker} $?\r".encode())
+        self.write(f'{line}; echo("{marker}", $?)\r'.encode())
         raw = self._read_until(b"Ready to ", timeout)
-        extra = self._read_until(b"now", 5)
-        return marker, raw + extra
+        ready_line = self._read_until(b"\n", 5)
+        instruction_line = self._read_until(b"\n", 5)
+        return marker, raw + ready_line + instruction_line
 
     def finish_transfer(self, marker: str, timeout=30):
-        raw = self._read_until(marker.encode(), timeout)
+        raw = self._read_until_status(marker, timeout)
         status, _tail = self._status_after(raw, marker)
         if status != 0:
             raise RemoteError(self._strip_echo(raw, marker).strip() or f"status {status}")
+
+    def _read_until_status(self, marker: str, timeout) -> bytes:
+        """Read through the marker's status line, ignoring its command echo."""
+        pattern = re.compile(
+            rb"(?:^|[\r\n])" + re.escape(marker.encode()) + rb" \d+(?:\r|\n)")
+        buf = bytearray(self._pending)
+        self._pending = b""
+        deadline = time.time() + timeout
+        while not pattern.search(buf) and time.time() < deadline:
+            self.port.timeout = 0.2
+            chunk = self.port.read(256)
+            if chunk:
+                buf.extend(chunk)
+        found = pattern.search(buf)
+        if not found:
+            raise RemoteError("timed out waiting for the board")
+        end = found.end()
+        self._pending = bytes(buf[end:])
+        return bytes(buf[:end])
 
     def _read_until(self, needle: bytes, timeout) -> bytes:
         buf = bytearray(self._pending)
@@ -372,7 +398,7 @@ def xmodem_of(board: Board) -> Xmodem:
 # ---------------------------------------------------------------- filesystem
 def remote_isdir(board: Board, path: str) -> bool:
     try:
-        board.run(f"ls -l {quote_path(path)}")
+        board.run(f'ls("-l", {string_arg(path)})')
         return True
     except RemoteError:
         return False
@@ -390,14 +416,14 @@ def put_file(board: Board, local: str, remote: str):
     with open(local, "rb") as fh:
         data = fh.read()
     marker, _pre = board.begin_transfer(
-        f"download {quote_path(remote)} --size {len(data)}")
+        f'download({string_arg(remote)}, "--size", {len(data)})')
     xmodem_of(board).send(data)
     board.finish_transfer(marker)
     print(f"copied {local} -> :{remote} ({len(data)} bytes)")
 
 
 def get_file(board: Board, remote: str, local: str):
-    marker, pre = board.begin_transfer(f"upload {quote_path(remote)}")
+    marker, pre = board.begin_transfer(f"upload({string_arg(remote)})")
     m = _READY_SEND.search(pre.decode("latin1"))
     if not m:
         raise RemoteError("board did not say how big the file is")
@@ -434,7 +460,7 @@ def copy_tree(board: Board, src_remote, src_local, dst_remote, dst_local, recurs
         if os.path.isdir(src_local):
             if not recursive:
                 raise RemoteError(f"{src_local} is a directory (pass -r)")
-            board.run(f"mkdir {quote_path(dst_remote)}")
+            board.run(f"mkdir({string_arg(dst_remote)})")
             for name in sorted(os.listdir(src_local)):
                 copy_tree(board, None, os.path.join(src_local, name),
                           join_remote(dst_remote, name), None, True)
@@ -447,7 +473,7 @@ def copy_tree(board: Board, src_remote, src_local, dst_remote, dst_local, recurs
             if not recursive:
                 raise RemoteError(f"{src_remote} is a directory (pass -r)")
             os.makedirs(dst_local, exist_ok=True)
-            listing = board.run(f"ls -l {quote_path(src_remote)}")
+            listing = board.run(f'ls("-l", {string_arg(src_remote)})')
             for name, is_dir, _size in parse_ll(listing):
                 copy_tree(board, join_remote(src_remote, name), None,
                           None, os.path.join(dst_local, name), True)
@@ -462,8 +488,8 @@ def copy_tree(board: Board, src_remote, src_local, dst_remote, dst_local, recurs
 
 
 def _copy_remote_dir(board, src, dst):
-    board.run(f"mkdir {quote_path(dst)}")
-    listing = board.run(f"ls -l {quote_path(src)}")
+    board.run(f"mkdir({string_arg(dst)})")
+    listing = board.run(f'ls("-l", {string_arg(src)})')
     for name, is_dir, _size in parse_ll(listing):
         child_s = join_remote(src, name)
         child_d = join_remote(dst, name)
@@ -491,14 +517,17 @@ def cmd_fs(board: Board, args):
             rest = rest[1:]
         path = rest[0] if rest else ":"
         _on, p = parse_remote(path if path.startswith(":") else ":" + path)
-        flag = "-l " if long_fmt else ""
-        print(board.run(f"ls {flag}{quote_path(p)}").rstrip())
+        if long_fmt:
+            line = f'ls("-l", {string_arg(p)})'
+        else:
+            line = f"ls({string_arg(p)})"
+        print(board.run(line).rstrip())
         return
     if op == "cat":
         if len(rest) != 1:
             raise RemoteError("usage: fs cat <file>")
         _on, p = parse_remote(rest[0] if rest[0].startswith(":") else ":" + rest[0])
-        marker, pre = board.begin_transfer(f"upload {quote_path(p)}")
+        marker, pre = board.begin_transfer(f"upload({string_arg(p)})")
         m = _READY_SEND.search(pre.decode("latin1"))
         if not m:
             raise RemoteError("board did not say how big the file is")
@@ -511,7 +540,7 @@ def cmd_fs(board: Board, args):
             raise RemoteError("usage: fs mkdir <dir>...")
         for item in rest:
             _on, p = parse_remote(item if item.startswith(":") else ":" + item)
-            print(board.run(f"mkdir {quote_path(p)}").rstrip())
+            print(board.run(f"mkdir({string_arg(p)})").rstrip())
         return
     if op == "rm":
         flags = []
@@ -525,8 +554,11 @@ def cmd_fs(board: Board, args):
             raise RemoteError("usage: fs rm [-r] <path>...")
         for item in paths:
             _on, p = parse_remote(item if item.startswith(":") else ":" + item)
-            opt = "-r " if flags else ""
-            print(board.run(f"rm {opt}{quote_path(p)}").rstrip())
+            if flags:
+                line = f'rm("-r", {string_arg(p)})'
+            else:
+                line = f"rm({string_arg(p)})"
+            print(board.run(line).rstrip())
         return
     if op == "mv":
         if len(rest) != 2:
@@ -535,19 +567,20 @@ def cmd_fs(board: Board, args):
         for item in rest:
             _on, p = parse_remote(item if item.startswith(":") else ":" + item)
             ends.append(p)
-        print(board.run(f"rename {quote_path(ends[0])} {quote_path(ends[1])}").rstrip())
+        print(board.run(
+            f"rename({string_arg(ends[0])}, {string_arg(ends[1])})").rstrip())
         return
     if op == "df":
-        print(board.run("df").rstrip())
+        print(board.run("df()").rstrip())
         return
     if op == "pwd":
-        print(board.run("pwd").rstrip())
+        print(board.run("pwd()").rstrip())
         return
     if op == "cd":
         path = rest[0] if rest else "/"
         _on, p = parse_remote(path if path.startswith(":") else ":" + path)
-        board.run(f"cd {quote_path(p)}")
-        print(board.run("pwd").rstrip())
+        board.run(f"cd({string_arg(p)})")
+        print(board.run("pwd()").rstrip())
         return
     if op == "cp":
         recursive = False
