@@ -28,6 +28,9 @@ int board_power(int domain, int on)
     if (!on) {
         fs_close_all();
         if (fat_mounted()) fat_unmount();
+#ifdef FREYA_BOARD_BLACKPILL
+        spiflash_unmount();
+#endif
     }
     sd_power(on);
     return was;

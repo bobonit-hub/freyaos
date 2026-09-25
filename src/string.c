@@ -75,6 +75,32 @@ int strcmp(const char *a, const char *b)
     return (int)(uint8_t)*a - (int)(uint8_t)*b;
 }
 
+__attribute__((noinline, section(".text.lfsstr")))
+size_t strcspn(const char *s, const char *reject)
+{
+    size_t n = 0;
+
+    for (; *s; s++, n++) {
+        const char *r = reject;
+        while (*r && *r != *s) r++;
+        if (*r) return n;
+    }
+    return n;
+}
+
+__attribute__((noinline, section(".text.lfsstr")))
+size_t strspn(const char *s, const char *accept)
+{
+    size_t n = 0;
+
+    for (; *s; s++, n++) {
+        const char *a = accept;
+        while (*a && *a != *s) a++;
+        if (!*a) return n;
+    }
+    return n;
+}
+
 int strncmp(const char *a, const char *b, size_t n)
 {
     while (n && *a && *a == *b) { a++; b++; n--; }

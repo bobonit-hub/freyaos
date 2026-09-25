@@ -121,6 +121,8 @@ int     memcmp(const void *a, const void *b, size_t n);
 size_t  strlen(const char *s);
 int     strcmp(const char *a, const char *b);
 int     strncmp(const char *a, const char *b, size_t n);
+size_t  strcspn(const char *s, const char *reject);
+size_t  strspn(const char *s, const char *accept);
 int     strcasecmp(const char *a, const char *b);
 char   *strcpy(char *dst, const char *src);
 char   *strncpy(char *dst, const char *src, size_t n);
@@ -335,6 +337,34 @@ int         sd_read_block(uint32_t lba, uint8_t *buf);
 int         sd_read_blocks(uint32_t lba, uint8_t *buf, uint32_t count);
 int         sd_write_block(uint32_t lba, const uint8_t *buf);
 const char *sd_type_str(void);
+
+/* ----------------------------------------------------------- SPI flash */
+/* Black Pill SOP-8 NOR on SPI1.  The mount point is /spi<bus>.  On a
+ * board without the footprint these report "not present". */
+int         spiflash_probe(void);
+int         spiflash_mount_fs(void);
+int         spiflash_attach(void);
+int         spiflash_mounted(void);
+const char *spiflash_name(void);
+uint32_t    spiflash_bytes(void);
+int         spiflash_bus(void);
+void        spiflash_boot(void);
+int         spiflash_mount_cmd(void);
+void        spiflash_unmount(void);
+void        spiflash_info(void);
+void        spiflash_df(void);
+/* Byte operations for the LittleFS block device.  prog only clears bits. */
+int         spiflash_bd_read(uint32_t addr, void *dst, uint32_t len);
+int         spiflash_bd_prog(uint32_t addr, const void *src, uint32_t len);
+int         spiflash_bd_erase(uint32_t addr);
+void        spiflash_bd_sync(void);
+int         spiflash_bd_blank(void);
+#ifdef FREYA_HOST
+int         spiflash_test_bind(uint8_t *mem, uint32_t bytes);
+int         spiflash_read_block(uint32_t lba, uint8_t *buf);
+int         spiflash_write_block(uint32_t lba, const uint8_t *buf);
+void        spiflash_sync(void);
+#endif
 
 /* ----------------------------------------------------- internal flash */
 /*

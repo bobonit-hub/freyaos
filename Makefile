@@ -39,7 +39,11 @@ OBJDUMP   := $(CROSS)objdump
 NM        := $(CROSS)nm
 SIZE      := $(CROSS)size
 
-CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) \
+LFS_DIR   := third_party/littlefs
+LFS_FLAGS := -I$(LFS_DIR) -DLFS_NO_MALLOC -DLFS_NO_ASSERT \
+             -DLFS_NO_DEBUG -DLFS_NO_WARN -DLFS_NO_ERROR -DLFS_NAME_MAX=63
+
+CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) \
              -std=gnu11 -Os -g3 \
              -ffreestanding -fno-common -fno-builtin \
              -ffunction-sections -fdata-sections \
@@ -66,7 +70,8 @@ OBJS      := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(filter %.c,$(CSRC))) \
              $(patsubst $(SRC_DIR)/%.s,$(BUILD)/%.o,$(filter %.s,$(ASRC))) \
              $(patsubst $(SRC_DIR)/%.S,$(BUILD)/%.o,$(filter %.S,$(ASRC))) \
              $(patsubst $(BOARD_DIR)/%.c,$(BUILD)/board/%.o,$(BCSRC)) \
-             $(patsubst $(BOARD_DIR)/%.s,$(BUILD)/board/%.o,$(BASRC))
+             $(patsubst $(BOARD_DIR)/%.s,$(BUILD)/board/%.o,$(BASRC)) \
+             $(if $(filter blackpill,$(BOARD)),$(BUILD)/lfs.o $(BUILD)/lfs_util.o)
 DEPS      := $(OBJS:.o=.d)
 
 # User programs, one directory per program under apps/
@@ -187,6 +192,14 @@ $(BUILD)/board/%.o: $(BOARD_DIR)/%.c | $(BUILD)
 $(BUILD)/board/%.o: $(BOARD_DIR)/%.s | $(BUILD)
 	@echo "  AS    $<"
 	@$(CC) $(ASFLAGS) -c $< -o $@
+
+$(BUILD)/lfs.o: $(LFS_DIR)/lfs.c | $(BUILD)
+	@echo "  CC    $<"
+	@$(CC) $(CFLAGS) -Wno-shadow -MMD -MP -c $< -o $@
+
+$(BUILD)/lfs_util.o: $(LFS_DIR)/lfs_util.c | $(BUILD)
+	@echo "  CC    $<"
+	@$(CC) $(CFLAGS) -Wno-shadow -MMD -MP -c $< -o $@
 
 $(BUILD)/$(TARGET).elf: $(OBJS) $(LDSCRIPT)
 	@echo "  LD    $@"

@@ -15,7 +15,8 @@ mkdir -p "$OUT"
 # The FAT images are hundreds of megabytes and only needed while a run
 # is in progress. Drop them on the way out, including after a failure.
 cleanup() {
-    rm -f "$OUT/fat16.img" "$OUT/fat32.img" "$OUT/interop.img" "$OUT/xmodem.img"
+    rm -f "$OUT/fat16.img" "$OUT/fat32.img" "$OUT/interop.img" "$OUT/xmodem.img" \
+          "$OUT/spiflash.img"
 }
 trap cleanup EXIT
 
@@ -27,7 +28,9 @@ BOARD=${BOARD:-blackpill}
 BOARD_DEF="-DFREYA_BOARD_$(echo "$BOARD" | tr '[:lower:]' '[:upper:]')"
 
 CFLAGS="-std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
-        -Iinclude -Isrc -Iboards/$BOARD $BOARD_DEF -DFREYA_HOST"
+        -Iinclude -Isrc -Ithird_party/littlefs -Iboards/$BOARD $BOARD_DEF -DFREYA_HOST \
+        -DLFS_NO_MALLOC -DLFS_NO_ASSERT -DLFS_NO_DEBUG -DLFS_NO_WARN -DLFS_NO_ERROR \
+        -DLFS_NAME_MAX=63"
 
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_fat_test.c src/fat.c src/log.c src/string.c src/print.c \
@@ -36,6 +39,13 @@ $CC $CFLAGS tests/host_fat_test.c src/fat.c src/log.c src/string.c src/print.c \
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_xmodem_test.c src/xmodem.c src/fat.c src/fs.c \
     src/string.c src/print.c -o "$OUT/hostxmodem"
+
+if [ "$BOARD" = blackpill ]; then
+    # shellcheck disable=SC2086
+    $CC $CFLAGS tests/host_spiflash_test.c src/spiflash.c src/lfsvol.c src/fat.c \
+        third_party/littlefs/lfs.c third_party/littlefs/lfs_util.c \
+        src/string.c src/print.c -o "$OUT/hostspiflash"
+fi
 
 status=0
 
@@ -68,6 +78,14 @@ done
 
 # A round trip through mtools: a file Freya wrote must be readable by a
 # foreign FAT implementation, and vice versa.
+echo
+echo "================= SPI flash ================="
+if [ "$BOARD" = blackpill ]; then
+    if ! "$OUT/hostspiflash"; then
+        status=1
+    fi
+fi
+
 echo
 echo "================= interoperability ================="
 img="$OUT/interop.img"

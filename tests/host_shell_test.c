@@ -194,6 +194,11 @@ int  fat_stat(const char *path, fat_dirent_t *e)
 }
 int  fat_mkdir(const char *path)       { (void)path; return FAT_ERR_INVAL; }
 int  fat_unlink(const char *path)      { (void)path; return FAT_ERR_INVAL; }
+void vol_use(int dev)                  { (void)dev; }
+int  spiflash_mounted(void)            { return 0; }
+void spiflash_df(void)                 { }
+void spiflash_info(void)               { }
+int  spiflash_mount_cmd(void)          { return -1; }
 
 const char *fs_cwd(void)               { return "/data"; }
 int  fs_abspath(const char *in, char *out, int size)

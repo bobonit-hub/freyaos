@@ -97,5 +97,7 @@ USB-C socket. The 5V pin is not part of this wiring.
 
 The SOP-8 footprint on the back is on this same SPI bus: CS, CLK and
 DI are PA4, PA5 and PA7, and DO is PA6 or PB4 depending on the board
-revision. Leave that footprint empty so the card is the only device
-on PA4.
+revision. A chip soldered there is a LittleFS volume, mounted at
+/spi1. A blank chip is formatted the first time it is mounted. It uses
+the card's chip select, so the socket has to be empty.
+With no chip fitted the bus belongs to the card, the same as before.

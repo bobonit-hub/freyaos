@@ -93,12 +93,33 @@ typedef struct {
 typedef struct {
     fat_scan_t scan;
     uint8_t    open;
+    uint8_t    dev;             /* volume, or 0x80|slot for LittleFS  */
 } fat_dir_t;
+
+/* A mounted volume, including the two sector caches, so a second
+ * device can be swapped in without a second copy of the FAT code. */
+typedef int (*fat_rd_fn)(uint32_t lba, uint8_t *buf);
+typedef int (*fat_wr_fn)(uint32_t lba, const uint8_t *buf);
+typedef void (*fat_sy_fn)(void);
+
+typedef struct {
+    fat_fs_t  fs;
+    uint8_t   buf[512];
+    uint32_t  buf_lba;
+    uint8_t   buf_dirty;
+    uint8_t   fat[512];
+    uint32_t  fat_sec;
+    uint8_t   fat_dirty;
+    fat_rd_fn rd;
+    fat_wr_fn wr;
+    fat_sy_fn sync;
+} fat_snap_t;
 
 typedef struct {
     uint8_t  open;
     uint8_t  flags;
     uint8_t  dirty;
+    uint8_t  dev;               /* 0 = SD card, 0x80|slot = LittleFS   */
     uint32_t first_clus;
     uint32_t size;
     uint32_t pos;
@@ -111,6 +132,18 @@ typedef struct {
 int  fat_mount(void);
 void fat_unmount(void);
 int  fat_mounted(void);
+void fat_bind(fat_rd_fn rd, fat_wr_fn wr, fat_sy_fn sync);
+void fat_snap_save(fat_snap_t *s);
+void fat_snap_load(const fat_snap_t *s);
+int  fat_sync_here(void);
+
+/* The SD card is dev 0.  A board with SPI flash overrides these and
+ * routes paths under /spi<num> at the second device. */
+int  vol_enter(const char *path, char *local, int size);
+void vol_use(int dev);
+int  vol_current(void);
+int  vol_sd_mounted(void);
+void vol_sync_other(void);
 const char *fat_err_str(int err);
 const char *fat_type_str(void);
 int  fat_free_clusters(uint32_t *free_clus);

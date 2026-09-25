@@ -12,9 +12,9 @@
  *   0x0800C000 .. 0x0800FF7F   unused (rest of sector 3)
  *   0x0800FF80 .. 0x0800FFFF   auto-start flag + reserved          (128 B)
  *   0x08010000 .. 0x0801FFFF   program flash region              (64 KiB)
- *   0x08020000 .. 0x0802A7FF   kernel extension (threads, SPI, XTEA,
- *                                  shell functions)                 (42 KiB)
- *   0x0802A800 .. 0x0807FFFF   unused
+ *   0x08020000 .. 0x08033FFF   kernel extension (threads, SPI, XTEA,
+ *                                  SPI flash, LittleFS, shell)     (80 KiB)
+ *   0x08034000 .. 0x0807FFFF   unused
  *
  * The extension is a separate image.  It sits in sector 5 so that writing
  * the kernel does not share an erase unit with the auto-start slot or with
@@ -33,7 +33,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x08020000, LENGTH = 42K
+    KEXT  (rx)  : ORIGIN = 0x08020000, LENGTH = 80K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
 }
 
@@ -95,6 +95,17 @@ SECTIONS
         *shell.o(.text.cmd_power)
         *sd.o(.text.sd_power*)
         *spi.o(.text.sdspi_quiesce)
+        *spiflash.o(.text .text.*)
+        *spiflash.o(.rodata .rodata.*)
+        *lfsvol.o(.text .text.*)
+        *lfsvol.o(.rodata .rodata.*)
+        *lfs.o(.text .text.*)
+        *lfs.o(.rodata .rodata.*)
+        *lfs_util.o(.text .text.*)
+        *lfs_util.o(.rodata .rodata.*)
+        *string.o(.text.lfsstr)
+        *fat.o(.text.fat_vol*)
+        *fat.o(.rodata.fat_vol*)
         *board.o(.text.board_sd_power)
         *shell.o(.text.shell_poll_runtime)
         *shell.o(.text.cmd_loglevel)

@@ -15,6 +15,9 @@
  */
 #include "freya.h"
 #include "fat.h"
+#ifdef FREYA_BOARD_BLACKPILL
+#include "lfsvol.h"
+#endif
 
 fat_fs_t g_fs;
 
@@ -45,10 +48,62 @@ static uint8_t  s_fat[512];
 static uint32_t s_fat_sec = NO_LBA;         /* sector index inside a FAT */
 static uint8_t  s_fat_dirty;
 
+#ifdef FREYA_BOARD_BLACKPILL
+/* NULL means the SD card.  A bound device is the SPI flash volume. */
+static fat_rd_fn s_read;
+static fat_wr_fn s_write;
+static fat_sy_fn s_sync;
+
+static int io_read(uint32_t lba, uint8_t *buf)
+{
+    if (s_read) return s_read(lba, buf);
+    return sd_read_block(lba, buf);
+}
+
+static int io_write(uint32_t lba, const uint8_t *buf)
+{
+    if (s_write) return s_write(lba, buf);
+    return sd_write_block(lba, buf);
+}
+#else
+#define io_read  sd_read_block
+#define io_write sd_write_block
+#endif
+
+/* The defaults keep every path on the card.  The flash driver replaces
+ * them, and a board without that driver never links the replacements. */
+__attribute__((weak, noinline, section(".text.fat_volw")))
+int vol_enter(const char *path, char *local, int size)
+{
+    if (!path || !local || size < 2) return FAT_ERR_INVAL;
+    strncpy(local, path, (size_t)size - 1);
+    local[size - 1] = '\0';
+    return 0;
+}
+
+__attribute__((weak, noinline, section(".text.fat_volw")))
+void vol_use(int dev) { (void)dev; }
+__attribute__((weak, noinline, section(".text.fat_volw")))
+int vol_current(void) { return 0; }
+__attribute__((weak, noinline, section(".text.fat_volw")))
+int vol_sd_mounted(void) { return g_fs.mounted; }
+__attribute__((weak, noinline, section(".text.fat_volw")))
+void vol_sync_other(void) { }
+
+#ifdef FREYA_BOARD_BLACKPILL
+static int enter(const char *path, char *local)
+    __attribute__((noinline, section(".text.fat_volw")));
+static int enter(const char *path, char *local)
+{
+    if (!path || path[0] != '/') return FAT_ERR_INVAL;
+    return vol_enter(path, local, FAT_MAX_PATH);
+}
+#endif
+
 static int cache_flush(void)
 {
     if (s_buf_dirty && s_buf_lba != NO_LBA) {
-        if (sd_write_block(s_buf_lba, s_buf) != 0) return FAT_ERR_IO;
+        if (io_write(s_buf_lba, s_buf) != 0) return FAT_ERR_IO;
         s_buf_dirty = 0;
     }
     return FAT_OK;
@@ -58,7 +113,7 @@ static int cache_load(uint32_t lba)
 {
     if (s_buf_lba == lba) return FAT_OK;
     if (cache_flush() != FAT_OK) return FAT_ERR_IO;
-    if (sd_read_block(lba, s_buf) != 0) { s_buf_lba = NO_LBA; return FAT_ERR_IO; }
+    if (io_read(lba, s_buf) != 0) { s_buf_lba = NO_LBA; return FAT_ERR_IO; }
     s_buf_lba = lba;
     return FAT_OK;
 }
@@ -77,7 +132,7 @@ static int fat_sec_flush(void)
     if (s_fat_dirty && s_fat_sec != NO_LBA) {
         for (uint32_t i = 0; i < g_fs.num_fats; i++) {
             uint32_t lba = g_fs.fat_start + i * g_fs.fat_size + s_fat_sec;
-            if (sd_write_block(lba, s_fat) != 0) return FAT_ERR_IO;
+            if (io_write(lba, s_fat) != 0) return FAT_ERR_IO;
         }
         s_fat_dirty = 0;
     }
@@ -88,7 +143,7 @@ static int fat_sec_load(uint32_t sec)
 {
     if (s_fat_sec == sec) return FAT_OK;
     if (fat_sec_flush() != FAT_OK) return FAT_ERR_IO;
-    if (sd_read_block(g_fs.fat_start + sec, s_fat) != 0) {
+    if (io_read(g_fs.fat_start + sec, s_fat) != 0) {
         s_fat_sec = NO_LBA;
         return FAT_ERR_IO;
     }
@@ -112,7 +167,7 @@ static void fsinfo_read(void)
     g_fs.free_valid = 0;
     g_fs.fsinfo_dirty = 0;
     if (!g_fs.fsinfo_lba) return;
-    if (sd_read_block(g_fs.fsinfo_lba, sec) != 0) { g_fs.fsinfo_lba = 0; return; }
+    if (io_read(g_fs.fsinfo_lba, sec) != 0) { g_fs.fsinfo_lba = 0; return; }
 
     if (rd32(&sec[0]) != FSI_LEAD_SIG || rd32(&sec[484]) != FSI_STRUC_SIG ||
         rd32(&sec[508]) != FSI_TRAIL_SIG) {
@@ -137,17 +192,19 @@ static int fsinfo_write(void)
     uint8_t sec[512];
 
     if (!g_fs.fsinfo_lba || !g_fs.fsinfo_dirty) return FAT_OK;
-    if (sd_read_block(g_fs.fsinfo_lba, sec) != 0) return FAT_ERR_IO;
+    if (io_read(g_fs.fsinfo_lba, sec) != 0) return FAT_ERR_IO;
 
     wr32(&sec[488], g_fs.free_valid ? g_fs.free_count : 0xFFFFFFFFUL);
     wr32(&sec[492], g_fs.next_free);
-    if (sd_write_block(g_fs.fsinfo_lba, sec) != 0) return FAT_ERR_IO;
+    if (io_write(g_fs.fsinfo_lba, sec) != 0) return FAT_ERR_IO;
 
     g_fs.fsinfo_dirty = 0;
     return FAT_OK;
 }
 
-int fat_sync(void)
+int fat_sync_here(void)
+    __attribute__((noinline, section(".text.fat_vol")));
+int fat_sync_here(void)
 {
     int a = cache_flush();
     int b = fat_sec_flush();
@@ -155,8 +212,66 @@ int fat_sync(void)
 
     if (a != FAT_OK) return a;
     if (b != FAT_OK) return b;
+#ifdef FREYA_BOARD_BLACKPILL
+    if (s_sync) s_sync();
+    if (lfsvol_mounted() && lfsvol_sync() != FAT_OK && c == FAT_OK)
+        c = FAT_ERR_IO;
+#endif
     return c;
 }
+
+int fat_sync(void)
+{
+    int rc = fat_sync_here();
+
+#ifdef FREYA_BOARD_BLACKPILL
+    vol_sync_other();
+#endif
+    return rc;
+}
+
+#ifdef FREYA_BOARD_BLACKPILL
+void fat_bind(fat_rd_fn rd, fat_wr_fn wr, fat_sy_fn sync)
+    __attribute__((noinline, section(".text.fat_vol")));
+void fat_bind(fat_rd_fn rd, fat_wr_fn wr, fat_sy_fn sync)
+{
+    s_read = rd;
+    s_write = wr;
+    s_sync = sync;
+}
+
+void fat_snap_save(fat_snap_t *s)
+    __attribute__((noinline, section(".text.fat_vol")));
+void fat_snap_save(fat_snap_t *s)
+{
+    s->fs = g_fs;
+    memcpy(s->buf, s_buf, 512);
+    s->buf_lba = s_buf_lba;
+    s->buf_dirty = s_buf_dirty;
+    memcpy(s->fat, s_fat, 512);
+    s->fat_sec = s_fat_sec;
+    s->fat_dirty = s_fat_dirty;
+    s->rd = s_read;
+    s->wr = s_write;
+    s->sync = s_sync;
+}
+
+void fat_snap_load(const fat_snap_t *s)
+    __attribute__((noinline, section(".text.fat_vol")));
+void fat_snap_load(const fat_snap_t *s)
+{
+    g_fs = s->fs;
+    memcpy(s_buf, s->buf, 512);
+    s_buf_lba = s->buf_lba;
+    s_buf_dirty = s->buf_dirty;
+    memcpy(s_fat, s->fat, 512);
+    s_fat_sec = s->fat_sec;
+    s_fat_dirty = s->fat_dirty;
+    s_read = s->rd;
+    s_write = s->wr;
+    s_sync = s->sync;
+}
+#endif
 
 static void cache_reset(void)
 {
@@ -228,7 +343,7 @@ static int zero_cluster(uint32_t clus)
     if (cache_flush() != FAT_OK) return FAT_ERR_IO;
     memset(s_buf, 0, sizeof(s_buf));
     for (uint32_t i = 0; i < g_fs.sec_per_clus; i++) {
-        if (sd_write_block(lba + i, s_buf) != 0) { s_buf_lba = NO_LBA; return FAT_ERR_IO; }
+        if (io_write(lba + i, s_buf) != 0) { s_buf_lba = NO_LBA; return FAT_ERR_IO; }
     }
     s_buf_lba = lba + g_fs.sec_per_clus - 1;
     s_buf_dirty = 0;
@@ -366,8 +481,15 @@ int fat_mount(void)
     memset(&g_fs, 0, sizeof(g_fs));
     cache_reset();
 
+#ifdef FREYA_BOARD_BLACKPILL
+    if (!s_read) {
+        vol_use(0);
+        if (!g_sd.initialised && sd_init() != 0) return FAT_ERR_IO;
+    }
+#else
     if (!g_sd.initialised && sd_init() != 0) return FAT_ERR_IO;
-    if (sd_read_block(0, sector) != 0) return FAT_ERR_IO;
+#endif
+    if (io_read(0, sector) != 0) return FAT_ERR_IO;
 
     if (looks_like_bpb(sector)) {
         rc = parse_bpb(sector, 0);
@@ -381,7 +503,7 @@ int fat_mount(void)
             uint8_t vbr[512];
 
             if (type == 0 || lba == 0) continue;
-            if (sd_read_block(lba, vbr) != 0) continue;
+            if (io_read(lba, vbr) != 0) continue;
             if (parse_bpb(vbr, lba) == FAT_OK) { rc = FAT_OK; break; }
         }
     }
@@ -398,12 +520,21 @@ int fat_mount(void)
 
 void fat_unmount(void)
 {
+#ifdef FREYA_BOARD_BLACKPILL
+    vol_use(0);
+#endif
     fat_sync();
     g_fs.mounted = 0;
     cache_reset();
 }
 
-int fat_mounted(void) { return g_fs.mounted; }
+int fat_mounted(void)
+{
+#ifdef FREYA_BOARD_BLACKPILL
+    if (vol_current() != 0) return vol_sd_mounted();
+#endif
+    return g_fs.mounted;
+}
 
 const char *fat_type_str(void)
 {
@@ -827,7 +958,18 @@ static int resolve(const char *path, uint32_t *parent, char *leaf,
 
 int fat_stat(const char *path, fat_dirent_t *e)
 {
+#ifdef FREYA_BOARD_BLACKPILL
+    char local[FAT_MAX_PATH];
+    int rc;
+
+    if (lfsvol_owns(path)) return lfsvol_stat(path, e);
+    rc = enter(path, local);
+
+    if (rc != 0) return rc;
+    return resolve(local, NULL, NULL, e, NULL);
+#else
     return resolve(path, NULL, NULL, e, NULL);
+#endif
 }
 
 /* --------------------------------------------------- creating entries */
@@ -1100,10 +1242,23 @@ int fat_open(fat_file_t *f, const char *path, int flags)
     entpos_t pos;
     uint32_t parent;
     char leaf[FAT_MAX_NAME];
+#ifdef FREYA_BOARD_BLACKPILL
+    char local[FAT_MAX_PATH];
+#endif
     int rc;
 
+#ifdef FREYA_BOARD_BLACKPILL
+    if (lfsvol_owns(path)) return lfsvol_open(f, path, flags);
+    rc = enter(path, local);
+    if (rc != 0) return rc;
+    path = local;
     if (!g_fs.mounted) return FAT_ERR_NOFS;
     memset(f, 0, sizeof(*f));
+    f->dev = (uint8_t)vol_current();
+#else
+    if (!g_fs.mounted) return FAT_ERR_NOFS;
+    memset(f, 0, sizeof(*f));
+#endif
 
     rc = resolve(path, &parent, leaf, &e, &pos);
 
@@ -1157,6 +1312,10 @@ int fat_read(fat_file_t *f, void *buf, uint32_t len, uint32_t *got)
     int rc = FAT_OK;
 
     if (!f->open || !(f->flags & (FAT_READ | FAT_WRITE))) return FAT_ERR_INVAL;
+#ifdef FREYA_BOARD_BLACKPILL
+    if (f->dev & 0x80) return lfsvol_read(f, buf, len, got);
+    vol_use(f->dev);
+#endif
     if (f->pos >= f->size) { if (got) *got = 0; return FAT_OK; }
     if (len > f->size - f->pos) len = f->size - f->pos;
 
@@ -1188,6 +1347,10 @@ int fat_write(fat_file_t *f, const void *buf, uint32_t len, uint32_t *put)
     int rc = FAT_OK;
 
     if (!f->open || !(f->flags & FAT_WRITE)) return FAT_ERR_INVAL;
+#ifdef FREYA_BOARD_BLACKPILL
+    if (f->dev & 0x80) return lfsvol_write(f, buf, len, put);
+    vol_use(f->dev);
+#endif
 
     while (done < len) {
         uint32_t clus_idx = f->pos / g_fs.bytes_per_clus;
@@ -1224,6 +1387,9 @@ int fat_write(fat_file_t *f, const void *buf, uint32_t len, uint32_t *put)
 int fat_seek(fat_file_t *f, uint32_t pos)
 {
     if (!f->open) return FAT_ERR_INVAL;
+#ifdef FREYA_BOARD_BLACKPILL
+    if (f->dev & 0x80) return lfsvol_seek(f, pos);
+#endif
     if (pos > f->size) pos = f->size;
     f->pos = pos;
     return FAT_OK;
@@ -1234,6 +1400,10 @@ int fat_close(fat_file_t *f)
     int rc = FAT_OK;
 
     if (!f->open) return FAT_ERR_INVAL;
+#ifdef FREYA_BOARD_BLACKPILL
+    if (f->dev & 0x80) return lfsvol_close(f);
+    vol_use(f->dev);
+#endif
     if (f->dirty) rc = update_entry(f);
     if (fat_sync() != FAT_OK && rc == FAT_OK) rc = FAT_ERR_IO;
     f->open = 0;
@@ -1245,7 +1415,14 @@ int fat_opendir(fat_dir_t *d, const char *path)
 {
     fat_dirent_t e;
     int rc;
+#ifdef FREYA_BOARD_BLACKPILL
+    char local[FAT_MAX_PATH];
 
+    if (lfsvol_owns(path)) return lfsvol_opendir(d, path);
+    rc = enter(path, local);
+    if (rc != 0) return rc;
+    path = local;
+#endif
     if (!g_fs.mounted) return FAT_ERR_NOFS;
 
     rc = resolve(path, NULL, NULL, &e, NULL);
@@ -1255,6 +1432,9 @@ int fat_opendir(fat_dir_t *d, const char *path)
     rc = scan_open(&d->scan, e.clus);
     if (rc != FAT_OK) return rc;
     d->open = 1;
+#ifdef FREYA_BOARD_BLACKPILL
+    d->dev = (uint8_t)vol_current();
+#endif
     return FAT_OK;
 }
 
@@ -1263,6 +1443,10 @@ int fat_readdir(fat_dir_t *d, fat_dirent_t *e)
     int rc;
 
     if (!d->open) return FAT_ERR_INVAL;
+#ifdef FREYA_BOARD_BLACKPILL
+    if (d->dev & 0x80) return lfsvol_readdir(d, e);
+    vol_use(d->dev);
+#endif
 
     rc = scan_next_entry(&d->scan, e, NULL, NULL);
     if (rc != 0) return rc;
@@ -1274,6 +1458,9 @@ int fat_readdir(fat_dir_t *d, fat_dirent_t *e)
 
 int fat_closedir(fat_dir_t *d)
 {
+#ifdef FREYA_BOARD_BLACKPILL
+    if (d->dev & 0x80) return lfsvol_closedir(d);
+#endif
     d->open = 0;
     return FAT_OK;
 }
@@ -1283,8 +1470,17 @@ int fat_mkdir(const char *path)
     fat_dirent_t e;
     uint32_t parent, clus;
     char leaf[FAT_MAX_NAME];
+#ifdef FREYA_BOARD_BLACKPILL
+    char local[FAT_MAX_PATH];
+#endif
     int rc;
 
+#ifdef FREYA_BOARD_BLACKPILL
+    if (lfsvol_owns(path)) return lfsvol_mkdir(path);
+    rc = enter(path, local);
+    if (rc != 0) return rc;
+    path = local;
+#endif
     if (!g_fs.mounted) return FAT_ERR_NOFS;
 
     rc = resolve(path, &parent, leaf, &e, NULL);
@@ -1343,14 +1539,24 @@ static int dir_is_empty(uint32_t clus)
     }
 }
 
+__attribute__((noinline, section(".text.fat_vol")))
 int fat_unlink(const char *path)
 {
     fat_dirent_t e;
     entpos_t pos;
     uint32_t parent;
     char leaf[FAT_MAX_NAME];
+#ifdef FREYA_BOARD_BLACKPILL
+    char local[FAT_MAX_PATH];
+#endif
     int rc;
 
+#ifdef FREYA_BOARD_BLACKPILL
+    if (lfsvol_owns(path)) return lfsvol_unlink(path);
+    rc = enter(path, local);
+    if (rc != 0) return rc;
+    path = local;
+#endif
     if (!g_fs.mounted) return FAT_ERR_NOFS;
 
     rc = resolve(path, &parent, leaf, &e, &pos);
@@ -1406,16 +1612,35 @@ static int dir_update_dotdot(uint32_t dir_clus, uint32_t parent)
  * The cluster chain is never copied or freed: the new name is created
  * first, then the old name is removed, so a crash cannot orphan the data.
  */
+__attribute__((noinline, section(".text.fat_vol")))
 int fat_rename(const char *src, const char *dst)
 {
     fat_dirent_t se, de;
     entpos_t spos, dpos;
     uint32_t sparent, dparent;
     char sleaf[FAT_MAX_NAME], dleaf[FAT_MAX_NAME];
+#ifdef FREYA_BOARD_BLACKPILL
+    char slocal[FAT_MAX_PATH], dlocal[FAT_MAX_PATH];
+    int sdev, ddev;
+#endif
     int rc;
 
-    if (!g_fs.mounted) return FAT_ERR_NOFS;
+#ifdef FREYA_BOARD_BLACKPILL
+    if (lfsvol_owns(src) || lfsvol_owns(dst)) return lfsvol_rename(src, dst);
+    rc = enter(src, slocal);
+    if (rc != 0) return rc;
+    sdev = vol_current();
+    rc = enter(dst, dlocal);
+    if (rc != 0) return rc;
+    ddev = vol_current();
+    if (sdev != ddev) return FAT_ERR_INVAL;
+    src = slocal;
+    dst = dlocal;
+#else
     if (!src || !dst || src[0] != '/' || dst[0] != '/') return FAT_ERR_INVAL;
+#endif
+
+    if (!g_fs.mounted) return FAT_ERR_NOFS;
     if (strcmp(src, dst) == 0) return FAT_OK;
 
     rc = resolve(src, &sparent, sleaf, &se, &spos);
@@ -1446,3 +1671,32 @@ int fat_rename(const char *src, const char *dst)
     }
     return fat_sync();
 }
+
+#ifdef FREYA_BOARD_BLACKPILL
+/* Host tests that link fat.c without the SPI volume use these.  The
+ * real definitions in lfsvol.c replace them when that file is linked. */
+#define LFS_WEAK __attribute__((weak))
+LFS_WEAK int lfsvol_owns(const char *path) { (void)path; return 0; }
+LFS_WEAK int lfsvol_mounted(void) { return 0; }
+LFS_WEAK int lfsvol_sync(void) { return FAT_OK; }
+LFS_WEAK int lfsvol_stat(const char *path, fat_dirent_t *e)
+{ (void)path; (void)e; return FAT_ERR_NOFS; }
+LFS_WEAK int lfsvol_open(fat_file_t *f, const char *path, int flags)
+{ (void)f; (void)path; (void)flags; return FAT_ERR_NOFS; }
+LFS_WEAK int lfsvol_read(fat_file_t *f, void *buf, uint32_t len, uint32_t *got)
+{ (void)f; (void)buf; (void)len; (void)got; return FAT_ERR_INVAL; }
+LFS_WEAK int lfsvol_write(fat_file_t *f, const void *buf, uint32_t len, uint32_t *put)
+{ (void)f; (void)buf; (void)len; (void)put; return FAT_ERR_INVAL; }
+LFS_WEAK int lfsvol_seek(fat_file_t *f, uint32_t pos)
+{ (void)f; (void)pos; return FAT_ERR_INVAL; }
+LFS_WEAK int lfsvol_close(fat_file_t *f) { (void)f; return FAT_ERR_INVAL; }
+LFS_WEAK int lfsvol_opendir(fat_dir_t *d, const char *path)
+{ (void)d; (void)path; return FAT_ERR_NOFS; }
+LFS_WEAK int lfsvol_readdir(fat_dir_t *d, fat_dirent_t *e)
+{ (void)d; (void)e; return FAT_ERR_INVAL; }
+LFS_WEAK int lfsvol_closedir(fat_dir_t *d) { d->open = 0; return FAT_OK; }
+LFS_WEAK int lfsvol_mkdir(const char *path) { (void)path; return FAT_ERR_NOFS; }
+LFS_WEAK int lfsvol_unlink(const char *path) { (void)path; return FAT_ERR_NOFS; }
+LFS_WEAK int lfsvol_rename(const char *src, const char *dst)
+{ (void)src; (void)dst; return FAT_ERR_NOFS; }
+#endif

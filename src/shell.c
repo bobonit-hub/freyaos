@@ -306,7 +306,12 @@ static const char *onoff(int v) { return v ? "on" : "off"; }
 
 static int need_fs(void)
 {
+#ifdef FREYA_BOARD_BLACKPILL
+    vol_use(0);
+    if (fat_mounted() || spiflash_mounted()) return 1;
+#else
     if (fat_mounted()) return 1;
+#endif
     kprintf("no filesystem mounted - run 'mount'\r\n");
     return 0;
 }
@@ -448,7 +453,9 @@ static int cmd_sysinfo(int argc, char **argv)
         }
         kprintf("\r\n");
     }
-
+#ifdef FREYA_BOARD_BLACKPILL
+    vol_use(0);
+#endif
     if (fat_mounted()) {
         kprintf("  filesystem : %s", fat_type_str());
         if (g_fs.label[0]) kprintf(" \"%s\"", g_fs.label);
@@ -458,6 +465,9 @@ static int cmd_sysinfo(int argc, char **argv)
     } else {
         kprintf("  filesystem : not mounted\r\n");
     }
+#ifdef FREYA_BOARD_BLACKPILL
+    spiflash_info();
+#endif
 
     if (g_app.loaded) {
         kprintf("  program    : %s (%s), entry 0x%08x\r\n",
@@ -582,7 +592,11 @@ static int cmd_mount(int argc, char **argv)
     kprintf("initialising SD card ... ");
     if (sd_init() != 0) {
         kprintf("failed (no card, or wiring/level problem)\r\n");
+#ifdef FREYA_BOARD_BLACKPILL
+        return spiflash_mount_cmd();
+#else
         return -1;
+#endif
     }
     kprintf("%s\r\n", sd_type_str());
 
@@ -1033,30 +1047,38 @@ static int cmd_df(int argc, char **argv)
     (void)argc; (void)argv;
     if (!need_fs()) return -1;
 
-    if (g_fs.free_valid) {
-        free_clus = g_fs.free_count;        /* maintained since the last scan */
-    } else {
-        kprintf("scanning the allocation table ...\r\n");
-        if (fat_free_clusters(&free_clus) != FAT_OK) {
-            kprintf("df: I/O error\r\n");
-            return -1;
+#ifdef FREYA_BOARD_BLACKPILL
+    vol_use(0);
+#endif
+    if (fat_mounted()) {
+        if (g_fs.free_valid) {
+            free_clus = g_fs.free_count;        /* maintained since the last scan */
+        } else {
+            kprintf("scanning the allocation table ...\r\n");
+            if (fat_free_clusters(&free_clus) != FAT_OK) {
+                kprintf("df: I/O error\r\n");
+                return -1;
+            }
         }
-    }
-    total_clus = g_fs.clus_count;
+        total_clus = g_fs.clus_count;
 
-    kprintf("  filesystem : %s", fat_type_str());
-    if (g_fs.label[0]) kprintf(" \"%s\"", g_fs.label);
-    kprintf("\r\n  capacity   : ");
-    kput_size((uint64_t)total_clus * g_fs.bytes_per_clus);
-    kprintf("\r\n  free       : ");
-    kput_size((uint64_t)free_clus * g_fs.bytes_per_clus);
-    kprintf("\r\n  used       : ");
-    kput_size((uint64_t)(total_clus - free_clus) * g_fs.bytes_per_clus);
-    kprintf("\r\n  cluster    : ");
-    kput_size(g_fs.bytes_per_clus);
-    kprintf(" (%u sectors)\r\n     ", g_fs.sec_per_clus);
-    print_bar(total_clus - free_clus, total_clus);
-    kprintf("\r\n");
+        kprintf("  filesystem : %s", fat_type_str());
+        if (g_fs.label[0]) kprintf(" \"%s\"", g_fs.label);
+        kprintf("\r\n  capacity   : ");
+        kput_size((uint64_t)total_clus * g_fs.bytes_per_clus);
+        kprintf("\r\n  free       : ");
+        kput_size((uint64_t)free_clus * g_fs.bytes_per_clus);
+        kprintf("\r\n  used       : ");
+        kput_size((uint64_t)(total_clus - free_clus) * g_fs.bytes_per_clus);
+        kprintf("\r\n  cluster    : ");
+        kput_size(g_fs.bytes_per_clus);
+        kprintf(" (%u sectors)\r\n     ", g_fs.sec_per_clus);
+        print_bar(total_clus - free_clus, total_clus);
+        kprintf("\r\n");
+    }
+#ifdef FREYA_BOARD_BLACKPILL
+    spiflash_df();
+#endif
     return 0;
 }
 
@@ -1493,7 +1515,11 @@ static int cmd_uptime(int argc, char **argv)
 static int cmd_reboot(int argc, char **argv)
 {
     (void)argc; (void)argv;
+#ifdef FREYA_BOARD_BLACKPILL
+    if (fat_mounted() || spiflash_mounted()) fat_sync();
+#else
     if (fat_mounted()) fat_sync();
+#endif
     kprintf("rebooting ...\r\n");
     sys_reboot();
     return 0;
@@ -7736,7 +7762,12 @@ void shell_run(void)
         int n, st;
 
         if (s_script_len) uart_puts("> ");
-        else kprintf("freya:%s> ", fat_mounted() ? fs_cwd() : "(no fs)");
+        else kprintf("freya:%s> ",
+#ifdef FREYA_BOARD_BLACKPILL
+                    (fat_mounted() || spiflash_mounted()) ? fs_cwd() : "(no fs)");
+#else
+                    fat_mounted() ? fs_cwd() : "(no fs)");
+#endif
 
         n = readline(line, (int)sizeof line);
         if (n < 0) {                        /* Ctrl-C abandons the block */

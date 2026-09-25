@@ -3,14 +3,15 @@
 Freya is a 32-bit, single-user, text OS for STMicroelectronics
 STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
 metal on the STM32F411CEU6 "Black Pill" and the STM32F103C8T6 "Blue Pill".
-No HAL, no CMSIS, no third party libraries: Freya brings the chip up itself,
+No HAL and no CMSIS: Freya brings the chip up itself. LittleFS, on the SPI flash, is the one vendored library. Freya
 talks to the hardware through its own register definitions, and lives
 entirely in internal flash. This is release 2.0.1, "Reptiloid". The notes
 are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 Freya gives you a serial console, a real FAT filesystem on an SD card, and the
 ability to download a program over the console, load it into RAM and run it —
-then stop it again with Ctrl-C. Both boards also keep one program in a reserved
+then stop it again with Ctrl-C. The Black Pill can also mount a SPI NOR chip
+soldered on its SOP-8 footprint at `/spi1`, formatted as LittleFS, with the same file calls. Both boards also keep one program in a reserved
 area of their own flash and run it from there, so the program survives a power
 cycle and needs no card at all.
 
@@ -140,7 +141,9 @@ The card is SPI1 on PA4 to PA7 on both boards. Those pins sit in different
 places on the two headers; the slot drawings are in
 [docs/sd-slot.txt](docs/sd-slot.txt). VDD is switched: PA8 drives the gate
 of a P-channel MOSFET, low to power the socket. A pull-down on that gate
-keeps the card on through reset.
+keeps the card on through reset. On the Black Pill the SOP-8 footprint on
+the back shares that bus. A SPI NOR chip fitted there, and no card in the
+socket, is mounted at `/spi1` as LittleFS. A blank chip is formatted on the first mount.
 
 Freya keeps seven pins: PA2 and PA3 for the console, PA4 to PA7 for the
 card, and PA8 for its supply.
@@ -732,7 +735,7 @@ Black Pill:
 0x08010000  +--------------------------------+
             |  program flash region          |  64 KiB, sector 4
 0x08020000  +--------------------------------+
-            |  kernel extension              |  42 KiB, start of sector 5
+            |  kernel extension              |  48 KiB, start of sector 5
 0x08080000  +--------------------------------+
 
 0x20000000  +--------------------------------+
@@ -793,7 +796,7 @@ is measured rather than guessed).
 | `boards/<board>/app_flash.ld` | the second program linker script: code in flash, data in RAM |
 | `src/system.c` | SysTick, reset cause, delays, software clock |
 | `src/uart.c` | USART2 console, interrupt driven receive |
-| `src/spi.c`, `src/sd.c` | SPI1 for the card, and SPI master for a program |
+| `src/spi.c`, `src/sd.c`, `src/spiflash.c` | SPI1 for the card and the Black Pill SPI flash, and SPI master for a program |
 | `src/gpio.c` | pins a program may drive, and the sixteen EXTI interrupt lines |
 | `src/timer.c` | the general purpose timers and their interrupts |
 | `src/pwm.c` | the compare channels of those timers, driving pins |
@@ -801,6 +804,7 @@ is measured rather than guessed).
 | `src/w1.c` | 1-Wire master, standard speed, on a pin a program names |
 | `src/crypt.c` | XTEA in CTR mode, for a program and for `crypt` |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
+| `src/lfsvol.c`, `third_party/littlefs/` | LittleFS on the Black Pill SPI flash (the default there) |
 | `src/fs.c` | paths, working directory, descriptor table |
 | `src/xmodem.c` | XMODEM receive (`download`) and send (`upload`) |
 | `src/loader.c` | program loading and installing, the service table, start and stop |

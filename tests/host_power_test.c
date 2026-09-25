@@ -35,6 +35,7 @@ int  sd_power(int on)          { s_rail = on; s_powered = on; return 0; }
 void fs_close_all(void)        { s_closed++; }
 int  fat_mounted(void)         { return s_mounted; }
 void fat_unmount(void)         { s_unmounted++; s_mounted = 0; }
+void spiflash_unmount(void)    { }
 int  app_in_handler(void)      { return s_handler; }
 
 int main(void)
