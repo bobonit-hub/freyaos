@@ -2,7 +2,8 @@
 
 Freya is a 32-bit, single-user, text OS for STMicroelectronics
 STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
-metal on the STM32F411CEU6 "Black Pill" and the STM32F103C8T6 "Blue Pill".
+metal on the STM32F411CEU6 "Black Pill", the STM32F103C8T6 "Blue Pill",
+and the STM32F405xx.
 No HAL and no CMSIS: Freya brings the chip up itself. LittleFS, on the SPI flash, is the one vendored library. Freya
 talks to the hardware through its own register definitions, and lives
 entirely in internal flash. This is release 2.0.1, "Reptiloid". The notes
@@ -37,21 +38,21 @@ freya:
 
 ## Boards
 
-|  | Black Pill | Blue Pill |
-|---|---|---|
-| MCU | STM32F411CEU6 | STM32F103C8T6 |
-| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz |
-| Crystal | 25 MHz | 8 MHz |
-| Flash | 512 KiB | 128 KiB |
-| SRAM | 128 KiB | 20 KiB |
-| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 33664 B flash |
-| Build | `make` | `make BOARD=bluepill` |
+|  | Black Pill | Blue Pill | STM32F405xx |
+|---|---|---|---|
+| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx |
+| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz |
+| Crystal | 25 MHz | 8 MHz | 8 MHz |
+| Flash | 512 KiB | 128 KiB | 512 KiB or 1 MiB |
+| SRAM | 128 KiB | 20 KiB | 128 KiB |
+| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 33664 B flash | 56 KiB RAM, or 64 KiB flash |
+| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
 startup code and vector table, its bring-up (`board.c`: clock tree, pin mux,
 LED), its two linker scripts and its compiler flags. Everything under `src/` is
-the same code on both, and a third board is a third directory rather than a
-fork.
+the same code on every board, and another board is another directory rather
+than a fork.
 
 The Blue Pill boots the same way, on three quarters of the clock and a fifth of
 the RAM:
@@ -157,8 +158,8 @@ to drive or take interrupts on, and eight of them — PA0, PA1, PB0, PB1 and
 PB6 to PB9 — have a timer channel behind them and can be driven as PWM.
 
 I2C uses two more of those pins, and one pair that is not. Bus 1 is PB6
-(SCL) and PB7 (SDA) on both boards. Bus 2 is PB10/PB11 on the Blue Pill and
-PB10/PB9 on the Black Pill, which has no PB11. Both lines are open drain and
+(SCL) and PB7 (SDA) on every board. Bus 2 is PB10/PB11 on the Blue Pill and
+the STM32F405xx, and PB10/PB9 on the Black Pill, which has no PB11. Both lines are open drain and
 need a pull-up to 3.3 V; 4.7 kΩ is the usual value. The Black Pill also turns
 on the pin's own weak pull-up; the Blue Pill cannot, so the resistors are
 required there. A pin that is already a PWM output is not also an I2C pin
@@ -203,6 +204,7 @@ distribution package) and `make`.
 ```sh
 make                   # Black Pill kernel image + example programs
 make BOARD=bluepill    # the same for the Blue Pill
+make BOARD=stm32f405   # the same for the STM32F405xx
 make size              # section sizes
 make test              # run the filesystem and XMODEM code on the host
 make clean
@@ -222,9 +224,14 @@ Flashing, whichever tool you have:
 make flash          # st-flash --reset write build/<board>/freya.bin 0x08000000
 make openocd        # ST-Link via OpenOCD, with the board's target script
 make bootloader     # the chip's own ROM loader
+make BOARD=stm32f405 dfu
+                    # build/stm32f405/freya.dfu for the ROM DFU loader
 ```
 
-`make bootloader` is USB DFU on the Black Pill (hold BOOT0, tap NRST). The F103
+`make bootloader` is USB DFU on the Black Pill and the STM32F405xx (hold BOOT0,
+tap NRST). `make BOARD=stm32f405 dfu` packs the kernel and the extension into
+one DfuSe file, at the addresses they are linked for, and leaves the gap
+between them untouched. The F103
 has no USB loader, so on the Blue Pill it drives the serial loader in ROM with
 `stm32flash`: pull BOOT0 high, tap NRST, and add `PORT=/dev/ttyUSB1` if the
 adapter is not on `ttyUSB0`.

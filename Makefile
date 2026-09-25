@@ -2,6 +2,7 @@
 #
 #   make                    build the kernel image and the example programs
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
+#   make BOARD=stm32f405    build for the STM32F405xx (8 MHz crystal)
 #   make flash              flash the image with st-flash
 #   make flash PROGRAM=hello
 #                           flash the kernel and one program into the module
@@ -11,6 +12,8 @@
 #   make BOARD=bluepill flash PROGRAM=hello AUTOSTART=1
 #   make BOARD=bluepill flash SCRIPT=boot.sh AUTOSTART=1
 #                           same, with the auto-start flag already on
+#   make BOARD=stm32f405 dfu
+#                           pack the kernel and the extension into a DfuSe file
 #   make size               show the section sizes
 #   make clean
 #
@@ -113,6 +116,7 @@ SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # so the interpreter runs from flash too.
 XIP_ONLY_bluepill  := forth altair16
 XIP_ONLY_blackpill := altair
+XIP_ONLY_stm32f405 := altair
 XIP_ONLY  := $(XIP_ONLY_$(BOARD))
 SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(filter-out $(XIP_ONLY),$(SAMPLES)))
 
@@ -191,7 +195,7 @@ else
 FLASH_IMAGE := $(BUILD)/$(TARGET).bin
 endif
 
-.PHONY: all apps samples size clean flash bootloader openocd image test
+.PHONY: all apps samples size clean flash bootloader openocd image test dfu
 .SECONDARY:
 
 all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size
@@ -361,6 +365,25 @@ openocd: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin
 	openocd $(OPENOCD_PRE) -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
 	        -c "program $(FLASH_IMAGE) verify 0x08000000" \
 	        -c "program $(BUILD)/$(TARGET)-kext.bin verify reset exit $$addr"
+endif
+
+# DfuSe file for a board whose ROM loader speaks USB DFU.  The kernel and
+# the extension are separate images, so the gap between them is left alone.
+ifdef DFU_VID
+dfu: $(BUILD)/$(TARGET).dfu
+
+$(BUILD)/$(TARGET).dfu: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin tools/dfu_image.py
+	@set -eu; \
+	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
+	test -n "$$addr"; \
+	python3 tools/dfu_image.py \
+	    --vid $(DFU_VID) --pid $(DFU_PID) --device $(DFU_DEVICE) \
+	    --image 0x08000000:$(FLASH_IMAGE) \
+	    --image $$addr:$(BUILD)/$(TARGET)-kext.bin \
+	    --out $@
+else
+dfu:
+	$(error '$(BOARD)' has no DFU firmware target)
 endif
 
 # The chip's own ROM loader: $(BOOTLOADER_HINT)

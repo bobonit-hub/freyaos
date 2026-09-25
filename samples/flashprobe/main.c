@@ -32,7 +32,8 @@
 
 /* Every other sample is board independent; this one is the exception, and
  * a third board means a third section below rather than a default. */
-#if !defined(FREYA_BOARD_BLUEPILL) && !defined(FREYA_BOARD_BLACKPILL)
+#if !defined(FREYA_BOARD_BLUEPILL) && !defined(FREYA_BOARD_BLACKPILL) && \
+    !defined(FREYA_BOARD_STM32F405)
 #error "flashprobe drives the flash controller itself and needs a board it knows"
 #endif
 
@@ -107,10 +108,14 @@ static const char *err_str(uint32_t bits)
 
 #endif /* FREYA_BOARD_BLUEPILL */
 
-/* ===================================================== the STM32F411 == */
-#if defined(FREYA_BOARD_BLACKPILL)
+/* ========================================== the STM32F411 and F405 == */
+#if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
 
+#if defined(FREYA_BOARD_STM32F405)
+#define MCU_NAME        "STM32F405"
+#else
 #define MCU_NAME        "STM32F411"
+#endif
 #define FL              ((flash_regs_t *)0x40023C00UL)
 #define FLASHSIZE_REG   (*(const volatile uint16_t *)0x1FFF7A22UL)
 #define DECLARED_KIB    512u
@@ -178,7 +183,7 @@ static const char *err_str(uint32_t bits)
     return "no error reported";
 }
 
-#endif /* FREYA_BOARD_BLACKPILL */
+#endif /* FREYA_BOARD_BLACKPILL || FREYA_BOARD_STM32F405 */
 
 /* ================================================ the controller, both = */
 /*
@@ -266,7 +271,7 @@ static int flash_unlock(void)
     return (FL->CR & CR_LOCK) ? -1 : 0;
 }
 
-#if defined(FREYA_BOARD_BLACKPILL)
+#if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
 /* On the F411 the caches have to go: a read-back that came out of the data
  * cache would compare equal to whatever was there before the erase. */
 static uint32_t s_acr;
@@ -274,13 +279,13 @@ static uint32_t s_acr;
 
 static int probe_begin(void)
 {
-#if defined(FREYA_BOARD_BLACKPILL)
+#if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
     s_acr = FL->ACR;
     FL->ACR &= ~(ACR_ICEN | ACR_DCEN);
 #endif
     if (flash_unlock() != 0) return -1;
     FL->SR = SR_ERRORS | SR_EOP;
-#if defined(FREYA_BOARD_BLACKPILL)
+#if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
     FL->CR = (FL->CR & ~CR_SNB_MASK) | CR_PSIZE_X32;
 #endif
     return 0;
@@ -294,7 +299,7 @@ static void probe_end(void)
     FL->CR &= ~(CR_PG | CR_SER | CR_STRT);
 #endif
     FL->CR |= CR_LOCK;
-#if defined(FREYA_BOARD_BLACKPILL)
+#if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
     FL->ACR |= ACR_ICRST | ACR_DCRST;
     FL->ACR &= ~(ACR_ICRST | ACR_DCRST);
     FL->ACR = s_acr;

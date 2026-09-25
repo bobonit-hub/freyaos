@@ -53,15 +53,15 @@ if (!FREYA_API_HAS(api, i2c_transfer)) {
 
 ## Pins
 
-Bus 1 is the same pair on both boards. Bus 2 is the second controller, and
-the Black Pill's package does not bond the pin the Blue Pill uses for its
-data line, so the two boards do not share it. `i2c` at the console prints
-the pins of the image that is running.
+Bus 1 is the same pair on every board. Bus 2 is the second controller. The
+Black Pill's package does not bond PB11, so its data line is PB9. The Blue
+Pill and the STM32F405xx use PB11. `i2c` at the console prints the pins of
+the image that is running.
 
-| | Black Pill | Blue Pill |
-|---|---|---|
-| bus 1, SCL / SDA | PB6 / PB7 | PB6 / PB7 |
-| bus 2, SCL / SDA | PB10 / PB9 | PB10 / PB11 |
+| | Black Pill | Blue Pill | STM32F405xx |
+|---|---|---|---|
+| bus 1, SCL / SDA | PB6 / PB7 | PB6 / PB7 | PB6 / PB7 |
+| bus 2, SCL / SDA | PB10 / PB9 | PB10 / PB11 | PB10 / PB11 |
 
 PB6 and PB7 are also PWM pins, and on the Black Pill so is PB9. A pin can be
 one of those at a time: opening I2C while PWM still drives it, or while the

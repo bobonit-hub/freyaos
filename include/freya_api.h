@@ -72,14 +72,15 @@
     (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)
 #error "Blue Pill auto-start slot and program flash must be 128-byte aligned"
 #endif
-#elif defined(FREYA_BOARD_BLACKPILL)
+#elif defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
 #define FREYA_APP_LOAD_ADDR    0x20010000UL     /* 128 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE  (56U * 1024U)
 /* Kernel image occupies sectors 0..2 (48 KiB).  Sector 3 is unused except
  * for the 128-byte auto-start slot at its end, so an autostart erase never
  * shares a sector with the kernel or with the program.  Sector 4 is the
  * program.  The thread scheduler is a second image at the start of sector 5,
- * so writing the kernel does not erase it. */
+ * so writing the kernel does not erase it.  The F405xx sector map matches
+ * this through sector 5 on both the 512 KiB and the 1 MiB densities. */
 #define FREYA_AUTOSTART_ALIGN  128U
 #define FREYA_AUTOSTART_ADDR   0x0800FF80UL     /* last 128 B of sector 3 */
 #define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
@@ -90,10 +91,10 @@
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)
-#error "Black Pill auto-start slot and program flash must be 128-byte aligned"
+#error "F4 auto-start slot and program flash must be 128-byte aligned"
 #endif
 #else
-#error "no board selected - define FREYA_BOARD_BLACKPILL or FREYA_BOARD_BLUEPILL"
+#error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLUEPILL or FREYA_BOARD_STM32F405"
 #endif
 
 /* header flags */
