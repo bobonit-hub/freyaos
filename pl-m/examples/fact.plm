@@ -1,0 +1,11 @@
+/* 5! returned as the program status. INTEGER is 32-bit signed. */
+DEMO: DO;
+
+  f: PROCEDURE (n) INTEGER REENTRANT;
+    DECLARE n INTEGER;
+    IF n < 2 THEN RETURN 1;
+    RETURN n * f(n - 1);
+  END f;
+
+  RETURN f(5);
+END DEMO;

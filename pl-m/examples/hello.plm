@@ -1,0 +1,7 @@
+HELLO: DO;
+  $INCLUDE(freya.plm)
+
+  DECLARE msg(*) BYTE DATA ('hello from PL/M', CR, LF, 0);
+
+  CALL puts(.msg);
+END HELLO;

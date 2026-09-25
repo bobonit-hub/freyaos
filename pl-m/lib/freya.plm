@@ -1,0 +1,117 @@
+/* Freya service calls for a program linked into program flash.
+   The compiler turns these EXTERNAL procedures into wrappers that
+   load the function pointer out of the table passed to app_main. */
+
+putc: PROCEDURE (c) EXTERNAL;
+  DECLARE c INTEGER;
+END putc;
+
+puts: PROCEDURE (s) EXTERNAL;
+  DECLARE s ADDRESS;
+END puts;
+
+getc: PROCEDURE INTEGER EXTERNAL;
+END getc;
+
+getc_timeout: PROCEDURE (ms) INTEGER EXTERNAL;
+  DECLARE ms DWORD;
+END getc_timeout;
+
+kbhit: PROCEDURE INTEGER EXTERNAL;
+END kbhit;
+
+malloc: PROCEDURE (n) ADDRESS EXTERNAL;
+  DECLARE n DWORD;
+END malloc;
+
+free: PROCEDURE (p) EXTERNAL;
+  DECLARE p ADDRESS;
+END free;
+
+ticks_ms: PROCEDURE DWORD EXTERNAL;
+END ticks_ms;
+
+delay_ms: PROCEDURE (ms) EXTERNAL;
+  DECLARE ms DWORD;
+END delay_ms;
+
+should_stop: PROCEDURE INTEGER EXTERNAL;
+END should_stop;
+
+yield: PROCEDURE EXTERNAL;
+END yield;
+
+exit: PROCEDURE (code) EXTERNAL;
+  DECLARE code INTEGER;
+END exit;
+
+open: PROCEDURE (path, flags) INTEGER EXTERNAL;
+  DECLARE path ADDRESS, flags INTEGER;
+END open;
+
+close: PROCEDURE (fd) INTEGER EXTERNAL;
+  DECLARE fd INTEGER;
+END close;
+
+read: PROCEDURE (fd, buf, len) INTEGER EXTERNAL;
+  DECLARE fd INTEGER, buf ADDRESS, len INTEGER;
+END read;
+
+write: PROCEDURE (fd, buf, len) INTEGER EXTERNAL;
+  DECLARE fd INTEGER, buf ADDRESS, len INTEGER;
+END write;
+
+seek: PROCEDURE (fd, off, whence) INTEGER EXTERNAL;
+  DECLARE fd INTEGER, off INTEGER, whence INTEGER;
+END seek;
+
+tell: PROCEDURE (fd) INTEGER EXTERNAL;
+  DECLARE fd INTEGER;
+END tell;
+
+fsize: PROCEDURE (fd) INTEGER EXTERNAL;
+  DECLARE fd INTEGER;
+END fsize;
+
+unlink: PROCEDURE (path) INTEGER EXTERNAL;
+  DECLARE path ADDRESS;
+END unlink;
+
+mkdir: PROCEDURE (path) INTEGER EXTERNAL;
+  DECLARE path ADDRESS;
+END mkdir;
+
+opendir: PROCEDURE (path) INTEGER EXTERNAL;
+  DECLARE path ADDRESS;
+END opendir;
+
+readdir: PROCEDURE (dd, st) INTEGER EXTERNAL;
+  DECLARE dd INTEGER, st ADDRESS;
+END readdir;
+
+closedir: PROCEDURE (dd) INTEGER EXTERNAL;
+  DECLARE dd INTEGER;
+END closedir;
+
+led: PROCEDURE (on) EXTERNAL;
+  DECLARE on INTEGER;
+END led;
+
+cpu_hz: PROCEDURE DWORD EXTERNAL;
+END cpu_hz;
+
+rename: PROCEDURE (old, new) INTEGER EXTERNAL;
+  DECLARE old ADDRESS, new ADDRESS;
+END rename;
+
+DECLARE O_RDONLY LITERALLY '1';
+DECLARE O_WRONLY LITERALLY '2';
+DECLARE O_RDWR LITERALLY '3';
+DECLARE O_CREATE LITERALLY '4';
+DECLARE O_TRUNC LITERALLY '8';
+DECLARE O_APPEND LITERALLY '10H';
+DECLARE SEEK_SET LITERALLY '0';
+DECLARE SEEK_CUR LITERALLY '1';
+DECLARE SEEK_END LITERALLY '2';
+DECLARE CR LITERALLY '0DH';
+DECLARE LF LITERALLY '0AH';
