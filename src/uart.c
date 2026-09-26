@@ -23,11 +23,15 @@ static volatile uint8_t  s_raw_mode;     /* 1 = do not treat Ctrl-C specially */
 static volatile int      s_waiters;      /* blocked in uart_getc          */
 
 /* A copy of what the console transmitted, for the C6 terminal session.
- * The shell drains it; bytes are dropped only when that copy is full. */
+ * The shell drains it; bytes are dropped only when that copy is full.
+ * Boards without the coprocessor do not keep the copy: it is 1 KiB,
+ * which the Blue Pill's kernel RAM does not have. */
+#if BOARD_ESP_LINK
 #define TERM_TX_SIZE    1024
 #define TERM_TX_MASK    (TERM_TX_SIZE - 1)
 static uint8_t  s_term_tx[TERM_TX_SIZE];
 static volatile uint16_t s_term_th, s_term_tt;
+#endif
 
 __attribute__((weak)) void term_pump(void) { }
 
@@ -62,6 +66,7 @@ int uart_capture_dropped(void)
     return s_cap_drop;
 }
 
+#if BOARD_ESP_LINK
 static void term_tx_push(uint8_t c)
 {
     uint32_t pm = irq_save();
@@ -73,6 +78,53 @@ static void term_tx_push(uint8_t c)
     }
     irq_restore(pm);
 }
+
+int uart_term_pending(void)
+{
+    uint32_t pm = irq_save();
+    int n = (int)((s_term_th - s_term_tt) & TERM_TX_MASK);
+    irq_restore(pm);
+    return n;
+}
+
+int uart_term_peek(uint8_t *dst, int max)
+{
+    uint32_t pm = irq_save();
+    uint16_t t = s_term_tt;
+    int n = 0;
+
+    while (n < max && t != s_term_th) {
+        dst[n++] = s_term_tx[t];
+        t = (uint16_t)((t + 1) & TERM_TX_MASK);
+    }
+    irq_restore(pm);
+    return n;
+}
+
+void uart_term_drop(int n)
+{
+    uint32_t pm = irq_save();
+
+    while (n > 0 && s_term_tt != s_term_th) {
+        s_term_tt = (uint16_t)((s_term_tt + 1) & TERM_TX_MASK);
+        n--;
+    }
+    irq_restore(pm);
+}
+#else
+static void term_tx_push(uint8_t c) { (void)c; }
+
+int uart_term_pending(void) { return 0; }
+
+int uart_term_peek(uint8_t *dst, int max)
+{
+    (void)dst;
+    (void)max;
+    return 0;
+}
+
+void uart_term_drop(int n) { (void)n; }
+#endif
 
 void uart_init(uint32_t baud)
 {
@@ -166,39 +218,6 @@ void uart_rx_push(uint8_t c)
         s_head = next;
     } else {
         s_overruns++;
-    }
-    irq_restore(pm);
-}
-
-int uart_term_pending(void)
-{
-    uint32_t pm = irq_save();
-    int n = (int)((s_term_th - s_term_tt) & TERM_TX_MASK);
-    irq_restore(pm);
-    return n;
-}
-
-int uart_term_peek(uint8_t *dst, int max)
-{
-    uint32_t pm = irq_save();
-    uint16_t t = s_term_tt;
-    int n = 0;
-
-    while (n < max && t != s_term_th) {
-        dst[n++] = s_term_tx[t];
-        t = (uint16_t)((t + 1) & TERM_TX_MASK);
-    }
-    irq_restore(pm);
-    return n;
-}
-
-void uart_term_drop(int n)
-{
-    uint32_t pm = irq_save();
-
-    while (n > 0 && s_term_tt != s_term_th) {
-        s_term_tt = (uint16_t)((s_term_tt + 1) & TERM_TX_MASK);
-        n--;
     }
     irq_restore(pm);
 }

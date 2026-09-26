@@ -1,3 +1,41 @@
+# Freya 3.0 "Poltergeist"
+
+26 September 2026
+
+Poltergeist follows Reptiloid. The console banner and `sysinfo` print the
+version and this name:
+
+```
+Freya 3.0 "Poltergeist" for STM32F411CEU6
+```
+
+The program ABI is still version 3.
+
+## What changed
+
+* The STM32F405xx is a third board: an 8 MHz crystal, a Cortex-M4F at
+  168 MHz, and `make BOARD=stm32f405 dfu` for the ROM loader. The kernel
+  and the extension are separate images, so the gap between them is left
+  alone.
+* The Black Pill mounts the SPI NOR on its SOP-8 footprint as LittleFS
+  at `/spi1`.
+* A program can run a 32-bit PDP-11. `samples/vm` is the small case, and
+  `qbe/` and `pl-m/` are host compilers that emit code for it.
+* `make flash SCRIPT=` stores a shell script in the program flash region.
+  A `#` comment runs to the end of the line, and a loop can repeat while
+  a condition is true.
+* Boot checks a control sum of the kernel and the extension. The sum sits
+  in the auto-start slot, outside the bytes it covers, and `sysinfo` and
+  `cksum()` report it.
+* Black Pill and STM32F405 builds can hand Wi-Fi, DHCP, DNS, ping, four
+  bounded sockets and TLS 1.3 to an ESP32-C6. The STM32 can serve a file
+  or a shell script from its own filesystem over HTTPS. See
+  [docs/network.md](docs/network.md).
+* The Blue Pill has no coprocessor, so it does not keep the console
+  mirror that session uses. Its kernel extension is 51 KiB, from
+  `0x08013400`, and the program flash region is 29568 bytes. Command
+  history there is seven lines.
+
 # Freya 2.0.1 "Reptiloid"
 
 24 September 2026

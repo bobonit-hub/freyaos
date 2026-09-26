@@ -69,11 +69,11 @@
 #define FREYA_PASSWORD_OFF     16U              /* eight bytes after the sum */
 #define FREYA_PASSWORD_LEN     8U
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
-/* The last 48 KiB of the 128 KiB holds the kernel extension (threads,
+/* The last 51 KiB of the 128 KiB holds the kernel extension (threads,
  * the shell's script interpreter, its variables and functions, the SPI
  * master, XMODEM, the cipher and the virtual machine), so an install
  * does not erase it. */
-#define FREYA_APP_FLASH_SIZE   (0x08014000UL - FREYA_APP_FLASH_ADDR)
+#define FREYA_APP_FLASH_SIZE   (0x08013400UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
     (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)

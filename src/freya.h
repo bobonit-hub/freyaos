@@ -21,8 +21,8 @@
 #error "program flash region extends past the board's flash"
 #endif
 
-#define FREYA_VERSION   "2.0.1"
-#define FREYA_CODENAME  "Reptiloid"
+#define FREYA_VERSION   "3.0"
+#define FREYA_CODENAME  "Poltergeist"
 #define FREYA_BUILD_ID  __DATE__ " " __TIME__
 
 /* --------------------------------------------------------------- misc */

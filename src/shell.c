@@ -32,7 +32,11 @@
 
 #define LINE_MAX    160
 #define MAX_ARGS    16
+#if defined(FREYA_BOARD_BLUEPILL)
+#define HIST_DEPTH  7           /* one line less: the 6 KiB kernel RAM is full */
+#else
 #define HIST_DEPTH  8
+#endif
 #define SOURCE_NEST 3           /* shell_exec frames, including this one */
 
 static char s_hist[HIST_DEPTH][LINE_MAX];
