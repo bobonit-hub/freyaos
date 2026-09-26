@@ -102,7 +102,7 @@ endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
 SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 crypt flashprobe threads vm \
-             altair altair16
+             altair altair16 httpd
 # A sample a board has no room for at all is not built there.  The 48 KiB
 # Altair keeps the 8080's RAM in the program region.  The Blue Pill's
 # window is 8 KiB of a 20 KiB SRAM, which cannot hold that.

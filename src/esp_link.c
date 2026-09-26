@@ -54,7 +54,7 @@ int esp_frame_valid(const esp_frame_t *frame)
 
 #if BOARD_ESP_LINK && !defined(FREYA_HOST)
 
-#define LINK_TIMEOUT_MS  250U
+#define LINK_TIMEOUT_MS  6000U
 #define LINK_RETRIES     2
 
 static esp_frame_t s_tx __attribute__((aligned(4)));
@@ -78,7 +78,7 @@ static void ready_irq(int source, void *arg)
 
 static void spi_configure(void)
 {
-    uint32_t br = 3; /* PCLK1 / 16: 3 MHz F411, 2.625 MHz F405 */
+    uint32_t br = 0; /* PCLK1 / 2: 24 MHz F411, 21 MHz F405 */
 
     board_spi_mux(SPI2, FREYA_PB(13), FREYA_PB(14), FREYA_PB(15),
                   BOARD_ESP_SPI_AF);
@@ -90,6 +90,7 @@ static void spi_configure(void)
     SPI2->CR1 = SPI_CR1_MSTR | SPI_CR1_SSM | SPI_CR1_SSI |
                 (br << SPI_CR1_BR_SHIFT);
     SPI2->CR1 |= SPI_CR1_SPE;
+    if (SPI2->SR & SPI_SR_RXNE) (void)SPI2->DR;
 }
 
 static int transfer_start(void)
@@ -118,9 +119,9 @@ int esp_link_open(void)
         pwm_pin_busy(BOARD_ESP_READY) || gpio_irq_owns_pin(BOARD_ESP_READY))
         return FREYA_ERR_BUSY;
 
+    gpio_pin_write(BOARD_ESP_CS, 1);
     rc = gpio_pin_mode(BOARD_ESP_CS, FREYA_PIN_OUT);
     if (rc) return rc;
-    gpio_pin_write(BOARD_ESP_CS, 1);
     rc = gpio_pin_mode(BOARD_ESP_READY, FREYA_PIN_IN_PULLDOWN);
     if (rc) return rc;
     rc = gpio_irq_attach(BOARD_ESP_READY, FREYA_EDGE_RISING, ready_irq, NULL);
@@ -162,6 +163,10 @@ int esp_link_submit(uint16_t opcode, const void *payload, uint16_t length)
 
     if (!s_open) return FREYA_ERR_IO;
     if (s_active || s_waiting || s_reply_ready) return FREYA_ERR_AGAIN;
+    if (s_ready || gpio_pin_read(BOARD_ESP_READY) > 0) {
+        s_ready = 1;
+        return FREYA_ERR_AGAIN;
+    }
     rc = esp_frame_encode(&s_tx, opcode, ++s_sequence, 0, payload, length);
     if (rc) return rc;
     /* READY may still describe the receive slot consumed by this request;

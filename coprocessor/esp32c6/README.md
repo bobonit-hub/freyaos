@@ -1,17 +1,18 @@
 # ESP32-C6 network coprocessor
 
-This directory contains the standalone ESP-IDF C firmware used by Freya. The
-C6 owns Wi-Fi, DHCP, DNS, ICMP, TCP/UDP and TLS; Freya only transports fixed
-512-byte RPC frames over SPI.
+This directory contains standalone ESP-IDF and MicroPython-based coprocessor
+firmware for Freya. The C6 owns Wi-Fi, DHCP, DNS, ICMP, TCP/UDP and TLS; Freya
+only transports fixed 512-byte RPC frames over SPI.
 
 ## Wiring
 
+This pinout was bench-tested with the ESP-IDF firmware on an ESP32-C6FH4.
 All signals are 3.3 V. Connect grounds; do not connect either board to 5 V.
 
 - STM32 PB13 (SPI2 SCK) → ESP32-C6 GPIO6
 - STM32 PB14 (SPI2 MISO) ← ESP32-C6 GPIO2
 - STM32 PB15 (SPI2 MOSI) → ESP32-C6 GPIO7
-- STM32 PB12 (CS) → ESP32-C6 GPIO10
+- STM32 PB12 (CS) → ESP32-C6 GPIO14
 - STM32 PB10 (READY) ← ESP32-C6 GPIO4
 - 3.3 V and GND in common
 
@@ -47,11 +48,19 @@ insecure verification are intentionally unavailable.
 All cryptographic operations, keys, certificates and TLS state remain on the
 ESP32-C6. Freya sends and receives plaintext socket data over SPI, so the
 board-to-board wiring is inside the trusted boundary and is not protected
-against physical probing. This version supports TLS clients only; accepted
-server sockets and UDP remain plaintext.
+against physical probing. Application sockets are still TLS clients only.
+The firmware also accepts one terminal connection on TCP port 8022 and
+one HTTPS connection on port 443. Both handshakes use the self-signed
+P-256 certificate in `certs/freya.crt` (the matching key is `certs/freya.key`,
+compiled into the image). The terminal login is the username `admin` and
+the eight-byte password stored by Freya's `password` command. The web
+server is TLS 1.3 only. It parses the request and asks the STM32 file
+service (`samples/httpd`) for a static file or a shell-script page.
+Console bytes then cross SPI in the clear, as with every other C6 payload.
 
-The pin assignment is centralized in `freya_link.c`; change both that file and
-the wiring list if a particular C6 board cannot expose these GPIOs.
+The ESP-IDF pin assignment is in `main/freya_coprocessor.c`; the MicroPython
+assignment is in `freya_link.c`. Keep both files and the wiring lists above
+and in `docs/network.md` synchronized if a board requires different GPIOs.
 
 ## Protocol
 

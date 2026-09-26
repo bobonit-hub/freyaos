@@ -348,6 +348,10 @@ else
           "$(macro ramdump_off)" 8
     check "the firmware sum is the fourth word of the auto-start slot" \
           "$(macro cksum_off)" 12
+    check "the terminal password is eight bytes after the firmware sum" \
+          "$(macro password_off)" 16
+    check "the terminal password is eight bytes" \
+          "$(macro password_len)" 8
     check "the auto-start slot is 128-byte aligned" \
           0 "$(( $(macro autostart_addr) % 128 ))"
     check "the program flash region is 128-byte aligned" \

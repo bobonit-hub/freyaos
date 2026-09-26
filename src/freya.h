@@ -103,8 +103,16 @@ void uart_drain_tx(void);
 int  uart_getc_raw_timeout(uint32_t ms); /* bypasses Ctrl-C handling    */
 int  uart_getc_nb(void);               /* -1 when the ring is empty     */
 int  uart_is_raw(void);
+void uart_rx_push(uint8_t c);          /* same ring the console ISR uses */
+int  uart_term_pending(void);          /* mirrored console output bytes */
+int  uart_term_peek(uint8_t *dst, int max);
+void uart_term_drop(int n);
+void term_pump(void);                  /* STM32 console <-> C6 TLS shell */
 int  uart_waiters(void);               /* threads blocked in uart_getc  */
 void uart_set_raw(int raw);
+void uart_capture_begin(char *buf, int max); /* divert console output */
+int  uart_capture_end(void);                 /* bytes stored           */
+int  uart_capture_dropped(void);             /* 1 if the buffer filled */
 
 /* ------------------------------------------------------------- printf */
 int  kprintf(const char *fmt, ...);
@@ -341,6 +349,10 @@ int      net_http_start(uint8_t flags, const char *url, const char *user_agent,
 int      net_http_info(freya_http_info_t *info);
 int      net_http_read(void *buf, int len);
 int      net_http_close(void);
+int      web_take(freya_web_req_t *req);
+int      web_begin(int status, const char *type, uint32_t length);
+int      web_body(const void *data, int len);
+int      web_end(void);
 int      cmd_curl(int argc, char **argv);
 
 /* ---------------------------------------------------------------- ADC */
@@ -511,6 +523,9 @@ uint32_t app_log_level_stored(void);          /* 0xFFFFFFFF if erased   */
 int  app_log_level_store(uint32_t level);     /* 0 = FLASH_OK           */
 int  app_ramdump_enabled(void);
 int  app_ramdump_set(int enable);             /* 0 = FLASH_OK           */
+int  app_password_enabled(void);              /* 0 when the slot is erased */
+void app_password_read(uint8_t *out);         /* FREYA_PASSWORD_LEN bytes  */
+int  app_password_set(const uint8_t *pass);   /* NULL clears; 0 = FLASH_OK */
 #endif
 void app_request_stop(void);
 void app_guard_enter(void);
@@ -612,6 +627,9 @@ extern uint32_t thread_exc_restore;
 void shell_poll_runtime(void);          /* threads/stop while a program runs */
 void shell_run(void) __attribute__((noreturn));
 int  shell_exec(const char *line);            /* returns the status     */
+int  shell_source_capture(const char *path, const char *method,
+                          const char *query, char *buf, int cap,
+                          int *out_len);
 /* A shell script is ASCII, plus tab and newline.  'len' may be 0. */
 int  script_text_ok(const char *text, uint32_t len);
 /* A file passed to 'source' has to fit in the heap.  A script installed

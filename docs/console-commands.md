@@ -13,7 +13,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | Command | What it does |
 |---|---|
 | `help(["command"])` | list commands, or describe one |
-| `sysinfo()` | CPU, unique id, clocks, reset cause, uptime, log level, auto-start and ram-dump flags, card, filesystem |
+| `sysinfo()` | CPU, unique id, clocks, reset cause, uptime, log level, auto-start, ram-dump and password flags, card, filesystem |
 | `meminfo()` | flash and RAM usage: .data, .bss, heap, program region, stack |
 | `mount()` | initialise the card and mount it on `/`, or the Black Pill SPI flash (LittleFS) on `/spi1` |
 | `power(["sd" [, "on"\|"off"]])` | show the socket supply, or switch it |
@@ -40,6 +40,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `uninstall()` | erase the program flash region |
 | `autostart(["on"\|"off"])` | run the flash program or script automatically at boot |
 | `ramdump(["on"\|"off"])` | write SRAM to `/freya.ram` after a BusFault (default off) |
+| `password(["xxxxxxxx"\|"off"])` | set or clear the 8-byte terminal password in the auto-start slot |
 | `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps |
 | `loglevel(["level"])` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `pin(["pin" [, "mode"\|level [, level]]])` | list pins, or read or drive one |
@@ -498,6 +499,15 @@ in place of a program image. `saveflash` copies it back (default
 use `source @flash`. With `autostart on`, the next boot runs the script
 when `/autorun.bin` is absent. `make flash SCRIPT=boot.sh AUTOSTART=1`
 packs that script with the flag already on.
+
+`password("xxxxxxxx")` stores exactly eight printable bytes in the
+auto-start slot, immediately after the firmware sum. `password()` reports
+whether that password is set and does not print it. `password("off")`
+clears it; erased flash is off. The next boot asks for those eight bytes
+before the `freya:` prompt. Autorun still starts before that prompt.
+Changing `autostart`, `ramdump` or `loglevel` keeps the password. The same
+eight bytes are the password for the C6 TLS terminal on port 8022; the
+username there is `admin`. See [network.md](network.md).
 
 ## Commands that were Blue Pill only
 

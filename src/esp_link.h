@@ -47,6 +47,8 @@ enum {
     ESP_OP_HTTP_INFO,
     ESP_OP_HTTP_READ,
     ESP_OP_HTTP_CLOSE,
+    ESP_OP_TERM,
+    ESP_OP_WEB,
     ESP_OP_EVENT = 0x8000
 };
 

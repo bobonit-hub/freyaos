@@ -43,6 +43,7 @@ static char s_poll_line[LINE_MAX];  /* a command typed during a run       */
 static int  s_poll_len;
 static int  s_script_stop;          /* Ctrl-C while a script or sleep runs */
 static int  s_exec_depth;           /* shell_exec frames currently active  */
+static int  s_capture;              /* a page script may source           */
 #ifdef FREYA_HOST
 int shell_test_console_call_only;
 #define s_console_call_only shell_test_console_call_only
@@ -62,6 +63,27 @@ static void KEXT s_now_add(uint32_t ms);
 static uint32_t KEXT sh_soon(void); /* ms until the next wake, or 0 */
 
 /* ------------------------------------------------------- line editing */
+/*
+ * A line that would store the terminal password.  password() and
+ * password("off") may stay in history; the eight secret bytes must not.
+ */
+static int line_holds_secret(const char *line)
+{
+    if (strncmp(line, "password(", 9) != 0 && strncmp(line, "password ", 9) != 0)
+        return 0;
+    if (strcmp(line, "password()") == 0 || strcmp(line, "password") == 0)
+        return 0;
+    if (strcmp(line, "password(\"off\")") == 0 || strcmp(line, "password off") == 0)
+        return 0;
+    return 1;
+}
+
+static void secret_wipe(char *line, int cap)
+{
+    if (line && line_holds_secret(line))
+        memset(line, 0, (size_t)cap);
+}
+
 static void erase_line(int len)
 {
     for (int i = 0; i < len; i++) uart_puts("\b \b");
@@ -70,6 +92,7 @@ static void erase_line(int len)
 static void hist_push(const char *line)
 {
     if (!line[0]) return;
+    if (line_holds_secret(line)) return;
     if (s_hist_count && strcmp(s_hist[(s_hist_count - 1) % HIST_DEPTH], line) == 0)
         return;
     strncpy(s_hist[s_hist_count % HIST_DEPTH], line, LINE_MAX - 1);
@@ -86,12 +109,14 @@ static const char *hist_get(int back)
     return s_hist[idx];
 }
 
-/* Returns the line length, or -1 when the line was cancelled. */
-static int readline(char *buf, int max)
+/* Returns the line length, or -1 when the line was cancelled.
+ * secret echoes '*' and does not recall history. */
+static int readline(char *buf, int max, int secret)
 {
     int len = 0;
 
     s_hist_pos = 0;
+    memset(buf, 0, (size_t)max);
     for (;;) {
         int c = sh_getc();
 
@@ -121,7 +146,7 @@ static int readline(char *buf, int max)
         if (c == 0x1B) {                    /* escape sequence */
             int a = uart_getc_timeout(50);
             int b = uart_getc_timeout(50);
-            if (a == '[' && (b == 'A' || b == 'B')) {
+            if (!secret && a == '[' && (b == 'A' || b == 'B')) {
                 const char *h;
                 int want = (b == 'A') ? s_hist_pos + 1 : s_hist_pos - 1;
 
@@ -136,6 +161,7 @@ static int readline(char *buf, int max)
                     len = (int)strlen(h);
                     if (len > max - 1) len = max - 1;
                     memcpy(buf, h, (size_t)len);
+                    buf[len] = '\0';
                     uart_write(buf, len);
                     s_hist_pos = want;
                 }
@@ -146,7 +172,7 @@ static int readline(char *buf, int max)
 
         if (len < max - 1) {
             buf[len++] = (char)c;
-            uart_putc((char)c);
+            uart_putc(secret ? '*' : (char)c);
         }
     }
 }
@@ -319,7 +345,17 @@ static int need_fs(void)
 static int busy_running(const char *who)
 {
     if (!g_app.running) return 0;
+    /* The HTTPS file service runs as a program and sources the page. */
+    if (s_capture && strcmp(who, "source") == 0) return 0;
     kprintf("%s: a program is running - stop it first\r\n", who);
+    return 1;
+}
+
+/* A page must not replace the program that is serving it. */
+static int page_blocked(const char *who)
+{
+    if (!s_capture) return 0;
+    kprintf("%s: not from a page\r\n", who);
     return 1;
 }
 
@@ -440,6 +476,7 @@ static int cmd_sysinfo(int argc, char **argv)
 #ifdef FREYA_APP_FLASH_ADDR
     inf("auto-start"); kprintf("%s\r\n", onoff(app_autostart_enabled()));
     inf("ram dump");   kprintf("%s\r\n", onoff(app_ramdump_enabled()));
+    inf("password");   kprintf("%s\r\n", onoff(app_password_enabled()));
 #endif
     inf("checksum");
     fw_cksum_show();
@@ -543,6 +580,9 @@ static int cmd_meminfo(int argc, char **argv)
         kprintf("  ram dump       : %s  stored at 0x%08x\r\n",
                 onoff(app_ramdump_enabled()),
                 (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_RAMDUMP_OFF));
+        kprintf("  password       : %s  stored at 0x%08x\r\n",
+                onoff(app_password_enabled()),
+                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_PASSWORD_OFF));
     }
 #endif
 
@@ -1087,6 +1127,7 @@ static int cmd_df(int argc, char **argv)
 
 static int cmd_load(int argc, char **argv)
 {
+    if (page_blocked("load")) return -1;
     if (argc < 2) return usage("load " PROG_ARG);
     if (!is_flash_path(argv[1]) && !need_fs()) return -1;
     if (g_app.loaded) app_unload();
@@ -1105,6 +1146,7 @@ static int cmd_load(int argc, char **argv)
 #ifdef FREYA_APP_FLASH_ADDR
 static int cmd_install(int argc, char **argv)
 {
+    if (page_blocked("install")) return -1;
     if (argc < 2) return usage("install <file>");
     if (!need_fs()) return -1;
     return app_install(argv[1]);
@@ -1113,6 +1155,7 @@ static int cmd_install(int argc, char **argv)
 static int cmd_uninstall(int argc, char **argv)
 {
     (void)argc; (void)argv;
+    if (page_blocked("uninstall")) return -1;
 
     {
         const char *script = NULL;
@@ -1185,6 +1228,7 @@ static int cmd_run(int argc, char **argv)
     int app_argc = 0;
     int ret;
 
+    if (page_blocked("run")) return -1;
     if (sh_alive()) {
         kprintf("run: a thread is running\r\n");
         return -1;
@@ -1240,6 +1284,7 @@ static int cmd_runflash(int argc, char **argv)
 {
     char *run_argv[MAX_ARGS];
 
+    if (page_blocked("runflash")) return -1;
     if (argc > MAX_ARGS - 1) {
         kprintf("runflash: too many arguments\r\n");
         return -1;
@@ -1303,6 +1348,67 @@ static int cmd_ramdump(int argc, char **argv)
     return cmd_slot_flag(argc, argv, "ram dump",
                          FREYA_AUTOSTART_ADDR + FREYA_RAMDUMP_OFF,
                          app_ramdump_enabled, app_ramdump_set, 0);
+}
+
+/* Exactly eight printable bytes.  0xFF is erased flash, never a password. */
+static int password_text_ok(const char *s)
+{
+    unsigned i;
+
+    for (i = 0; i < FREYA_PASSWORD_LEN; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c < 0x20 || c > 0x7E) return 0;
+    }
+    return s[FREYA_PASSWORD_LEN] == '\0';
+}
+
+static int cmd_password(int argc, char **argv)
+{
+    uint8_t cur[FREYA_PASSWORD_LEN];
+    uint8_t next[FREYA_PASSWORD_LEN];
+    int clearing, rc;
+
+    if (argc > 2) return usage("password <8 bytes>|off");
+    clearing = argc == 2 && strcmp(argv[1], "off") == 0;
+    if (argc < 2) {
+        kprintf("password is %s (8 bytes at 0x%08x)\r\n",
+                onoff(app_password_enabled()),
+                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_PASSWORD_OFF));
+        kprintf("usage: password <8 bytes>|off\r\n");
+        return 0;
+    }
+    if (!clearing && !password_text_ok(argv[1])) {
+        kprintf("password: exactly 8 bytes\r\n");
+        return usage("password <8 bytes>|off");
+    }
+    if (busy_running("password")) return -1;
+
+    app_password_read(cur);
+    if (clearing) memset(next, 0xFF, sizeof next);
+    else {
+        memcpy(next, argv[1], FREYA_PASSWORD_LEN);
+        memset(argv[1], 0, FREYA_PASSWORD_LEN);
+    }
+
+    if (memcmp(cur, next, FREYA_PASSWORD_LEN) == 0) {
+        memset(cur, 0, sizeof cur);
+        memset(next, 0, sizeof next);
+        kprintf("password is already %s\r\n", clearing ? "off" : "on");
+        return 0;
+    }
+
+    kprintf("password: console input is dropped while flash is busy\r\n");
+    uart_drain_tx();
+    rc = app_password_set(clearing ? NULL : next);
+    uart_rx_flush();
+    memset(cur, 0, sizeof cur);
+    memset(next, 0, sizeof next);
+    if (rc != FLASH_OK) {
+        kprintf("password: %s\r\n", flash_err_str(rc));
+        return -1;
+    }
+    kprintf("password %s\r\n", clearing ? "off" : "on");
+    return 0;
 }
 #endif
 
@@ -1518,6 +1624,7 @@ static int cmd_uptime(int argc, char **argv)
 static int cmd_reboot(int argc, char **argv)
 {
     (void)argc; (void)argv;
+    if (page_blocked("reboot")) return -1;
 #ifdef FREYA_BOARD_BLACKPILL
     if (fat_mounted() || spiflash_mounted()) fat_sync();
 #else
@@ -1652,6 +1759,46 @@ static int KEXT cmd_source(int argc, char **argv)
     rc = shell_exec(buf);
     kfree(buf);
     return rc;
+}
+
+/* Publish $method and $query, then run path.  Console text lands in buf.
+ * A quote in any of the three strings is refused: the prelude is a
+ * shell line, and a quote would close it early. */
+int KEXT shell_source_capture(const char *path, const char *method,
+                              const char *query, char *buf, int cap,
+                              int *out_len)
+{
+    char line[96];
+    char *text = NULL;
+    int n, dropped;
+
+    if (out_len) *out_len = 0;
+    if (!path || !path[0] || !buf || cap < 1) return FREYA_ERR_ARG;
+    if (!method || !method[0]) method = "GET";
+    if (!query) query = "";
+    if (strchr(path, '"') || strchr(method, '"') || strchr(query, '"'))
+        return FREYA_ERR_ARG;
+    if (strlen(query) > FREYA_WEB_QUERY || strlen(method) > 8)
+        return FREYA_ERR_ARG;
+    n = ksnprintf(line, (int)sizeof line,
+                  "set method \"%s\"\nset query \"%s\"", method, query);
+    if (n < 0 || n >= (int)sizeof line) return FREYA_ERR_ARG;
+
+    s_capture = 1;
+    uart_capture_begin(buf, cap);
+    shell_exec(line);
+    if (s_status == 0 && load_script_file(path, &text) == 0) {
+        shell_exec(text);
+        kfree(text);
+    } else if (s_status == 0) {
+        s_status = FREYA_EXIT_FAIL;
+    }
+    n = uart_capture_end();
+    dropped = uart_capture_dropped();
+    s_capture = 0;
+    if (out_len) *out_len = n;
+    if (dropped) return FREYA_EXIT_FAIL;
+    return s_status;
 }
 
 /* 1 once Ctrl-C has been noticed.  The first time prints '^C' and
@@ -2464,6 +2611,7 @@ static const command_t s_cmds[] = {
     { "uninstall",cmd_uninstall,"uninstall()" },
     { "autostart",cmd_autostart,"autostart([\"on\"|\"off\"])" },
     { "ramdump",  cmd_ramdump,  "ramdump([\"on\"|\"off\"])" },
+    { "password", cmd_password, "password([\"xxxxxxxx\"|\"off\"])" },
 #endif
     { "date",     cmd_date,     "date([\"YYYY-MM-DD HH:MM:SS\"])" },
     { "loglevel", cmd_loglevel, "loglevel([\"level\"])" },
@@ -7867,8 +8015,8 @@ static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
 
 static void KEXT script_discard(void)
 {
+    memset(s_script, 0, sizeof s_script);
     s_script_len = 0;
-    s_script[0] = '\0';
 }
 
 static int KEXT script_append(const char *line)
@@ -7889,15 +8037,76 @@ static int KEXT script_append(const char *line)
     return 0;
 }
 
+/* Eight bytes, compared in full so a mismatch does not stop early. */
+static int password_match(const uint8_t *stored, const char *got, int n)
+{
+    uint8_t diff = (uint8_t)((n < 0 ? 0 : n) ^ FREYA_PASSWORD_LEN);
+    unsigned i;
+
+    for (i = 0; i < FREYA_PASSWORD_LEN; i++) {
+        unsigned char c = (n > (int)i) ? (unsigned char)got[i] : 0;
+        diff |= (uint8_t)(stored[i] ^ c);
+    }
+    return diff == 0;
+}
+
+static int s_term_open;
+
+static int terminal_locked(void)
+{
+#ifdef FREYA_APP_FLASH_ADDR
+    return app_password_enabled() && !s_term_open;
+#else
+    return 0;
+#endif
+}
+
+#ifdef FREYA_APP_FLASH_ADDR
+static void terminal_unlock(void)
+{
+    uint8_t stored[FREYA_PASSWORD_LEN];
+    char got[LINE_MAX];
+
+    if (!app_password_enabled()) {
+        s_term_open = 1;
+        return;
+    }
+    app_password_read(stored);
+    for (;;) {
+        int n;
+
+        uart_puts("password: ");
+        n = readline(got, (int)sizeof got, 1);
+        if (n == FREYA_PASSWORD_LEN && password_match(stored, got, n)) {
+            s_term_open = 1;
+            memset(stored, 0, sizeof stored);
+            memset(got, 0, sizeof got);
+            kprintf("ok\r\n");
+            return;
+        }
+        memset(got, 0, sizeof got);
+        if (n >= 0) kprintf("denied\r\n");
+    }
+}
+#else
+static void terminal_unlock(void) { }
+#endif
+
 /* A line typed while a program is running.  Only the commands that look
  * at threads are taken: anything else would re-enter the card or the
  * loader under a thread that may be using them.  The line is assembled
  * across polls, and one command is run per call so PendSV is not held
- * across a long print. */
+ * across a long print.  A locked terminal discards that input. */
 void shell_poll_runtime(void)
 {
     int c;
 
+    term_pump();
+    if (terminal_locked()) {
+        while (uart_getc_nb() >= 0) { }
+        s_poll_len = 0;
+        return;
+    }
     if (!g_app.running || uart_waiters() || uart_is_raw()) return;
 
     for (;;) {
@@ -7928,6 +8137,7 @@ void shell_poll_runtime(void)
             s_console_call_only = 1;
             shell_exec(s_poll_line);
             s_console_call_only = 0;
+            secret_wipe(s_poll_line, (int)sizeof s_poll_line);
             return;
         }
 
@@ -8002,6 +8212,7 @@ void shell_run(void)
 {
     static char line[LINE_MAX];
 
+    terminal_unlock();
     for (;;) {
         char walk[LINE_MAX];
         int n, st;
@@ -8014,7 +8225,7 @@ void shell_run(void)
                     fat_mounted() ? fs_cwd() : "(no fs)");
 #endif
 
-        n = readline(line, (int)sizeof line);
+        n = readline(line, (int)sizeof line, 0);
         if (n < 0) {                        /* Ctrl-C abandons the block */
             script_discard();
             continue;
@@ -8026,15 +8237,23 @@ void shell_run(void)
          * read on the following lines, until 'end' brings it level. */
         if (!s_script_len) {
             st = script_check(line, walk);
-            if (st < 0) continue;
+            if (st < 0) {
+                secret_wipe(line, (int)sizeof line);
+                continue;
+            }
             if (st == 0) {
                 s_console_call_only = 1;
                 shell_exec(line);
                 s_console_call_only = 0;
+                secret_wipe(line, (int)sizeof line);
                 continue;
             }
         }
-        if (script_append(line) != 0) continue;
+        if (script_append(line) != 0) {
+            secret_wipe(line, (int)sizeof line);
+            continue;
+        }
+        secret_wipe(line, (int)sizeof line);
         st = script_check(s_script, walk);
         if (st > 0) continue;
         if (st == 0) {

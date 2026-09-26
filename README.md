@@ -332,6 +332,7 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `uninstall` | erase the program flash region |
 | `autostart [on\|off]` | run the flash program or script automatically at boot |
 | `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (default off) |
+| `password [<8 bytes>\|off]` | set or clear the 8-byte terminal password |
 | `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `crypt [<key> <nonce> <hex>]` | XTEA-CTR: the same call encrypts and decrypts |
@@ -724,8 +725,10 @@ spend one per `run`. `autostart on` writes a flag into the first word of the
 128-byte slot immediately before the program region so the next boot runs that
 program without waiting for `runflash`. The second word of the same slot is
 the default log level; the third is the ram-dump-on-BusFault flag (`ramdump
-on`, off in erased flash). `autostart off` erases the flag; the log level and
-the ram-dump flag are written back. On the Blue Pill the rest of that 1 KiB
+on`, off in erased flash). Eight bytes at offset 16 are the terminal
+password (`password`, off when those bytes are still erased). `autostart off`
+erases the flag; the log level, the ram-dump flag and the password are
+written back. On the Blue Pill the rest of that 1 KiB
 page is restored as well, so the start of the program image is kept. On the
 Black Pill the slot is in the previous sector and the image is not touched.
 

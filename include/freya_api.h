@@ -47,9 +47,11 @@
  * and writable state fit together; larger programs retain XIP execution.
  * A 128-byte aligned slot immediately before that region holds the
  * auto-start flag (first word), the default log level (second word),
- * the ram-dump-on-BusFault flag (third word) and the firmware control
- * sum (fourth word).  That sum covers the kernel image and the kernel
- * extension; the four bytes it occupies are left out of the sum.
+ * the ram-dump-on-BusFault flag (third word), the firmware control
+ * sum (fourth word) and the terminal password (eight bytes).  An erased
+ * password, eight 0xFF bytes, leaves the terminal open.  That sum covers
+ * the kernel image and the kernel extension; the four bytes it occupies
+ * are left out of the sum.
  *
  * Every supported board has at least 128 KiB of internal flash.  The Blue
  * Pill size register often still reads 64; the program region runs to the
@@ -64,6 +66,8 @@
 #define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
 #define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
 #define FREYA_CKSUM_OFF        12U              /* fourth word: firmware sum */
+#define FREYA_PASSWORD_OFF     16U              /* eight bytes after the sum */
+#define FREYA_PASSWORD_LEN     8U
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
 /* The last 48 KiB of the 128 KiB holds the kernel extension (threads,
  * the shell's script interpreter, its variables and functions, the SPI
@@ -90,6 +94,8 @@
 #define FREYA_LOGLEVEL_OFF     4U
 #define FREYA_RAMDUMP_OFF      8U
 #define FREYA_CKSUM_OFF        12U              /* fourth word: firmware sum */
+#define FREYA_PASSWORD_OFF     16U              /* eight bytes after the sum */
+#define FREYA_PASSWORD_LEN     8U
 #define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
 #define FREYA_APP_FLASH_SIZE   (0x08020000UL - FREYA_APP_FLASH_ADDR)
 #if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
@@ -99,6 +105,13 @@
 #endif
 #else
 #error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLUEPILL or FREYA_BOARD_STM32F405"
+#endif
+#ifdef FREYA_PASSWORD_OFF
+#if (FREYA_PASSWORD_OFF % 4) || \
+    (FREYA_PASSWORD_OFF < (FREYA_CKSUM_OFF + 4U)) || \
+    ((FREYA_PASSWORD_OFF + FREYA_PASSWORD_LEN) > FREYA_AUTOSTART_SIZE)
+#error "terminal password does not fit in the auto-start slot"
+#endif
 #endif
 
 /* header flags */
@@ -369,6 +382,18 @@ typedef struct {
 /* ------------------------------------------------------------ network */
 #define FREYA_NET_SOCKETS       4
 #define FREYA_NET_PAYLOAD_MAX   480
+#define FREYA_WEB_GET           1
+#define FREYA_WEB_HEAD          2
+#define FREYA_WEB_PATH          96
+#define FREYA_WEB_QUERY         31
+#define FREYA_WEB_TYPE          40
+#define FREYA_WEB_CHUNK         400
+
+typedef struct {
+    int32_t method;                     /* FREYA_WEB_GET or FREYA_WEB_HEAD */
+    char    path[FREYA_WEB_PATH + 1];   /* URL path, leading slash         */
+    char    query[FREYA_WEB_QUERY + 1]; /* raw query, or empty             */
+} freya_web_req_t;
 #define FREYA_WIFI_SSID_MAX     32
 #define FREYA_WIFI_PASS_MAX     63
 #define FREYA_AF_INET           2
@@ -736,6 +761,25 @@ typedef struct freya_api {
      * permits TLS 1.3 only. */
     int      (*net_tls_connect)(int socket, const char *hostname,
                                 uint16_t port);
+
+    /* appended: HTTPS file service.  The ESP32-C6 accepts one TLS 1.3
+     * connection on port 443 and parses the request.  web_take() returns
+     * 0 when a GET or HEAD is waiting, or FREYA_ERR_AGAIN when it is not.
+     * web_begin/web_body/web_end send the response the C6 writes back.
+     * There is no cleartext listener. */
+    int      (*web_take)(freya_web_req_t *req);
+    int      (*web_begin)(int status, const char *type, uint32_t length);
+    int      (*web_body)(const void *data, int len);
+    int      (*web_end)(void);
+
+    /* appended: run a shell script from the filesystem and capture what
+     * it prints.  method and query are published as $method and $query
+     * (query is at most FREYA_WEB_QUERY characters).  *out_len is the
+     * captured byte count.  The return is the script status, 0 when it
+     * finished, or a negative FREYA_ERR_* when it was not run. */
+    int      (*shell_source_capture)(const char *path, const char *method,
+                                     const char *query, char *buf, int cap,
+                                     int *out_len);
 } freya_api_t;
 
 /*

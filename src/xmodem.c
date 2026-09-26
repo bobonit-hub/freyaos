@@ -63,7 +63,10 @@ static int store_bytes(int fd, const uint8_t *data, int len,
 int xmodem_receive_to_file(const char *path, uint32_t *received,
                            int strip_pad, int32_t exact)
 {
-    uint8_t  pkt[1024];
+    /* The two bytes after the payload are the CRC. They have to fit
+     * in this buffer: a 1024-byte packet would otherwise spill into
+     * pending and corrupt the block already accepted. */
+    uint8_t  pkt[1026];
     uint8_t  pending[1024];
     int      pending_len = 0;
     uint8_t  expect = 1;

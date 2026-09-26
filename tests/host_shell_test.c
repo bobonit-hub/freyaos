@@ -68,6 +68,10 @@ static void capture_reset(void)
     s_out[0] = '\0';
 }
 
+void uart_capture_begin(char *buf, int max) { (void)buf; (void)max; }
+int  uart_capture_end(void) { return 0; }
+int  uart_capture_dropped(void) { return 0; }
+
 void uart_putc(char c)
 {
     if (s_outn < (int)sizeof s_out - 1)
@@ -369,6 +373,32 @@ int  app_autostart_enabled(void)       { return 0; }
 int  app_autostart_set(int enable)     { (void)enable; return 0; }
 int  app_ramdump_enabled(void)         { return 0; }
 int  app_ramdump_set(int enable)       { (void)enable; return 0; }
+
+static uint8_t s_pass[FREYA_PASSWORD_LEN] = {
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+};
+
+int app_password_enabled(void)
+{
+    unsigned i;
+
+    for (i = 0; i < FREYA_PASSWORD_LEN; i++)
+        if (s_pass[i] != 0xFF) return 1;
+    return 0;
+}
+
+void app_password_read(uint8_t *out)
+{
+    memcpy(out, s_pass, FREYA_PASSWORD_LEN);
+}
+
+int app_password_set(const uint8_t *pass)
+{
+    if (pass) memcpy(s_pass, pass, FREYA_PASSWORD_LEN);
+    else memset(s_pass, 0xFF, sizeof s_pass);
+    return 0;
+}
+void term_pump(void) {}
 int fw_cksum_show(void)
 {
     kprintf("0x%08x  ok\r\n", 0xA1B2C3D4UL);
@@ -2823,6 +2853,47 @@ int main(void)
     expect_exact("gsub stops after the given count", "axb2\r\n");
     rc = run("echo $n");
     expect_exact("gsub reports the limited count", "1\r\n");
+
+    printf("password\n");
+    rc = run("password()");
+    expect_rc("password with no argument succeeds", rc, 0);
+    expect_has("password starts off", "password is off");
+    expect_has("password names its slot", "8 bytes at 0x");
+    rc = run("help(\"password\")");
+    expect_rc("help password succeeds", rc, 0);
+    expect_exact("help password shows the call",
+                 "password([\"xxxxxxxx\"|\"off\"])\r\n");
+    rc = run("password(\"short\")");
+    expect_rc("a short password fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a short password is refused", "exactly 8 bytes");
+    rc = run("password(\"123456789\")");
+    expect_rc("a long password fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a long password is refused", "exactly 8 bytes");
+    rc = run("password(\"12345678\")");
+    expect_rc("an 8-byte password is stored", rc, 0);
+    expect_has("setting the password reports on", "password on");
+    expect_lacks("the password is not printed back", "12345678");
+    if (memcmp(s_pass, "12345678", FREYA_PASSWORD_LEN) == 0)
+        pass("the password bytes are stored");
+    else
+        fail("the password bytes are stored");
+    rc = run("password()");
+    expect_rc("password status succeeds", rc, 0);
+    expect_has("password is on", "password is on");
+    expect_lacks("status does not print the password", "12345678");
+    rc = run("password(\"12345678\")");
+    expect_rc("the same password succeeds", rc, 0);
+    expect_has("the same password is already on", "password is already on");
+    expect_lacks("a repeat does not write flash", "flash is busy");
+    rc = run("sysinfo()");
+    expect_has("sysinfo reports the password", "password   : on");
+    rc = run("password(\"off\")");
+    expect_rc("password off succeeds", rc, 0);
+    expect_has("password off is reported", "password off");
+    if (!app_password_enabled()) pass("password off clears the slot");
+    else fail("password off clears the slot");
+    rc = run("password()");
+    expect_has("password is off again", "password is off");
 
     printf("%d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;

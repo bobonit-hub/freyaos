@@ -29,6 +29,8 @@
 #include "nvs_flash.h"
 #include "ping/ping_sock.h"
 #include "miniz.h"
+#include "term_server.h"
+#include "web_server.h"
 
 #define FRAME_SIZE 512
 #define HEADER_SIZE 20
@@ -50,7 +52,8 @@ enum {
     OP_DISCONNECT, OP_STATUS, OP_SCAN_START, OP_SCAN_NEXT, OP_PING_START,
     OP_PING_RESULT, OP_SOCKET, OP_CLOSE, OP_SOCK_CONNECT, OP_BIND, OP_LISTEN,
     OP_ACCEPT, OP_SEND, OP_RECV, OP_SENDTO, OP_RECVFROM, OP_TLS_CONNECT,
-    OP_HTTP_START, OP_HTTP_INFO, OP_HTTP_READ, OP_HTTP_CLOSE
+    OP_HTTP_START, OP_HTTP_INFO, OP_HTTP_READ, OP_HTTP_CLOSE, OP_TERM,
+    OP_WEB
 };
 
 typedef struct __attribute__((packed)) {
@@ -498,8 +501,14 @@ static int dispatch(uint16_t op, const uint8_t *data, uint16_t length,
         esp_wifi_disconnect();
         if (wifi_started) esp_wifi_stop();
         wifi_started = false;
+        term_server_down();
+        web_server_down();
         return 0;
     }
+    if (op == OP_TERM)
+        return term_server_handle(data, length, reply, reply_length);
+    if (op == OP_WEB)
+        return web_server_handle(data, length, reply, reply_length);
     if (op == OP_CREDENTIALS) return write_credentials(data, length);
     if (op == OP_CONNECT) {
         char ssid[33], password[65];
@@ -853,7 +862,7 @@ static void spi_service(void *arg)
         .max_transfer_sz = FRAME_SIZE,
     };
     spi_slave_interface_config_t slave = {
-        .spics_io_num = GPIO_NUM_10,
+        .spics_io_num = GPIO_NUM_14,
         .queue_size = 1,
         .mode = 0,
     };
@@ -925,5 +934,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_wifi_init(&wifi));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_LOGI(TAG, "Freya network coprocessor ready");
+    term_server_start();
+    web_server_start();
     xTaskCreate(spi_service, "freya_spi", 8192, NULL, 8, NULL);
 }

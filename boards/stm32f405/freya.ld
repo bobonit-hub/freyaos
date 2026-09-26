@@ -115,6 +115,20 @@ SECTIONS
         *fat.o(.rodata.fat_vol*)
         *board.o(.text.board_sd_power)
         *shell.o(.text.shell_poll_runtime)
+        /* Terminal login and password-slot handling are runtime-only.
+         * Keep them in the extension so the fixed 48 KiB boot image
+         * remains clear of the auto-start sector. */
+        *loader.o(.text.slot_*)
+        *loader.o(.text.app_*password*)
+        *shell.o(.text.cmd_password)
+        *shell.o(.text.line_holds_secret)
+        *shell.o(.text.secret_wipe*)
+        *shell.o(.text.readline*)
+        *shell.o(.text.shell_run)
+        *shell.o(.rodata.cmd_password*)
+        *shell.o(.rodata.line_holds_secret*)
+        *shell.o(.rodata.readline*)
+        *shell.o(.rodata.shell_run*)
         *shell.o(.text.cmd_loglevel)
         *shell.o(.rodata.cmd_loglevel*)
         *shell.o(.text.cmd_meminfo)

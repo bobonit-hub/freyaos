@@ -57,6 +57,7 @@ int spi_dma_start(const void *tx, void *rx, uint16_t length)
     nvic_enable(DMA1_Stream4_IRQn);
 
     cs = board_gpio_port(FREYA_PIN_PORT(BOARD_ESP_CS));
+    sys_delay_us(2000);
     cs->BSRR = 1UL << (FREYA_PIN_NUM(BOARD_ESP_CS) + 16);
     SPI2->CR2 |= SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN;
     DMA1_Stream3->CR |= DMA_SxCR_EN;       /* receiver must be ready first */

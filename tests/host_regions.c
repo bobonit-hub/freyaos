@@ -30,6 +30,8 @@ int main(void)
     printf("autostart_size %lu\n",  (unsigned long)FREYA_AUTOSTART_SIZE);
     printf("ramdump_off %lu\n",     (unsigned long)FREYA_RAMDUMP_OFF);
     printf("cksum_off %lu\n",       (unsigned long)FREYA_CKSUM_OFF);
+    printf("password_off %lu\n",    (unsigned long)FREYA_PASSWORD_OFF);
+    printf("password_len %lu\n",    (unsigned long)FREYA_PASSWORD_LEN);
 #endif
     return 0;
 }

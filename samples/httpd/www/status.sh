@@ -1,0 +1,7 @@
+echo("<!DOCTYPE html><html><body>")
+echo("<h1>Freya</h1>")
+echo("<p>")
+echo($method)
+echo($query)
+uptime()
+echo("</p></body></html>")

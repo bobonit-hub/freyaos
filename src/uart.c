@@ -22,6 +22,58 @@ static volatile uint32_t s_overruns;
 static volatile uint8_t  s_raw_mode;     /* 1 = do not treat Ctrl-C specially */
 static volatile int      s_waiters;      /* blocked in uart_getc          */
 
+/* A copy of what the console transmitted, for the C6 terminal session.
+ * The shell drains it; bytes are dropped only when that copy is full. */
+#define TERM_TX_SIZE    1024
+#define TERM_TX_MASK    (TERM_TX_SIZE - 1)
+static uint8_t  s_term_tx[TERM_TX_SIZE];
+static volatile uint16_t s_term_th, s_term_tt;
+
+__attribute__((weak)) void term_pump(void) { }
+
+/* A page script prints into this buffer instead of the terminal copy.
+ * The local console still shows the text. */
+static char *s_cap_buf;
+static int   s_cap_max;
+static int   s_cap_len;
+static int   s_cap_on;
+static int   s_cap_drop;
+
+void uart_capture_begin(char *buf, int max)
+{
+    s_cap_buf = buf;
+    s_cap_max = max > 0 ? max : 0;
+    s_cap_len = 0;
+    s_cap_drop = 0;
+    s_cap_on = 1;
+}
+
+int uart_capture_end(void)
+{
+    int n = s_cap_len;
+
+    s_cap_on = 0;
+    s_cap_buf = NULL;
+    return n;
+}
+
+int uart_capture_dropped(void)
+{
+    return s_cap_drop;
+}
+
+static void term_tx_push(uint8_t c)
+{
+    uint32_t pm = irq_save();
+    uint16_t next = (uint16_t)((s_term_th + 1) & TERM_TX_MASK);
+
+    if (next != s_term_tt) {
+        s_term_tx[s_term_th] = c;
+        s_term_th = next;
+    }
+    irq_restore(pm);
+}
+
 void uart_init(uint32_t baud)
 {
     uint32_t brr;
@@ -101,6 +153,56 @@ void usart2_interrupt(uint32_t *frame)
     }
 }
 
+void uart_rx_push(uint8_t c)
+{
+    uint16_t next;
+    uint32_t pm = irq_save();
+
+    if (c == CTRL_C && !s_raw_mode && g_app.running)
+        app_request_stop();
+    next = (uint16_t)((s_head + 1) & RX_MASK);
+    if (next != s_tail) {
+        s_rx[s_head] = c;
+        s_head = next;
+    } else {
+        s_overruns++;
+    }
+    irq_restore(pm);
+}
+
+int uart_term_pending(void)
+{
+    uint32_t pm = irq_save();
+    int n = (int)((s_term_th - s_term_tt) & TERM_TX_MASK);
+    irq_restore(pm);
+    return n;
+}
+
+int uart_term_peek(uint8_t *dst, int max)
+{
+    uint32_t pm = irq_save();
+    uint16_t t = s_term_tt;
+    int n = 0;
+
+    while (n < max && t != s_term_th) {
+        dst[n++] = s_term_tx[t];
+        t = (uint16_t)((t + 1) & TERM_TX_MASK);
+    }
+    irq_restore(pm);
+    return n;
+}
+
+void uart_term_drop(int n)
+{
+    uint32_t pm = irq_save();
+
+    while (n > 0 && s_term_tt != s_term_th) {
+        s_term_tt = (uint16_t)((s_term_tt + 1) & TERM_TX_MASK);
+        n--;
+    }
+    irq_restore(pm);
+}
+
 void uart_set_raw(int raw)
 {
     s_raw_mode = (uint8_t)(raw ? 1 : 0);
@@ -110,6 +212,16 @@ void uart_putc(char c)
 {
     while (!(USART2->SR & USART_SR_TXE)) { }
     USART2->DR = (uint32_t)(uint8_t)c;
+    if (s_cap_on) {
+        if (s_cap_buf && s_cap_len < s_cap_max)
+            s_cap_buf[s_cap_len++] = c;
+        else
+            s_cap_drop = 1;
+        return;
+    }
+    term_tx_push((uint8_t)c);
+    if (c == '\n' || uart_term_pending() >= 48)
+        term_pump();
 }
 
 void uart_write(const void *buf, int len)
@@ -194,6 +306,9 @@ static int uart_wait(uint32_t ms, int timed, int honor_stop)
         irq_restore(pm);
     }
     for (;;) {
+        c = rx_pop();
+        if (c >= 0) break;
+        term_pump();
         c = rx_pop();
         if (c >= 0) break;
         if (honor_stop && g_app.running && app_should_stop()) break;

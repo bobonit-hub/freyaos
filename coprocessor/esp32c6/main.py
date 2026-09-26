@@ -26,7 +26,9 @@ sockets = [None] * MAX_SOCKETS
 tls_sockets = [False] * MAX_SOCKETS
 scan = None
 scan_pos = 0
+scan_pending = False
 ping_job = None
+ping_pending = None
 cache_seq = None
 cache_response = None
 empty = bytes(SIZE)
@@ -47,12 +49,10 @@ def iptext(value):
 
 def credentials():
     try:
-        sn = nvs.get_blob("ssid", None)
-        pn = nvs.get_blob("pass", None)
-        sb, pb = bytearray(sn), bytearray(pn)
-        nvs.get_blob("ssid", sb)
-        nvs.get_blob("pass", pb)
-        return sb.decode(), pb.decode()
+        sb, pb = bytearray(32), bytearray(64)
+        sn = nvs.get_blob("ssid", sb)
+        pn = nvs.get_blob("pass", pb)
+        return bytes(sb[:sn]).decode(), bytes(pb[:pn]).decode()
     except OSError:
         return None, None
 
@@ -132,7 +132,7 @@ def poll_event():
 
 
 def dispatch(op, data):
-    global scan, scan_pos, ping_job
+    global scan, scan_pos, scan_pending, ping_job, ping_pending
     if op == WIFI_ON:
         wlan.active(True)
         return 0, b""
@@ -164,10 +164,13 @@ def dispatch(op, data):
     if op == SCAN_START:
         if not wlan.active():
             wlan.active(True)
-        scan = wlan.scan()
+        scan = None
         scan_pos = 0
+        scan_pending = True
         return 0, b""
     if op == SCAN_NEXT:
+        if scan_pending:
+            return AGAIN, b""
         if scan is None:
             return ARG, b""
         if scan_pos >= len(scan):
@@ -179,10 +182,11 @@ def dispatch(op, data):
     if op == PING_START:
         timeout = struct.unpack_from("<I", data)[0]
         host = data[4:].split(b"\0", 1)[0].decode()
-        ping_job = freya_link.ping(host, timeout)
+        ping_job = None
+        ping_pending = (host, timeout)
         return 0, b""
     if op == PING_RESULT:
-        if ping_job is None:
+        if ping_pending is not None or ping_job is None:
             return AGAIN, b""
         addr, elapsed, replies, lost = ping_job
         ping_job = None
@@ -269,12 +273,20 @@ def dispatch(op, data):
 
 def serve():
     global cache_seq, cache_response, event, event_signaled
+    global scan, scan_pending, ping_job, ping_pending
     queued_reply = False
     freya_link.init()
     freya_link.queue(empty, False)  # receive slot; READY means reply/event only
     while True:
         raw = freya_link.poll()
         if raw is None:
+            if not queued_reply and scan_pending:
+                scan = wlan.scan()
+                scan_pending = False
+            elif not queued_reply and ping_pending is not None:
+                host, timeout = ping_pending
+                ping_job = freya_link.ping(host, timeout)
+                ping_pending = None
             if not queued_reply and event is None:
                 event = poll_event()
             if event is not None and not event_signaled:
@@ -309,7 +321,8 @@ def serve():
             except (OSError, ValueError, IndexError):
                 status, payload = IO, b""
             response = encode(op, sequence, status, payload)
-            cache_seq, cache_response = sequence, response
+            if status != AGAIN:
+                cache_seq, cache_response = sequence, response
         freya_link.queue(response, True)
         queued_reply = True
 

@@ -792,6 +792,10 @@ in place of a program image. `saveflash` copies it back, default
 `/autorun.bin` is absent. `make flash SCRIPT=boot.sh AUTOSTART=1` writes
 that script into the module with the flag already set.
 
+`password("xxxxxxxx")` stores eight printable bytes in that same slot.
+The next boot asks for them before the prompt. `password("off")` clears
+the password. `password()` says whether it is set.
+
 ## Limits
 
 | Limit | Value |

@@ -1,6 +1,7 @@
 #include <string.h>
 #include <time.h>
 #include "py/runtime.h"
+#include "py/mperrno.h"
 #include "py/mphal.h"
 #include "driver/gpio.h"
 #include "driver/spi_slave.h"
@@ -8,7 +9,7 @@
 #include "esp_heap_caps.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
-#include "esp_ping.h"
+#include "apps/ping/ping_sock.h"
 #include "esp_tls.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -47,7 +48,7 @@ static mp_obj_t link_init(void)
         .max_transfer_sz = FRAME_SIZE,
     };
     spi_slave_interface_config_t slave = {
-        .spics_io_num = GPIO_NUM_10,
+        .spics_io_num = GPIO_NUM_14,
         .queue_size = 1,
         .mode = 0,
     };
@@ -59,6 +60,7 @@ static mp_obj_t link_init(void)
     if (!s_tx || !s_rx) mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("DMA buffers"));
     gpio_set_direction(READY_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_level(READY_GPIO, 0);
+    gpio_set_pull_mode(GPIO_NUM_14, GPIO_PULLUP_ONLY);
     err = spi_slave_initialize(SPI2_HOST, &bus, &slave, SPI_DMA_CH_AUTO);
     if (err != ESP_OK) mp_raise_OSError(err);
     return mp_const_none;

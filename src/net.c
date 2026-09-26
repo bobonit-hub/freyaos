@@ -436,6 +436,146 @@ int net_http_close(void)
     return rpc(ESP_OP_HTTP_CLOSE, NULL, 0, NULL, &n);
 }
 
+#define TERM_CHUNK 240
+
+void term_pump(void)
+{
+    uint8_t req[11 + TERM_CHUNK];
+    uint8_t resp[3 + TERM_CHUNK];
+    static uint32_t next_ms;
+    static uint8_t state;
+    static uint8_t busy;
+    uint16_t nresp;
+    int ntx, nrx, i, rc;
+    uint32_t now;
+
+    if (busy || !esp_link_is_open() || s_rpc_op) return;
+    now = sys_ticks();
+    if (!uart_term_pending() && (int32_t)(now - next_ms) < 0) return;
+
+    memset(req, 0, 11);
+#ifdef FREYA_APP_FLASH_ADDR
+    if (app_password_enabled()) {
+        req[0] = 1;
+        app_password_read(req + 1);
+    }
+#endif
+    ntx = uart_term_peek(req + 11, TERM_CHUNK);
+    req[9] = (uint8_t)ntx;
+    req[10] = (uint8_t)(ntx >> 8);
+
+    busy = 1;
+    rc = esp_link_submit(ESP_OP_TERM, req, (uint16_t)(11 + ntx));
+    memset(req + 1, 0, 8);
+    if (rc) {
+        busy = 0;
+        next_ms = sys_ticks() + 20;
+        return;
+    }
+    for (;;) {
+        rc = esp_link_poll();
+        if (rc != 0) break;
+#ifndef FREYA_HOST
+        __wfi();
+#endif
+    }
+    if (rc < 0) {
+        busy = 0;
+        next_ms = sys_ticks() + 20;
+        return;
+    }
+    nresp = sizeof resp;
+    rc = esp_link_response(ESP_OP_TERM, resp, &nresp);
+    busy = 0;
+    if (rc < 0) {
+        next_ms = sys_ticks() + 20;
+        return;
+    }
+    uart_term_drop(ntx);
+    if (nresp < 3) {
+        next_ms = sys_ticks() + 20;
+        return;
+    }
+    state = resp[0];
+    nrx = (int)resp[1] | ((int)resp[2] << 8);
+    if (nrx < 0 || nrx > TERM_CHUNK || (uint16_t)(3 + nrx) > nresp) {
+        next_ms = sys_ticks() + 20;
+        return;
+    }
+    for (i = 0; i < nrx; i++)
+        uart_rx_push(resp[3 + i]);
+    next_ms = sys_ticks() + (state >= 2 ? 20U : 500U);
+}
+
+int web_take(freya_web_req_t *req)
+{
+    uint8_t cmd = 0;
+    uint8_t resp[ESP_FRAME_PAYLOAD];
+    uint16_t n = sizeof resp;
+    int rc, path_len, query_len;
+
+    if (app_in_handler()) return FREYA_ERR_HANDLER;
+    if (!req) return FREYA_ERR_ARG;
+    if (!esp_link_is_open()) return FREYA_ERR_UNSUPPORTED;
+    rc = rpc(ESP_OP_WEB, &cmd, 1, resp, &n);
+    if (rc != 0) return rc;
+    if (n < 3) return FREYA_ERR_IO;
+    path_len = resp[1];
+    query_len = resp[2];
+    if ((resp[0] != FREYA_WEB_GET && resp[0] != FREYA_WEB_HEAD) ||
+        path_len > FREYA_WEB_PATH || query_len > FREYA_WEB_QUERY ||
+        (uint16_t)(3 + path_len + query_len) > n)
+        return FREYA_ERR_IO;
+    memset(req, 0, sizeof *req);
+    req->method = resp[0];
+    memcpy(req->path, resp + 3, (size_t)path_len);
+    memcpy(req->query, resp + 3 + path_len, (size_t)query_len);
+    return 0;
+}
+
+int web_begin(int status, const char *type, uint32_t length)
+{
+    uint8_t b[8 + FREYA_WEB_TYPE];
+    uint16_t n = 0;
+    int tlen;
+
+    if (app_in_handler()) return FREYA_ERR_HANDLER;
+    if (!esp_link_is_open()) return FREYA_ERR_UNSUPPORTED;
+    if (status < 100 || status > 599 || !type) return FREYA_ERR_ARG;
+    tlen = (int)strlen(type);
+    if (tlen < 1 || tlen > FREYA_WEB_TYPE) return FREYA_ERR_ARG;
+    b[0] = 1;
+    put16(b + 1, (uint16_t)status);
+    put32(b + 3, length);
+    b[7] = (uint8_t)tlen;
+    memcpy(b + 8, type, (size_t)tlen);
+    return rpc(ESP_OP_WEB, b, (uint16_t)(8 + tlen), NULL, &n);
+}
+
+int web_body(const void *data, int len)
+{
+    uint8_t b[3 + FREYA_WEB_CHUNK];
+    uint16_t n = 0;
+
+    if (app_in_handler()) return FREYA_ERR_HANDLER;
+    if (!esp_link_is_open()) return FREYA_ERR_UNSUPPORTED;
+    if (!data || len < 1 || len > FREYA_WEB_CHUNK) return FREYA_ERR_ARG;
+    b[0] = 2;
+    put16(b + 1, (uint16_t)len);
+    memcpy(b + 3, data, (size_t)len);
+    return rpc(ESP_OP_WEB, b, (uint16_t)(3 + len), NULL, &n);
+}
+
+int web_end(void)
+{
+    uint8_t cmd = 3;
+    uint16_t n = 0;
+
+    if (app_in_handler()) return FREYA_ERR_HANDLER;
+    if (!esp_link_is_open()) return FREYA_ERR_UNSUPPORTED;
+    return rpc(ESP_OP_WEB, &cmd, 1, NULL, &n);
+}
+
 #else
 
 int net_unsupported(void) { return FREYA_ERR_UNSUPPORTED; }
@@ -446,6 +586,7 @@ __asm__(
     ".global net_tls_connect, net_bind, net_listen, net_accept, net_send, net_recv\n"
     ".global net_sendto, net_recvfrom, net_poll, net_release\n"
     ".global net_http_start, net_http_info, net_http_read, net_http_close\n"
+    ".global web_take, web_begin, web_body, web_end\n"
     ".thumb_set wifi_on, net_unsupported\n"
     ".thumb_set wifi_off, net_unsupported\n"
     ".thumb_set wifi_credentials, net_unsupported\n"
@@ -472,6 +613,10 @@ __asm__(
     ".thumb_set net_http_start, net_unsupported\n"
     ".thumb_set net_http_info, net_unsupported\n"
     ".thumb_set net_http_read, net_unsupported\n"
-    ".thumb_set net_http_close, net_unsupported\n");
+    ".thumb_set net_http_close, net_unsupported\n"
+    ".thumb_set web_take, net_unsupported\n"
+    ".thumb_set web_begin, net_unsupported\n"
+    ".thumb_set web_body, net_unsupported\n"
+    ".thumb_set web_end, net_unsupported\n");
 
 #endif
