@@ -213,6 +213,19 @@ $CC $CFLAGS tests/host_shell_test.c "$OUT/shell_host.o" src/print.c \
 "$OUT/hostshell" || status=1
 
 echo
+echo "================= DS3231 ================="
+# The driver is optional.  Compile it for every board: PB6/PB7 have to be
+# that board's I2C bus 1, and the register coding does not depend on which.
+for b in blackpill bluepill stm32f405; do
+    bdef="-DFREYA_BOARD_$(echo "$b" | tr '[:lower:]' '[:upper:]')"
+    # shellcheck disable=SC2086
+    $CC -std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
+        -Iinclude -Isrc -Iboards/$b $bdef -DFREYA_HOST -DFREYA_RTC_DS3231 \
+        tests/host_ds3231_test.c src/ds3231.c -o "$OUT/hostds3231-$b"
+    "$OUT/hostds3231-$b" || status=1
+done
+
+echo
 echo "================= firmware sum ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_cksum_test.c src/cksum.c -o "$OUT/hostcksum"

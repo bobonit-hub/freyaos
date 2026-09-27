@@ -14,6 +14,8 @@
  * open(), read(), write(), close(), seek() and flush() are the file calls.
  * match(), find() and gsub() are Lua patterns: % classes, captures.
  * now(), date(), time() and the calendar fields read the software clock.
+ * The date command is that clock as text.  Built with RTC=ds3231, the
+ * command also reads and sets a DS3231 on PB6 (SCL) and PB7 (SDA).
  * timer() and irq() arm a hardware timer or a pin edge.  wait() runs the
  * script function named for that source, in thread mode, then returns.
  * 'fn' defines a function of up to 32 arguments.  'return' leaves it
@@ -1573,9 +1575,16 @@ static int cmd_status(int argc, char **argv)
     return 0;
 }
 
-static int cmd_date(int argc, char **argv)
+/* The F4 images keep this command in the kernel extension.  The Blue
+ * Pill linker leaves the section in the kernel, which still has room. */
+#define DATE_TEXT __attribute__((noinline, section(".text.cmd_date")))
+
+static int DATE_TEXT cmd_date(int argc, char **argv)
 {
     rtc_time_t t;
+#ifdef FREYA_RTC_DS3231
+    int wr = 0;
+#endif
 
     if (argc >= 3) {
         uint32_t y, mo, d, h, mi, s = 0;
@@ -1609,13 +1618,34 @@ static int cmd_date(int argc, char **argv)
         }
         t.year = (uint16_t)y; t.mon = (uint8_t)mo; t.day = (uint8_t)d;
         t.hour = (uint8_t)h;  t.min = (uint8_t)mi; t.sec = (uint8_t)s;
+#ifdef FREYA_RTC_DS3231
+        /* A date the chip cannot store leaves the software clock as it
+         * was.  Any other failure still sets that clock: a board built
+         * with the driver and no chip fitted has to be able to set it. */
+        wr = ds3231_write(&t);
+        if (wr == FREYA_ERR_ARG) {
+            kprintf("date: value out of range\r\n");
+            return -1;
+        }
+#endif
         rtc_set(&t);
     }
+#ifdef FREYA_RTC_DS3231
+    else if (ds3231_read(&t) == 0) {
+        rtc_set(&t);
+    }
+#endif
 
     rtc_get(&t);
     kput_hms(t.year, t.mon, t.day, t.hour, t.min, t.sec);
     kprintf("\r\n");
     if (argc < 3) kprintf("(set it with: date YYYY-MM-DD HH:MM:SS)\r\n");
+#ifdef FREYA_RTC_DS3231
+    if (argc >= 3 && wr != 0) {
+        kprintf("date: DS3231 was not written\r\n");
+        return -1;
+    }
+#endif
     return 0;
 }
 

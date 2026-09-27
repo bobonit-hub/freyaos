@@ -114,6 +114,9 @@ void freya_main(void)
     kprintf("[boot] console    : %s\r\n", BOARD_CONSOLE_NAME);
     kprintf("[boot] checksum   : ");
     fw_cksum_show();
+#ifdef FREYA_RTC_DS3231
+    ds3231_boot();
+#endif
 
     boot_storage();
     boot_autorun();

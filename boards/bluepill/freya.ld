@@ -101,7 +101,8 @@ SECTIONS
         *vm.o(.text .text.*)
         /* Socket power is left for .text.  This extension has no room
          * for it; the 48 KiB image still does.  The Black Pill script
-         * claims those sections up here instead. */
+         * claims those sections up here instead.  The DS3231 read
+         * stays in the kernel image for the same reason. */
         *shell.o(.text.shell_poll_runtime)
         /* Terminal login, the password and the settings area are
          * runtime-only.  Keep them in the extension so the fixed 48 KiB
@@ -144,6 +145,14 @@ SECTIONS
         *loader.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_api)
         *shell.o(.rodata.s_cmds)
+        /* The DS3231 read stays in the kernel image.  The write and the
+         * boot call fit here; the extension has no room for both halves. */
+        *ds3231.o(.text.ds3231_write)
+        *ds3231.o(.text.ds3231_write.*)
+        *ds3231.o(.rodata.ds3231_write*)
+        *ds3231.o(.text.ds3231_boot)
+        *ds3231.o(.text.ds3231_boot.*)
+        *ds3231.o(.rodata.ds3231_boot*)
         . = ALIGN(4);
         __kext_end = .;
     } > KEXT

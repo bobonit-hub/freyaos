@@ -3,6 +3,7 @@
 #   make                    build the kernel image and the example programs
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
 #   make BOARD=stm32f405    build for the STM32F405xx (8 MHz crystal)
+#   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
 #   make flash              flash the image with st-flash
 #   make flash PROGRAM=hello
 #                           flash the kernel and one program into the module
@@ -69,7 +70,29 @@ LDFLAGS   := $(CPUFLAGS) -nostdlib -T $(LDSCRIPT) \
              -Wl,--gc-sections -Wl,--build-id=none \
              -Wl,-Map=$(BUILD)/$(TARGET).map
 
-CSRC      := $(wildcard $(SRC_DIR)/*.c)
+# The DS3231 driver is left out unless the build asks for it.  The pins
+# are PB6 (SCL) and PB7 (SDA) on every board; INT/SQW, 32 kHz and RST
+# are not connected.  The software clock is built either way.
+RTC ?=
+CSRC      := $(filter-out $(SRC_DIR)/ds3231.c,$(wildcard $(SRC_DIR)/*.c))
+ifeq ($(RTC),ds3231)
+CFLAGS    += -DFREYA_RTC_DS3231
+CSRC      += $(SRC_DIR)/ds3231.c
+else ifneq ($(RTC),)
+$(error RTC='$(RTC)' is not a supported clock - use RTC=ds3231, or leave RTC unset)
+endif
+
+# main.c and shell.c compile different code when RTC changes, and the
+# driver appears or disappears.  The stamp is rewritten only when the
+# value changes, so an ordinary rebuild does not redo those files.
+$(BUILD)/rtc.stamp: FORCE | $(BUILD)
+	@echo '$(RTC)' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
+
+$(BUILD)/main.o $(BUILD)/shell.o $(BUILD)/ds3231.o: $(BUILD)/rtc.stamp
+
+.PHONY: FORCE
+FORCE:
 ASRC      := $(wildcard $(SRC_DIR)/*.s) $(wildcard $(SRC_DIR)/*.S)
 BCSRC     := $(wildcard $(BOARD_DIR)/*.c)
 BASRC     := $(wildcard $(BOARD_DIR)/*.s)

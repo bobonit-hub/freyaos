@@ -1,5 +1,5 @@
 /*
- * Freya - SysTick time base, reset cause, delays and the software RTC.
+ * Freya - SysTick time base, reset cause, delays and the software clock.
  *
  * The clock tree itself is the board's business: board_clock_init() brings
  * the PLL up and fills in g_clocks, and everything here works from those
@@ -103,7 +103,8 @@ static int is_leap(uint32_t y)
     return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
 }
 
-/* Freya boots believing it is 2026-01-01 00:00:00 until 'date' says otherwise. */
+/* Freya boots believing it is 2026-01-01 00:00:00 until 'date' says
+ * otherwise, or until a DS3231 built in with RTC=ds3231 supplies a time. */
 static uint32_t s_rtc_base = 1767225600UL;   /* 2026-01-01T00:00:00Z */
 
 void rtc_set(const rtc_time_t *t)

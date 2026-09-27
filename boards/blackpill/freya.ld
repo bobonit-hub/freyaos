@@ -141,6 +141,11 @@ SECTIONS
         *shell.o(.text.cmd_pwd)
         *shell.o(.text.cmd_reboot)
         *shell.o(.rodata.cmd_reboot*)
+        /* date grew when the DS3231 was added.  The 48 KiB image has no
+         * room for that, and the command is not needed to boot. */
+        *shell.o(.text.cmd_date)
+        *shell.o(.text.cmd_date.*)
+        *shell.o(.rodata.cmd_date*)
         *shell.o(.text.kext_script)
         *shell.o(.text.kext_script.*)
         *loader.o(.text.kext_script)
@@ -162,6 +167,10 @@ SECTIONS
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_api)
+        /* Optional DS3231.  A build that did not pass RTC=ds3231 has no
+         * such object, and this wildcard then matches nothing. */
+        *ds3231.o(.text .text.*)
+        *ds3231.o(.rodata .rodata.*)
         . = ALIGN(4);
         __kext_end = .;
     } > KEXT

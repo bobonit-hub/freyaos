@@ -83,7 +83,10 @@ void        led_init(void);
 void        led_set(int on);
 void        led_toggle(void);
 
-/* Software real time clock (no battery backed RTC on the board). */
+/* Civil time counted from SysTick.  rtc_set() is what the date command
+ * stores, and what file timestamps read.  It is not battery backed.
+ * RTC=ds3231 adds a DS3231 on the pins below; the shell copies it into
+ * this count at boot and writes it back when the date is set. */
 typedef struct {
     uint16_t year;
     uint8_t  mon, day, hour, min, sec;
@@ -93,6 +96,26 @@ void     rtc_set(const rtc_time_t *t);
 void     rtc_get(rtc_time_t *t);
 uint16_t rtc_fat_date(void);
 uint16_t rtc_fat_time(void);
+
+#ifdef FREYA_RTC_DS3231
+/* SCL and SDA are the only DS3231 pins connected to the MCU. */
+#define DS3231_SCL       FREYA_PB(6)
+#define DS3231_SDA       FREYA_PB(7)
+#define DS3231_ADDR      0x68
+
+/* 0 the time is valid and *t was filled.  FREYA_ERR_ARG the chip
+ * answered but the time is not valid (oscillator stopped, or the
+ * registers do not decode).  FREYA_ERR_NACK nothing answered. */
+int      ds3231_read(rtc_time_t *t);
+int      ds3231_write(const rtc_time_t *t);   /* 0, or FREYA_ERR_*       */
+int      ds3231_pins_match(void);   /* 1 when bus 1 is the pins above    */
+void     ds3231_boot(void);         /* read the chip into the software clock */
+#ifdef FREYA_HOST
+void     ds3231_test_load(const uint8_t *mem, int n);
+void     ds3231_test_fail(int rc);
+void     ds3231_test_save(uint8_t *dst, int n);
+#endif
+#endif
 
 /* --------------------------------------------------------------- uart */
 void uart_init(uint32_t baud);

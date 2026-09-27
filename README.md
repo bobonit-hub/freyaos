@@ -100,6 +100,10 @@ Freya 3.0 "Poltergeist" for STM32F103C8T6
   slower when a microsecond cannot land on it. Bus 1 is PB6/PB7 on both
   boards; `i2c 1 scan` at the console and `samples/i2c` do the same thing
   ([docs/i2c.md](docs/i2c.md)).
+* Can keep civil time on a DS3231 when the image is built with
+  `make RTC=ds3231`. The chip's SCL goes to PB6 and its SDA to PB7, and
+  its other pins stay unconnected. At boot a valid chip is copied into
+  the software clock, and `date` writes both.
 * Speaks 1-Wire at standard speed on any spare pin: presence, byte reads
   and writes, and the ROM search. The data line needs a pull-up to 3.3 V.
   `w1 PB12 search` at the console lists the ROMs, and `samples/w1` reads
@@ -173,6 +177,11 @@ on the pin's own weak pull-up; the Blue Pill cannot, so the resistors are
 required there. A pin that is already a PWM output is not also an I2C pin
 until that channel is turned off.
 
+A DS3231 uses that same pair and no other MCU pin. SCL is PB6, SDA is PB7,
+and the chip address is 0x68. Leave 32 kHz, INT/SQW and RST unconnected.
+The driver is compiled only with `make RTC=ds3231`; the wiring and what
+`date` does with the chip are in [docs/i2c.md](docs/i2c.md).
+
 1-Wire uses one spare pin, open drain, with a pull-up to 3.3 V. 4.7 kΩ is
 the usual value. The Black Pill also turns on the pin's own weak pull-up;
 the Blue Pill cannot, so the resistor is required there. A pin that is
@@ -213,10 +222,14 @@ distribution package) and `make`.
 make                   # Black Pill kernel image + example programs
 make BOARD=bluepill    # the same for the Blue Pill
 make BOARD=stm32f405   # the same for the STM32F405xx
+make RTC=ds3231        # also build the DS3231 driver (PB6 SCL, PB7 SDA)
 make size              # section sizes
 make test              # run the filesystem and XMODEM code on the host
 make clean
 ```
+
+`RTC=ds3231` combines with `BOARD=`. Leave `RTC` unset and the driver is
+left out of the image. Any other value stops the build.
 
 Each board builds into its own directory, so the two never overwrite each
 other: the result is `build/<board>/freya.bin` (around 42.5 KiB on the Black
@@ -333,7 +346,7 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `autostart [on\|off]` | run the flash program or script automatically at boot |
 | `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (default off) |
 | `password [<8 bytes>\|off]` | set or clear the 8-byte terminal password |
-| `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps |
+| `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps; with `RTC=ds3231`, also the chip on PB6/PB7 |
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `crypt [<key> <nonce> <hex>]` | XTEA-CTR: the same call encrypts and decrypts |
 | `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin: `pin PB5 out 1`, `pin PB0 up` |
@@ -852,6 +865,7 @@ is measured rather than guessed).
 | `src/timer.c` | the general purpose timers and their interrupts |
 | `src/pwm.c` | the compare channels of those timers, driving pins |
 | `src/i2c.c` | I2C master, on the buses the board header names |
+| `src/ds3231.c` | optional DS3231 clock, built with `RTC=ds3231`; SCL is PB6, SDA is PB7 |
 | `src/w1.c` | 1-Wire master, standard speed, on a pin a program names |
 | `src/crypt.c` | XTEA in CTR mode, for a program and for `crypt` |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
@@ -871,7 +885,7 @@ is measured rather than guessed).
 | `docs/shell.md` | the shell language: values, expressions, control, variables, functions |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
-| `docs/i2c.md` | the I2C master API, the pins, and the `i2c` command |
+| `docs/i2c.md` | the I2C master API, the pins, the optional DS3231, and the `i2c` command |
 | `docs/spi.md` | the SPI master API, the pins, and the `spi` command |
 | `docs/network.md` | ESP32-C6 wiring, Wi-Fi commands and the asynchronous network API |
 | `docs/w1.md` | the 1-Wire master API, the pin, and the `w1` command |
@@ -992,8 +1006,9 @@ ALL TESTS PASSED
 * FAT12 is not supported (cards that small are rare); FAT16 and FAT32 are.
 * Long file names are read and written as ASCII; UTF-16 beyond ASCII becomes
   `?` on display.
-* There is no battery backed clock on the board, so file timestamps come from a
-  software clock that starts at 2026-01-01 and is set with `date`.
+* File timestamps come from a software clock that starts at 2026-01-01 and is
+  set with `date`. A build with `RTC=ds3231` also keeps that time on a DS3231
+  wired to PB6 (SCL) and PB7 (SDA).
 * One program at a time. Its main thread is the shell's stack; any thread
   it creates has a 1 KiB stack of its own. There is no MPU isolation.
 * A pin interrupt is one of sixteen hardware lines, and line *n* serves pin

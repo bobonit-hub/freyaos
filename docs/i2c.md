@@ -73,6 +73,43 @@ the pin's own pull-up as well, about 40 kΩ, which will sometimes carry one
 device on a short run of wire and will not carry a bus. The Blue Pill cannot
 turn a pull-up on for an output, so the resistors are not optional there.
 
+## DS3231
+
+The kernel can keep civil time on a DS3231. The driver is optional:
+
+```sh
+make RTC=ds3231                  # Black Pill, with the chip
+make BOARD=bluepill RTC=ds3231   # Blue Pill
+make BOARD=stm32f405 RTC=ds3231  # STM32F405xx
+```
+
+Leave `RTC` unset and `src/ds3231.c` is not compiled. Any other value is an
+error. `BOARD=` still selects the image, the same as any other build.
+
+Only the chip's I2C pins are wired, to the bus 1 pair, which is fixed in
+the driver rather than chosen at run time:
+
+| Chip pin | MCU pin |
+|---|---|
+| SCL | PB6 |
+| SDA | PB7 |
+
+The 7-bit address is 0x68 and the bus runs at 100 kHz. VCC, GND and the
+battery pin are the chip's own supply; 32 kHz, INT/SQW and RST stay
+unconnected. SCL and SDA still need the pull-ups above. PB6 and PB7 are
+also PWM pins, so a channel left running on either one keeps the clock
+off the bus.
+
+At boot a chip whose oscillator-stop flag is clear is copied into the
+software clock. `date` with no arguments does the same. `date YYYY-MM-DD
+HH:MM:SS` writes the chip and then the software clock. Years are 2000
+through 2199, and a date the chip cannot store leaves the software clock
+as it was. If the chip does not answer, the software clock is still set
+and the command reports that the chip was not written. A successful write
+turns the square wave and the alarms off and leaves the 32 kHz pin high
+impedance. Until that write, a chip that has never been set may still
+drive its 32 kHz pin.
+
 ## What a transfer does
 
 The call does not return until the bytes have moved or the bus has had long

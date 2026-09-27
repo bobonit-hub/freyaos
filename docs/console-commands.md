@@ -41,7 +41,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `autostart(["on"\|"off"])` | run the flash program or script automatically at boot |
 | `ramdump(["on"\|"off"])` | write SRAM to `/freya.ram` after a BusFault (default off) |
 | `password(["xxxxxxxx"\|"off"])` | set or clear the 8-byte terminal password in the auto-start slot |
-| `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps |
+| `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps; with `RTC=ds3231`, also the chip on PB6/PB7 |
 | `loglevel(["level"])` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `pin(["pin" [, "mode"\|level [, level]]])` | list pins, or read or drive one |
 | `pwm(["pin" [, hz [, duty]]])` | list the PWM channels, or start and stop one |
@@ -152,6 +152,18 @@ servo sits at. A channel started here keeps running — that is the point of it
 Frequencies are 1 Hz to 1 MHz, the channels of one timer share one frequency,
 and a timer driving pins is not one a program can open with `timer_open()`.
 [docs/interrupts.md](interrupts.md) has the rest.
+
+## Clock
+
+`date` shows the software clock, or sets it. The clock starts at
+2026-01-01 until it is set, and file timestamps read it. A kernel built
+with `make RTC=ds3231` also talks to a DS3231: SCL on PB6, SDA on PB7,
+and no other MCU pin. `date` with no arguments copies a valid chip into
+the software clock. Setting the date writes the chip first. A date the
+chip cannot store is refused and the software clock is left as it was.
+If the chip does not answer, the software clock is still set and the
+command says the chip was not written. The wiring is in
+[i2c.md](i2c.md).
 
 ## I2C at the prompt
 
