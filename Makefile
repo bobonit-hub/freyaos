@@ -4,6 +4,8 @@
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
 #   make BOARD=stm32f405    build for the STM32F405xx (8 MHz crystal)
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
+#   make FIRMWARE_VERSION=3.0.1
+#                           override the firmware version
 #   make flash              flash the image with st-flash
 #   make flash PROGRAM=hello
 #                           flash the kernel and one program into the module
@@ -63,6 +65,16 @@ CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) \
              -Wno-unused-parameter \
              -Iinclude -I$(SRC_DIR) -I$(BOARD_DIR)
 
+# With no override, src/freya.h supplies the hardcoded release version.
+# An override must remain the same three-component numeric form.
+FIRMWARE_VERSION ?=
+ifneq ($(strip $(FIRMWARE_VERSION)),)
+ifeq ($(shell printf '%s\n' '$(FIRMWARE_VERSION)' | grep -Ec '^[0-9]+\.[0-9]+\.[0-9]+$$'),0)
+$(error FIRMWARE_VERSION='$(FIRMWARE_VERSION)' is invalid - use major.minor.patch, for example 3.0.1)
+endif
+CFLAGS    += -DFREYA_FIRMWARE_VERSION='"$(FIRMWARE_VERSION)"'
+endif
+
 ASFLAGS   := $(CPUFLAGS) -g3
 
 LDSCRIPT  := $(BOARD_DIR)/freya.ld
@@ -90,6 +102,14 @@ $(BUILD)/rtc.stamp: FORCE | $(BUILD)
 	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
 
 $(BUILD)/main.o $(BUILD)/shell.o $(BUILD)/ds3231.o: $(BUILD)/rtc.stamp
+
+# Command-line flag changes are not visible to make's dependency scanner.
+# Keep the shell object, which displays the version, tied to the value.
+$(BUILD)/firmware-version.stamp: FORCE | $(BUILD)
+	@echo '$(FIRMWARE_VERSION)' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
+
+$(BUILD)/shell.o: $(BUILD)/firmware-version.stamp
 
 .PHONY: FORCE
 FORCE:

@@ -223,13 +223,17 @@ make                   # Black Pill kernel image + example programs
 make BOARD=bluepill    # the same for the Blue Pill
 make BOARD=stm32f405   # the same for the STM32F405xx
 make RTC=ds3231        # also build the DS3231 driver (PB6 SCL, PB7 SDA)
+make FIRMWARE_VERSION=3.0.1
+                       # override the hardcoded firmware version
 make size              # section sizes
 make test              # run the filesystem and XMODEM code on the host
 make clean
 ```
 
-`RTC=ds3231` combines with `BOARD=`. Leave `RTC` unset and the driver is
-left out of the image. Any other value stops the build.
+`RTC=ds3231` and `FIRMWARE_VERSION=` combine with `BOARD=`. Leave `RTC`
+unset and the driver is left out of the image. The firmware version defaults
+to the value hardcoded in `src/freya.h`; an override must have
+`major.minor.patch` numeric form. `sysinfo()` displays the selected version.
 
 Each board builds into its own directory, so the two never overwrite each
 other: the result is `build/<board>/freya.bin` (around 42.5 KiB on the Black
