@@ -101,8 +101,8 @@ also PWM pins, so a channel left running on either one keeps the clock
 off the bus.
 
 At boot a chip whose oscillator-stop flag is clear is copied into the
-software clock. `date` with no arguments does the same. `date YYYY-MM-DD
-HH:MM:SS` writes the chip and then the software clock. Years are 2000
+software clock. `date()` with no arguments does the same.
+`date("YYYY-MM-DD HH:MM:SS")` writes the chip and then the software clock. Years are 2000
 through 2199, and a date the chip cannot store leaves the software clock
 as it was. If the chip does not answer, the software clock is still set
 and the command reports that the chip was not written. A successful write

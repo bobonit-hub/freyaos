@@ -111,12 +111,19 @@ void     sys_reboot(void)              { s_rebooted = 1; }
 const char *sys_reset_cause_str(void)  { return "power-on"; }
 void     sys_delay_ms(uint32_t ms)     { (void)ms; }
 
+static rtc_time_t s_rtc_set_time;
+static int s_rtc_set_count;
+
 void rtc_get(rtc_time_t *t)
 {
     t->year = 2026; t->mon = 9; t->day = 22;
     t->hour = 12; t->min = 0; t->sec = 0;
 }
-void rtc_set(const rtc_time_t *t)      { (void)t; }
+void rtc_set(const rtc_time_t *t)
+{
+    s_rtc_set_time = *t;
+    s_rtc_set_count++;
+}
 
 char to_upper(char c)
 {
@@ -2314,6 +2321,19 @@ int main(void)
     rc = run("set s date()");
     rc = run("echo $s");
     expect_exact("date formats the clock", "2026-09-22 12:00:00\r\n");
+    rc = run("help(\"date\")");
+    expect_exact("date help shows the supported string form",
+                 "date([\"YYYY-MM-DD HH:MM:SS\"])\r\n");
+    s_rtc_set_count = 0;
+    rc = run("date(\"2026-09-27 21:40:00\")");
+    expect_rc("date command accepts its documented string", rc, 0);
+    if (s_rtc_set_count == 1 &&
+        s_rtc_set_time.year == 2026 && s_rtc_set_time.mon == 9 &&
+        s_rtc_set_time.day == 27 && s_rtc_set_time.hour == 21 &&
+        s_rtc_set_time.min == 40 && s_rtc_set_time.sec == 0)
+        pass("date command sets every clock field");
+    else
+        fail("date command sets every clock field");
     rc = run("set n year()");
     rc = run("echo $n");
     expect_exact("year reads the clock", "2026\r\n");

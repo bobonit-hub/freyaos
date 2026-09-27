@@ -1582,14 +1582,44 @@ static int cmd_status(int argc, char **argv)
 static int DATE_TEXT cmd_date(int argc, char **argv)
 {
     rtc_time_t t;
+    const char *date_arg = NULL;
+    const char *time_arg = NULL;
+    char date_buf[16];
 #ifdef FREYA_RTC_DS3231
     int wr = 0;
 #endif
 
-    if (argc >= 3) {
+    if (argc == 2) {
+        const char *p = argv[1];
+        int n = 0;
+
+        while (p[n] && p[n] != ' ' && p[n] != '\t') n++;
+        if (!p[n] || n >= (int)sizeof date_buf) {
+            kprintf("date: use YYYY-MM-DD HH:MM:SS\r\n");
+            return -1;
+        }
+        memcpy(date_buf, p, (size_t)n);
+        date_buf[n] = '\0';
+        p += n;
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) {
+            kprintf("date: use YYYY-MM-DD HH:MM:SS\r\n");
+            return -1;
+        }
+        date_arg = date_buf;
+        time_arg = p;
+    } else if (argc == 3) {
+        date_arg = argv[1];
+        time_arg = argv[2];
+    } else if (argc > 3) {
+        kprintf("date: use YYYY-MM-DD HH:MM:SS\r\n");
+        return -1;
+    }
+
+    if (date_arg) {
         uint32_t y, mo, d, h, mi, s = 0;
         char buf[16];
-        const char *p = argv[1];
+        const char *p = date_arg;
         int n = 0;
 
         /* YYYY-MM-DD HH:MM[:SS] */
@@ -1601,7 +1631,7 @@ static int DATE_TEXT cmd_date(int argc, char **argv)
             if (*p) p++;
             if (str_to_u32(buf, dst) != 0) { kprintf("date: bad date\r\n"); return -1; }
         }
-        p = argv[2];
+        p = time_arg;
         for (int i = 0; i < 3; i++) {
             uint32_t *dst = (i == 0) ? &h : (i == 1) ? &mi : &s;
             n = 0;
@@ -1639,9 +1669,10 @@ static int DATE_TEXT cmd_date(int argc, char **argv)
     rtc_get(&t);
     kput_hms(t.year, t.mon, t.day, t.hour, t.min, t.sec);
     kprintf("\r\n");
-    if (argc < 3) kprintf("(set it with: date YYYY-MM-DD HH:MM:SS)\r\n");
+    if (argc == 1)
+        kprintf("(set it with: date(\"YYYY-MM-DD HH:MM:SS\"))\r\n");
 #ifdef FREYA_RTC_DS3231
-    if (argc >= 3 && wr != 0) {
+    if (date_arg && wr != 0) {
         kprintf("date: DS3231 was not written\r\n");
         return -1;
     }

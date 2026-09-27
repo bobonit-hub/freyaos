@@ -346,7 +346,7 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `autostart [on\|off]` | run the flash program or script automatically at boot |
 | `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (default off) |
 | `password [<8 bytes>\|off]` | set or clear the 8-byte terminal password |
-| `date [YYYY-MM-DD HH:MM:SS]` | show or set the clock used for file timestamps; with `RTC=ds3231`, also the chip on PB6/PB7 |
+| `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps; with `RTC=ds3231`, also the chip on PB6/PB7 |
 | `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
 | `crypt [<key> <nonce> <hex>]` | XTEA-CTR: the same call encrypts and decrypts |
 | `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin: `pin PB5 out 1`, `pin PB0 up` |
