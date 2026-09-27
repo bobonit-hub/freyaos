@@ -1,7 +1,7 @@
 /*
  * Freya - SRAM dump to the SD card after a BusFault.
  *
- * The write is gated by the third word of the auto-start slot (`ramdump
+ * The write is gated by the ram-dump flag in system settings (`ramdump
  * on`); erased flash means off.  It runs in thread mode, never from the
  * BusFault handler: SysTick does not preempt the fault, and the SD driver
  * times out against that tick.  A program fault dumps from the abort

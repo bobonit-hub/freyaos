@@ -8,8 +8,8 @@
  *
  * The addresses here have to agree with FREYA_APP_FLASH_ADDR and
  * FREYA_APP_LOAD_ADDR in include/freya_api.h, and with boards/bluepill/
- * freya.ld.  ORIGIN is 128-byte aligned so it sits immediately after the
- * auto-start slot.  Nothing can check that at link time - a linker script
+ * freya.ld.  ORIGIN is the first byte after the kernel image.  System
+ * settings live at the end of flash, not in front of this region.  Nothing can check that at link time - a linker script
  * cannot include a C header - so the kernel compares the two at boot.
  */
 
@@ -17,7 +17,7 @@ ENTRY(app_main)
 
 MEMORY
 {
-    APPFLASH (rx)  : ORIGIN = 0x0800C080, LENGTH = 29568
+    APPFLASH (rx)  : ORIGIN = 0x0800C000, LENGTH = 28672
     APPRAM   (rwx) : ORIGIN = 0x20001800, LENGTH = 8K
 }
 

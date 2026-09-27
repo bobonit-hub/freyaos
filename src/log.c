@@ -6,9 +6,9 @@
  * is renamed to /freya.log.old (after dropping any previous copy), so one
  * rotated log is kept and the rename is a directory-entry swap.
  *
- * The current level lives in RAM.  On a board with the auto-start slot it
- * is also the second word of that slot, so it survives a reset the same
- * way the auto-run and ram-dump flags do.
+ * The current level lives in RAM.  On a board with system settings it is
+ * also stored there, so it survives a reset the same way the auto-run
+ * and ram-dump flags do.
  *
  * With no card (or a volume that is not mounted) the file backend is not
  * used: a stub writes the same line to the console and never touches SPI

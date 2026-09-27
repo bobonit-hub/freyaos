@@ -45,73 +45,82 @@
  * also defines FREYA_APP_FLASH_ADDR and FREYA_APP_FLASH_SIZE.  Such a
  * program is stored there and copied to RAM before it executes when code
  * and writable state fit together; larger programs retain XIP execution.
- * A 128-byte aligned slot immediately before that region holds the
- * auto-start flag (first word), the default log level (second word),
- * the ram-dump-on-BusFault flag (third word), the firmware control
- * sum (fourth word) and the terminal password (eight bytes).  An erased
- * password, eight 0xFF bytes, leaves the terminal open.  That sum covers
- * the kernel image and the kernel extension; the four bytes it occupies
- * are left out of the sum.
+ *
+ * System settings occupy the last erase-friendly block of internal flash,
+ * after the kernel extension.  Two copies are stored.  Each copy begins
+ * with FREYA_SETTINGS_MAGIC and ends its named fields with a checksum of
+ * every other byte in the copy.  Named fields, in order, are the
+ * auto-start flag, the default log level, the ram-dump-on-BusFault flag,
+ * the firmware control sum and the terminal password (eight bytes).  An
+ * erased password, eight 0xFF bytes, leaves the terminal open.  The
+ * firmware sum covers the kernel image and the kernel extension; it lives
+ * outside both, so those images do not include it.
+ *
+ * The area is 1 KiB: one Blue Pill page, so a settings erase never shares
+ * a page with the kernel extension.  On the F4 the same 1 KiB is the tail
+ * of the last 128 KiB sector of the 512 KiB map.  A 1 MiB F405 keeps that
+ * address; the extra flash above 512 KiB stays unused.
  *
  * Every supported board has at least 128 KiB of internal flash.  The Blue
- * Pill size register often still reads 64; the program region runs to the
- * end of that 128 KiB anyway.
+ * Pill size register often still reads 64; the map runs to the end of
+ * that 128 KiB anyway.
  */
+#define FREYA_SETTINGS_MAGIC     0x54455346UL   /* 'F','S','E','T' */
+#define FREYA_SETTINGS_BLOCK     64U
+#define FREYA_SETTINGS_COPIES    2U
+#define FREYA_SETTINGS_DATA      (FREYA_SETTINGS_BLOCK * FREYA_SETTINGS_COPIES)
+#define FREYA_SET_MARKER_OFF     0U
+#define FREYA_SET_AUTOSTART_OFF  4U
+#define FREYA_SET_LOGLEVEL_OFF   8U
+#define FREYA_SET_RAMDUMP_OFF    12U
+#define FREYA_SET_CKSUM_OFF      16U            /* firmware control sum */
+#define FREYA_SET_PASSWORD_OFF   20U
+#define FREYA_SET_SUM_OFF        28U            /* checksum of this copy */
+/* Names the rest of the kernel already uses.  Offsets are within one copy. */
+#define FREYA_AUTOSTART_ADDR     FREYA_SETTINGS_ADDR
+#define FREYA_AUTOSTART_SIZE     FREYA_SETTINGS_SIZE
+#define FREYA_LOGLEVEL_OFF       FREYA_SET_LOGLEVEL_OFF
+#define FREYA_RAMDUMP_OFF        FREYA_SET_RAMDUMP_OFF
+#define FREYA_CKSUM_OFF          FREYA_SET_CKSUM_OFF
+#define FREYA_PASSWORD_OFF       FREYA_SET_PASSWORD_OFF
+#define FREYA_PASSWORD_LEN       8U
 #if defined(FREYA_BOARD_BLUEPILL)
-#define FREYA_APP_LOAD_ADDR    0x20001800UL     /* 20 KiB of SRAM */
-#define FREYA_APP_REGION_SIZE  (8U * 1024U)
-#define FREYA_AUTOSTART_ALIGN  128U
-#define FREYA_AUTOSTART_ADDR   0x0800C000UL     /* page 48, 128-byte aligned */
-#define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
-#define FREYA_LOGLEVEL_OFF     4U               /* second word of that slot */
-#define FREYA_RAMDUMP_OFF      8U               /* third word of that slot  */
-#define FREYA_CKSUM_OFF        12U              /* fourth word: firmware sum */
-#define FREYA_PASSWORD_OFF     16U              /* eight bytes after the sum */
-#define FREYA_PASSWORD_LEN     8U
-#define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
-/* The last 51 KiB of the 128 KiB holds the kernel extension (threads,
- * the shell's script interpreter, its variables and functions, the SPI
- * master, XMODEM, the cipher and the virtual machine), so an install
- * does not erase it. */
-#define FREYA_APP_FLASH_SIZE   (0x08013400UL - FREYA_APP_FLASH_ADDR)
-#if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
-    (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
-    (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)
-#error "Blue Pill auto-start slot and program flash must be 128-byte aligned"
-#endif
+#define FREYA_APP_LOAD_ADDR      0x20001800UL   /* 20 KiB of SRAM */
+#define FREYA_APP_REGION_SIZE    (8U * 1024U)
+#define FREYA_SETTINGS_SIZE      1024U          /* last page of the 128 KiB */
+#define FREYA_SETTINGS_ADDR      (0x08020000UL - FREYA_SETTINGS_SIZE)
+#define FREYA_APP_FLASH_ADDR     0x0800C000UL
+/* The kernel extension sits above the program and stops at the settings
+ * page: threads, the shell's script interpreter, its variables and
+ * functions, the SPI master, XMODEM, the cipher and the virtual machine.
+ * One program page was given to that extension so the settings page
+ * could move to the end of flash.  An install does not erase it. */
+#define FREYA_APP_FLASH_SIZE     (0x08013000UL - FREYA_APP_FLASH_ADDR)
 #elif defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
-#define FREYA_APP_LOAD_ADDR    0x20010000UL     /* 128 KiB of SRAM */
-#define FREYA_APP_REGION_SIZE  (56U * 1024U)
-/* Kernel image occupies sectors 0..2 (48 KiB).  Sector 3 is unused except
- * for the 128-byte auto-start slot at its end, so an autostart erase never
- * shares a sector with the kernel or with the program.  Sector 4 is the
- * program.  The thread scheduler is a second image at the start of sector 5,
- * so writing the kernel does not erase it.  The F405xx sector map matches
- * this through sector 5 on both the 512 KiB and the 1 MiB densities. */
-#define FREYA_AUTOSTART_ALIGN  128U
-#define FREYA_AUTOSTART_ADDR   0x0800FF80UL     /* last 128 B of sector 3 */
-#define FREYA_AUTOSTART_SIZE   FREYA_AUTOSTART_ALIGN
-#define FREYA_LOGLEVEL_OFF     4U
-#define FREYA_RAMDUMP_OFF      8U
-#define FREYA_CKSUM_OFF        12U              /* fourth word: firmware sum */
-#define FREYA_PASSWORD_OFF     16U              /* eight bytes after the sum */
-#define FREYA_PASSWORD_LEN     8U
-#define FREYA_APP_FLASH_ADDR   (FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
-#define FREYA_APP_FLASH_SIZE   (0x08020000UL - FREYA_APP_FLASH_ADDR)
-#if (FREYA_AUTOSTART_ADDR % FREYA_AUTOSTART_ALIGN) || \
-    (FREYA_AUTOSTART_SIZE % FREYA_AUTOSTART_ALIGN) || \
-    (FREYA_APP_FLASH_ADDR % FREYA_AUTOSTART_ALIGN)
-#error "F4 auto-start slot and program flash must be 128-byte aligned"
-#endif
+#define FREYA_APP_LOAD_ADDR      0x20010000UL   /* 128 KiB of SRAM */
+#define FREYA_APP_REGION_SIZE    (56U * 1024U)
+/* Kernel image occupies sectors 0..2 (48 KiB).  Sector 3 is unused.
+ * Sector 4 is the program.  The thread scheduler is a second image at
+ * the start of sector 5, so writing the kernel does not erase it.  System
+ * settings are the last 1 KiB of sector 7.  The F405xx sector map matches
+ * this through sector 7 on both the 512 KiB and the 1 MiB densities. */
+#define FREYA_SETTINGS_SIZE      1024U
+#define FREYA_SETTINGS_ADDR      (0x08080000UL - FREYA_SETTINGS_SIZE)
+#define FREYA_APP_FLASH_ADDR     0x08010000UL
+#define FREYA_APP_FLASH_SIZE     (0x08020000UL - FREYA_APP_FLASH_ADDR)
 #else
 #error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLUEPILL or FREYA_BOARD_STM32F405"
 #endif
-#ifdef FREYA_PASSWORD_OFF
-#if (FREYA_PASSWORD_OFF % 4) || \
-    (FREYA_PASSWORD_OFF < (FREYA_CKSUM_OFF + 4U)) || \
-    ((FREYA_PASSWORD_OFF + FREYA_PASSWORD_LEN) > FREYA_AUTOSTART_SIZE)
-#error "terminal password does not fit in the auto-start slot"
+#if (FREYA_SETTINGS_ADDR % 128U) || (FREYA_SETTINGS_SIZE % 128U) || \
+    (FREYA_APP_FLASH_ADDR % 128U)
+#error "system settings and program flash must be 128-byte aligned"
 #endif
+#if (FREYA_SETTINGS_DATA > FREYA_SETTINGS_SIZE) || \
+    ((FREYA_SET_SUM_OFF + 4U) > FREYA_SETTINGS_BLOCK) || \
+    ((FREYA_SET_PASSWORD_OFF + FREYA_PASSWORD_LEN) > FREYA_SET_SUM_OFF) || \
+    (FREYA_SET_PASSWORD_OFF < (FREYA_SET_CKSUM_OFF + 4U)) || \
+    (FREYA_PASSWORD_OFF % 4U)
+#error "system settings copies do not fit in the reserved flash"
 #endif
 
 /* header flags */
@@ -780,6 +789,14 @@ typedef struct freya_api {
     int      (*shell_source_capture)(const char *path, const char *method,
                                      const char *query, char *buf, int cap,
                                      int *out_len);
+
+    /* appended: factory system settings.  settings_block() writes the
+     * default binary copy — marker, erased fields, checksum — and
+     * returns how many bytes that copy is, or FREYA_ERR_ARG when the
+     * buffer is too small.  settings_area_size() is the flash reserved
+     * at the end of internal flash for both copies. */
+    int      (*settings_block)(void *buf, int len);
+    uint32_t (*settings_area_size)(void);
 } freya_api_t;
 
 /*

@@ -24,8 +24,8 @@
 
 /* ------------------------------------------------------ internal flash */
 /* 128 KiB, in 1 KiB pages; halfword programming.  FLASHSIZE_BASE often
- * still reads 64.  The auto-start slot and the program image share page
- * 48, so flash_erase() restores whichever of the two a write did not cover. */
+ * still reads 64.  System settings own the last page, so a settings
+ * erase does not share a page with the program or the kernel extension. */
 #define BOARD_FLASH_KIB         128U
 #define BOARD_FLASH_PAGE_SIZE   1024U
 

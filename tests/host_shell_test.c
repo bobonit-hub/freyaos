@@ -399,6 +399,7 @@ int app_password_set(const uint8_t *pass)
     return 0;
 }
 void term_pump(void) {}
+int settings_ok(void) { return 1; }
 int fw_cksum_show(void)
 {
     kprintf("0x%08x  ok\r\n", 0xA1B2C3D4UL);
@@ -1027,6 +1028,7 @@ int main(void)
     expect_has("sysinfo reads the unique id", "11111111-22222222-33333333");
     expect_has("sysinfo reports the reset", "power-on");
     expect_has("sysinfo reports the firmware sum", "0xa1b2c3d4  ok");
+    expect_has("sysinfo reports the settings area", "settings   : ok");
     expect_has("sysinfo before mount", "not mounted");
     expect_has("sysinfo with nothing loaded", "none loaded");
     rc = run("cksum");

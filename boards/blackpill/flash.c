@@ -1,8 +1,8 @@
 /*
  * Freya - internal flash programming for the STM32F411CEU6.
  *
- * Only the program flash region (sector 4) and the auto-start slot (last
- * 128 bytes of sector 3) are writable through here.  Every erase and
+ * Only the program flash region (sector 4) and the system settings (the
+ * last 1 KiB of sector 7) are writable through here.  Every erase and
  * program goes through in_region() first, and nothing in freya_api_t
  * reaches this file: a program cannot rewrite the kernel that is running
  * it.
@@ -14,8 +14,8 @@
  *
  * Sectors are unequal, so a 64 KiB program-region erase cannot keep a
  * tail in SRAM the way the F103 keeps a 1 KiB page.  Any write that
- * touches a sector erases that whole sector.  The auto-start slot is in
- * its own 16 KiB sector so that does not take the program with it.
+ * touches a sector erases that whole sector.  System settings are in
+ * sector 7, which holds nothing else, so that does not take the program.
  */
 #include "freya.h"
 
@@ -25,7 +25,7 @@
 
 extern char __ramfunc_start[], __ramfunc_end[], __ramfunc_load[];
 extern char __app_flash_start[], __app_flash_end[];
-extern char __autostart_start[], __autostart_end[];
+extern char __settings_start[], __settings_end[];
 
 static int s_ready;
 static uint32_t s_acr;
@@ -36,10 +36,10 @@ typedef struct {
     uint32_t snb;
 } flash_sector_t;
 
-/* F411CE: only the auto-start sector (3) and program sector (4) are writable. */
+/* F411CE: program sector (4) and the settings sector (7) are writable. */
 static const flash_sector_t s_sectors[] = {
-    { 0x0800C000UL, 16U * 1024U,  3 },
     { 0x08010000UL, 64U * 1024U,  4 },
+    { 0x08060000UL, 128U * 1024U, 7 },
 };
 
 static const flash_sector_t *sector_of(uint32_t addr)
@@ -122,7 +122,7 @@ static int in_slot(uint32_t addr, uint32_t len, uint32_t base, uint32_t size)
 
 static int in_region(uint32_t addr, uint32_t len)
 {
-    return in_slot(addr, len, FREYA_AUTOSTART_ADDR, FREYA_AUTOSTART_SIZE) ||
+    return in_slot(addr, len, FREYA_SETTINGS_ADDR, FREYA_SETTINGS_SIZE) ||
            in_slot(addr, len, FREYA_APP_FLASH_ADDR, FREYA_APP_FLASH_SIZE);
 }
 
@@ -138,9 +138,9 @@ int flash_begin(void)
         (uint32_t)(uintptr_t)__app_flash_end !=
             FREYA_APP_FLASH_ADDR + FREYA_APP_FLASH_SIZE)
         return FLASH_ERR_RANGE;
-    if ((uint32_t)(uintptr_t)__autostart_start != FREYA_AUTOSTART_ADDR ||
-        (uint32_t)(uintptr_t)__autostart_end !=
-            FREYA_AUTOSTART_ADDR + FREYA_AUTOSTART_SIZE)
+    if ((uint32_t)(uintptr_t)__settings_start != FREYA_SETTINGS_ADDR ||
+        (uint32_t)(uintptr_t)__settings_end !=
+            FREYA_SETTINGS_ADDR + FREYA_SETTINGS_SIZE)
         return FLASH_ERR_RANGE;
 
     if (g_app.loaded || g_app.running) return FLASH_ERR_BUSY;

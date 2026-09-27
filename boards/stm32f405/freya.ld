@@ -6,20 +6,21 @@
  * (64 KiB of CCM at 0x10000000 is left unused; DMA cannot reach it.)
  *
  * Flash map - the F4 erases in sectors (16, 16, 16, 16, 64, 128, 128,
- * 128 KiB).  The kernel stays in the first three 16 KiB sectors so that
- * the auto-start slot can live at the end of sector 3 without sharing an
- * erase unit with the kernel or with the program:
+ * 128 KiB).  The kernel stays in the first three 16 KiB sectors.  System
+ * settings are the last 1 KiB of the 512 KiB map, in sector 7, so erasing
+ * them never shares a sector with the kernel, the program or the extension.
+ * A 1 MiB part keeps this address; flash above 512 KiB stays unused.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
- *   0x0800C000 .. 0x0800FF7F   unused (rest of sector 3)
- *   0x0800FF80 .. 0x0800FFFF   auto-start flag + reserved          (128 B)
+ *   0x0800C000 .. 0x0800FFFF   unused (sector 3)
  *   0x08010000 .. 0x0801FFFF   program flash region              (64 KiB)
  *   0x08020000 .. 0x08033FFF   kernel extension (threads, SPI, XTEA,
  *                                  SPI flash, LittleFS, shell)     (80 KiB)
- *   0x08034000 .. 0x0807FFFF   unused
+ *   0x08034000 .. 0x0807FBFF   unused
+ *   0x0807FC00 .. 0x0807FFFF   system settings, two copies        (1 KiB)
  *
  * The extension is a separate image.  It sits in sector 5 so that writing
- * the kernel does not share an erase unit with the auto-start slot or with
- * the program, and so the 48 KiB image stays inside sectors 0..2.
+ * the kernel does not share an erase unit with the program, and so the
+ * 48 KiB image stays inside sectors 0..2.
  *
  * RAM map:
  *   0x20000000 .. 0x2000EFFF   kernel .data/.bss + system heap   (60 KiB)
@@ -47,8 +48,10 @@ __app_ram_end        = 0x2001E000;
 __worker_stacks      = __app_ram_start - (__worker_count * __worker_stack_size);
 __thread_stack_top   = __stack_top - __irq_stack_size;
 __shell_stack_limit  = __stack_limit;
-__autostart_start    = 0x0800FF80;
-__autostart_end      = 0x08010000;
+__settings_start     = 0x0807FC00;
+__settings_end       = 0x08080000;
+__autostart_start    = __settings_start;
+__autostart_end      = __settings_end;
 __app_flash_start    = 0x08010000;
 __app_flash_end      = 0x08020000;
 __ram_start     = 0x20000000;
@@ -115,10 +118,10 @@ SECTIONS
         *fat.o(.rodata.fat_vol*)
         *board.o(.text.board_sd_power)
         *shell.o(.text.shell_poll_runtime)
-        /* Terminal login and password-slot handling are runtime-only.
-         * Keep them in the extension so the fixed 48 KiB boot image
-         * remains clear of the auto-start sector. */
-        *loader.o(.text.slot_*)
+        /* Terminal login, the password and the settings area are
+         * runtime-only.  Keep them in the extension so the fixed 48 KiB
+         * boot image stays inside its flash. */
+        *settings.o(.text .text.* .rodata .rodata.*)
         *loader.o(.text.app_*password*)
         *shell.o(.text.cmd_password)
         *shell.o(.text.line_holds_secret)
@@ -243,16 +246,18 @@ SECTIONS
     __ramfunc_load     = LOADADDR(.ramfunc);
     __kernel_flash_end = LOADADDR(.ramfunc) + SIZEOF(.ramfunc);
 
-    ASSERT((__autostart_start & 127) == 0,
-           "Freya: auto-start slot is not 128-byte aligned")
+    ASSERT((__settings_start & 127) == 0,
+           "Freya: system settings are not 128-byte aligned")
     ASSERT((__app_flash_start & 127) == 0,
            "Freya: program flash is not 128-byte aligned")
-    ASSERT((__autostart_end - __autostart_start) == 128,
-           "Freya: auto-start slot is not 128 bytes")
+    ASSERT((__settings_end - __settings_start) == 1024,
+           "Freya: system settings are not 1 KiB")
+    ASSERT(__settings_end == 0x08080000,
+           "Freya: system settings are not the last bytes of flash")
     ASSERT(__kernel_flash_end <= 0x0800C000,
            "Freya: kernel image does not fit in the first 48 KiB")
-    ASSERT(__kernel_flash_end <= __autostart_start,
-           "Freya: kernel image overflows into the autostart slot")
+    ASSERT(__kext_end <= __settings_start,
+           "Freya: kernel extension overflows into system settings")
     ASSERT(__ramfunc_end <= __app_ram_end,
            "Freya: the RAM resident flash routines do not fit the program region")
 

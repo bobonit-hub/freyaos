@@ -220,6 +220,12 @@ $CC $CFLAGS tests/host_cksum_test.c src/cksum.c -o "$OUT/hostcksum"
 python3 tools/fwsum.py --self-test || status=1
 
 echo
+echo "================= system settings ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS tests/host_settings_test.c src/settings.c src/cksum.c -o "$OUT/hostsettings"
+"$OUT/hostsettings" || status=1
+
+echo
 echo "================= network framing ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_esp_link_test.c src/string.c -o "$OUT/hostnetframe"
@@ -338,28 +344,39 @@ else
     check "the kernel and the header agree on the flash region size" \
           "$(macro app_flash_size)" \
           "$(( $(sym "$kelf" __app_flash_end) - $(sym "$kelf" __app_flash_start) ))"
-    check "the kernel and the header agree on the autostart address" \
-          "$(macro autostart_addr)" "$(sym "$kelf" __autostart_start)"
-    check "the kernel and the header agree on the autostart size" \
-          "$(macro autostart_size)" \
-          "$(( $(sym "$kelf" __autostart_end) - $(sym "$kelf" __autostart_start) ))"
-    check "the auto-start slot is 128 bytes" "$(macro autostart_size)" 128
-    check "the ram-dump flag is the third word of the auto-start slot" \
-          "$(macro ramdump_off)" 8
-    check "the firmware sum is the fourth word of the auto-start slot" \
-          "$(macro cksum_off)" 12
+    check "the kernel and the header agree on the settings address" \
+          "$(macro settings_addr)" "$(sym "$kelf" __settings_start)"
+    check "the kernel and the header agree on the settings size" \
+          "$(macro settings_size)" \
+          "$(( $(sym "$kelf" __settings_end) - $(sym "$kelf" __settings_start) ))"
+    check "the system settings area is 1 KiB" "$(macro settings_size)" 1024
+    check "a settings copy is 64 bytes" "$(macro settings_block)" 64
+    check "system settings keep two copies" "$(macro settings_copies)" 2
+    check "the ram-dump flag follows the log level" \
+          "$(macro ramdump_off)" 12
+    check "the firmware sum follows the ram-dump flag" \
+          "$(macro cksum_off)" 16
+    check "the settings checksum follows the password" \
+          "$(macro sum_off)" 28
     check "the terminal password is eight bytes after the firmware sum" \
-          "$(macro password_off)" 16
+          "$(macro password_off)" 20
     check "the terminal password is eight bytes" \
           "$(macro password_len)" 8
-    check "the auto-start slot is 128-byte aligned" \
-          0 "$(( $(macro autostart_addr) % 128 ))"
+    check "the system settings are 128-byte aligned" \
+          0 "$(( $(macro settings_addr) % 128 ))"
     check "the program flash region is 128-byte aligned" \
           0 "$(( $(macro app_flash_addr) % 128 ))"
-    check "the autostart slot sits immediately before the program flash region" \
-          "$(macro app_flash_addr)" "$(sym "$kelf" __autostart_end)"
-    check "the kernel image ends below the autostart slot" \
-          1 "$(( $(sym "$kelf" __kernel_flash_end) <= $(sym "$kelf" __autostart_start) ))"
+    case "$BOARD" in
+        bluepill) flash_end=$((0x08020000)) ;;
+        *)        flash_end=$((0x08080000)) ;;
+    esac
+    check "system settings are the last bytes of internal flash" \
+          "$flash_end" \
+          "$(( $(macro settings_addr) + $(macro settings_size) ))"
+    check "the kernel extension ends at or before system settings" \
+          1 "$(( $(sym "$kelf" __kext_end) <= $(sym "$kelf" __settings_start) ))"
+    check "the kernel image ends at or before the program region" \
+          1 "$(( $(sym "$kelf" __kernel_flash_end) <= $(sym "$kelf" __app_flash_start) ))"
     check "the RAM resident flash routines sit in the program RAM region" \
           1 "$(( $(sym "$kelf" __ramfunc_start) == $(macro app_load_addr) ))"
 
@@ -463,47 +480,43 @@ PY
         check "the rest of the program region is erased" 0 "$tail"
         check "the packed image covers the kernel and the whole program region" \
               "$(( end - 0x08000000 ))" "$(wc -c < "$packed" | tr -d ' ')"
-        cp "$packed" "$OUT/stamped.bin"
         kext_addr=$(sym "$kelf" __kext_start)
-        store=$(( $(macro autostart_addr) + $(macro cksum_off) ))
         if python3 tools/fwsum.py \
                 --span "0x08000000:$kbin" \
                 --span "$kext_addr:build/$BOARD/freya-kext.bin" \
-                --store-addr "$store" \
-                --patch "$OUT/stamped.bin" >/dev/null; then
+                --settings-out "$OUT/settings.bin" >/dev/null; then
             want=$(python3 tools/fwsum.py \
                 --span "0x08000000:$kbin" \
                 --span "$kext_addr:build/$BOARD/freya-kext.bin" \
-                --store-addr "$store")
-            check "the stamped firmware sum matches a fresh computation" \
-                  "$((want))" "$(fld "$OUT/stamped.bin" $((store - 0x08000000)))"
-            before=$(dd if="$packed" bs=1 skip=$((store - 0x08000000)) count=4 status=none | tr -d '\377' | wc -c | tr -d ' ')
-            check "the sum word was erased before it was stamped" 0 "$before"
+                --store-addr 0)
+            check "both settings copies hold the firmware sum" \
+                  "$((want))" "$(fld "$OUT/settings.bin" "$(macro cksum_off)")"
+            check "the second settings copy holds the same firmware sum" \
+                  "$((want))" "$(fld "$OUT/settings.bin" $(( $(macro settings_block) + $(macro cksum_off) )))"
+            check "both settings copies start with the marker" \
+                  "$((0x54455346))" "$(fld "$OUT/settings.bin" 0)"
+            check "the second settings copy starts with the marker" \
+                  "$((0x54455346))" "$(fld "$OUT/settings.bin" "$(macro settings_block)")"
         else
-            check "stamping the firmware sum into the packed image" 1 0
+            check "writing the firmware sum into system settings" 1 0
         fi
     else
         check "packing the kernel and hello.xip.bin" 1 0
     fi
 
-    # AUTOSTART=1 writes the magic at the slot; the rest of the gap stays erased.
-    packed_as="$OUT/freya+hello+autostart.bin"
-    slot=$(( $(macro autostart_addr) - 0x08000000 ))
-    slot_end=$(( $(macro autostart_addr) + $(macro autostart_size) ))
-    if python3 tools/pack_image.py \
-            --kernel "$kbin" --app "$bin" \
-            --load-addr "$(macro app_flash_addr)" --region-end "$end" \
-            --slot-addr "$(macro autostart_addr)" --slot-end "$slot_end" \
-            --autostart --out "$packed_as" >/dev/null; then
-        check "the packed auto-start magic is at the slot" \
-              "$(( 0x31415946 ))" "$(fld "$packed_as" "$slot")"
-        gap=$( {
-            dd if="$packed_as" bs=1 skip="$ksize" count=$((slot - ksize)) status=none
-            dd if="$packed_as" bs=1 skip=$((slot + 4)) count=$((off - slot - 4)) status=none
-          } | tr -d '\377' | wc -c | tr -d ' ')
-        check "the rest of the gap stays erased when auto-start is packed" 0 "$gap"
+    # AUTOSTART=1 writes the magic into both settings copies.  The packed
+    # program image does not contain that area.
+    kext_addr=$(sym "$kelf" __kext_start)
+    if python3 tools/fwsum.py \
+            --span "0x08000000:$kbin" \
+            --span "$kext_addr:build/$BOARD/freya-kext.bin" \
+            --autostart --settings-out "$OUT/settings-on.bin" >/dev/null; then
+        check "auto-start is on in the first settings copy" \
+              "$(( 0x31415946 ))" "$(fld "$OUT/settings-on.bin" 4)"
+        check "auto-start is on in the second settings copy" \
+              "$(( 0x31415946 ))" "$(fld "$OUT/settings-on.bin" $(( $(macro settings_block) + 4 )))"
     else
-        check "packing hello.xip.bin with --autostart" 1 0
+        check "writing system settings with auto-start on" 1 0
     fi
 
     if python3 tools/pack_image.py \
@@ -516,14 +529,14 @@ PY
     fi
 
     # make flash SCRIPT= stores the text the way install does: 'SCRT',
-    # the length, the bytes, and a NUL.  AUTOSTART=1 sets the same flag.
+    # the length, the bytes, and a NUL.  The auto-start flag is in the
+    # settings area, not in this image.
     printf 'echo fromflash\n' > "$OUT/boot.sh"
     packed_sh="$OUT/freya+boot.bin"
     if python3 tools/pack_image.py \
             --kernel "$kbin" --script "$OUT/boot.sh" \
             --load-addr "$(macro app_flash_addr)" --region-end "$end" \
-            --slot-addr "$(macro autostart_addr)" --slot-end "$slot_end" \
-            --autostart --out "$packed_sh" >/dev/null; then
+            --out "$packed_sh" >/dev/null; then
         check "a packed script has the SCRT magic" \
               "$(( 0x54524353 ))" "$(fld "$packed_sh" "$off")"
         check "a packed script records its text length" \
@@ -533,8 +546,6 @@ PY
             > "$OUT/got-script.bin"
         got=$(cmp -s "$OUT/expect-script.bin" "$OUT/got-script.bin" && echo 1 || echo 0)
         check "a packed script is the text plus a NUL" 1 "$got"
-        check "a packed script turns auto-start on" \
-              "$(( 0x31415946 ))" "$(fld "$packed_sh" "$slot")"
         tail=$(dd if="$packed_sh" bs=1 skip=$((off + 8 + 16)) status=none \
                | tr -d '\377' | wc -c | tr -d ' ')
         check "the rest of the region stays erased after a script" 0 "$tail"

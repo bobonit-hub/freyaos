@@ -8,8 +8,8 @@
  *
  * The addresses here have to agree with FREYA_APP_FLASH_ADDR and
  * FREYA_APP_LOAD_ADDR in include/freya_api.h, and with boards/blackpill/
- * freya.ld.  ORIGIN is 128-byte aligned so it sits immediately after the
- * auto-start slot.
+ * freya.ld.  ORIGIN is sector 4.  System settings live at the end of
+ * flash, not in front of this region.
  */
 
 ENTRY(app_main)

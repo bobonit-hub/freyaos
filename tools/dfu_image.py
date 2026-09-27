@@ -3,8 +3,9 @@
 
 The ROM loader on the STM32F405 programs whatever this file names, and
 nothing else.  The kernel stays at 0x08000000 and the extension stays at
-the address the linker gave it, so the gap between them — the auto-start
-slot and the program region — is not erased.
+the address the linker gave it, so the gap between them — unused sector 3
+and the program region — is not erased.  System settings sit at the end
+of flash and are not part of this file.
 
     python3 tools/dfu_image.py \
         --image 0x08000000:build/stm32f405/freya.bin \

@@ -2,9 +2,9 @@
  * Freya - firmware control sum.
  *
  * The sum is the bytes of the kernel image and of the kernel extension,
- * added into a 32-bit accumulator.  It is stored in the fourth word of
- * the auto-start slot.  That word lies outside both images, so it is not
- * added; fw_sum_bytes() also skips an explicit range for the same rule.
+ * added into a 32-bit accumulator.  It is stored in each system-settings
+ * copy.  That word lies outside both images, so it is not added;
+ * fw_sum_bytes() also skips an explicit range for the same rule.
  */
 #include "freya.h"
 
@@ -43,8 +43,7 @@ void fw_cksum_read(fw_cksum_t *out)
     sum = add_span(sum, (const uint8_t *)__kext_start,
                    (const uint8_t *)__kext_end);
     out->computed = sum;
-    out->stored = *(const volatile uint32_t *)(uintptr_t)
-                  (FREYA_AUTOSTART_ADDR + FREYA_CKSUM_OFF);
+    out->stored = settings_fw_stored();
     if (out->stored == 0xFFFFFFFFUL)
         out->status = FW_CKSUM_BLANK;
     else if (out->stored == sum)

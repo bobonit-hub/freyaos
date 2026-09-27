@@ -20,6 +20,11 @@
      (0x08000000UL + (BOARD_FLASH_KIB) * 1024UL))
 #error "program flash region extends past the board's flash"
 #endif
+#if defined(FREYA_SETTINGS_ADDR) && \
+    ((FREYA_SETTINGS_ADDR + FREYA_SETTINGS_SIZE) != \
+     (0x08000000UL + (BOARD_FLASH_KIB) * 1024UL))
+#error "system settings are not the last bytes of internal flash"
+#endif
 
 #define FREYA_VERSION   "3.0"
 #define FREYA_CODENAME  "Poltergeist"
@@ -526,6 +531,17 @@ int  app_ramdump_set(int enable);             /* 0 = FLASH_OK           */
 int  app_password_enabled(void);              /* 0 when the slot is erased */
 void app_password_read(uint8_t *out);         /* FREYA_PASSWORD_LEN bytes  */
 int  app_password_set(const uint8_t *pass);   /* NULL clears; 0 = FLASH_OK */
+
+/* Named settings in the two flash copies.  0 on success.  -1 when the
+ * name or the length is wrong, or when both copies are corrupt (the
+ * checksum words are left as they are).  A set that changes a field
+ * rewrites both copies and both checksums. */
+int  settings_get(const char *name, void *buf, uint32_t len);
+int  settings_set(const char *name, const void *buf, uint32_t len);
+int  settings_ok(void);                       /* 1 ok, 0 both copies bad */
+uint32_t settings_fw_stored(void);            /* firmware sum word        */
+int  settings_block(void *buf, int len);      /* default copy, or FREYA_ERR_ARG */
+uint32_t settings_area_size(void);            /* bytes reserved at end of flash */
 #endif
 void app_request_stop(void);
 void app_guard_enter(void);
@@ -581,8 +597,8 @@ void ramdump_write(void);
 void ramdump_then_halt(void) __attribute__((noreturn));
 
 /* ---------------------------------------------------- firmware sum */
-/* Byte sum of the kernel image and the kernel extension.  The four
- * bytes at FREYA_AUTOSTART_ADDR + FREYA_CKSUM_OFF are not added.
+/* Byte sum of the kernel image and the kernel extension.  The firmware
+ * sum word lives in the system settings area, outside both images.
  * status is FW_CKSUM_OK, FW_CKSUM_MISMATCH or FW_CKSUM_BLANK. */
 enum { FW_CKSUM_OK = 0, FW_CKSUM_MISMATCH = 1, FW_CKSUM_BLANK = 2 };
 typedef struct {

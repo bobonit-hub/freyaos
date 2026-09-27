@@ -475,6 +475,8 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .web_body        = web_body,
     .web_end         = web_end,
     .shell_source_capture = shell_source_capture,
+    .settings_block  = settings_block,
+    .settings_area_size = settings_area_size,
 };
 
 const freya_api_t *app_api(void)
@@ -1243,160 +1245,47 @@ int app_flash_erase(void)
     return 0;
 }
 
-#define SLOT_ERASED  0xFFFFFFFFUL
-
-static uint32_t slot_word(uint32_t off)
-{
-    return *(const uint32_t *)(uintptr_t)(FREYA_AUTOSTART_ADDR + off);
-}
-
-/* True when 'want' can be programmed over 'cur' without an erase (1->0 only). */
-static int slot_can_program(uint32_t cur, uint32_t want)
-{
-    return (cur & want) == want;
-}
-
-static void slot_pass_read(uint8_t out[FREYA_PASSWORD_LEN])
-{
-    memcpy(out, (const void *)(uintptr_t)
-           (FREYA_AUTOSTART_ADDR + FREYA_PASSWORD_OFF),
-           FREYA_PASSWORD_LEN);
-}
-
-/* True when 'want' can be programmed over 'cur' without an erase (1->0 only). */
-static int slot_pass_can_program(const uint8_t *cur, const uint8_t *want)
-{
-    unsigned i;
-
-    for (i = 0; i < FREYA_PASSWORD_LEN; i++)
-        if ((cur[i] & want[i]) != want[i]) return 0;
-    return 1;
-}
-
-/*
- * Rewrite the auto-start slot, keeping whichever of the flag words and
- * the terminal password the caller did not intend to change, and always
- * keeping the firmware control sum.  flash_erase() of the 128-byte slot
- * restores anything else that shares the same erase unit (the start of
- * the program image on the Blue Pill; nothing on the Black Pill).
- * 'pass' is eight bytes; eight 0xFF bytes clear the password.
- */
-static int slot_write(uint32_t magic, uint32_t level, uint32_t ramdump,
-                      const uint8_t pass[FREYA_PASSWORD_LEN])
-{
-    uint32_t cur_m = slot_word(0);
-    uint32_t cur_l = slot_word(FREYA_LOGLEVEL_OFF);
-    uint32_t cur_d = slot_word(FREYA_RAMDUMP_OFF);
-    uint32_t cur_c = slot_word(FREYA_CKSUM_OFF);
-    uint8_t cur_p[FREYA_PASSWORD_LEN];
-    int rc;
-
-    slot_pass_read(cur_p);
-    if (cur_m == magic && cur_l == level && cur_d == ramdump &&
-        memcmp(cur_p, pass, FREYA_PASSWORD_LEN) == 0)
-        return FLASH_OK;
-    if (g_app.running) return FLASH_ERR_BUSY;
-    if (g_app.loaded) app_unload();
-
-    rc = flash_begin();
-    if (rc != FLASH_OK) return rc;
-
-    if (!slot_can_program(cur_m, magic) || !slot_can_program(cur_l, level) ||
-        !slot_can_program(cur_d, ramdump) ||
-        !slot_pass_can_program(cur_p, pass)) {
-        rc = flash_erase(FREYA_AUTOSTART_ADDR, FREYA_AUTOSTART_SIZE);
-        if (rc != FLASH_OK) {
-            flash_end();
-            return rc;
-        }
-        cur_m = SLOT_ERASED;
-        cur_l = SLOT_ERASED;
-        cur_d = SLOT_ERASED;
-        memset(cur_p, 0xFF, sizeof cur_p);
-        if (cur_c != SLOT_ERASED) {
-            rc = flash_program(FREYA_AUTOSTART_ADDR + FREYA_CKSUM_OFF,
-                               &cur_c, sizeof(cur_c));
-            if (rc != FLASH_OK) {
-                flash_end();
-                return rc;
-            }
-        }
-    }
-    if (cur_m != magic) {
-        rc = flash_program(FREYA_AUTOSTART_ADDR, &magic, sizeof(magic));
-        if (rc != FLASH_OK) {
-            flash_end();
-            return rc;
-        }
-    }
-    if (cur_l != level) {
-        rc = flash_program(FREYA_AUTOSTART_ADDR + FREYA_LOGLEVEL_OFF,
-                           &level, sizeof(level));
-        if (rc != FLASH_OK) {
-            flash_end();
-            return rc;
-        }
-    }
-    if (cur_d != ramdump) {
-        rc = flash_program(FREYA_AUTOSTART_ADDR + FREYA_RAMDUMP_OFF,
-                           &ramdump, sizeof(ramdump));
-        if (rc != FLASH_OK) {
-            flash_end();
-            return rc;
-        }
-    }
-    if (memcmp(cur_p, pass, FREYA_PASSWORD_LEN) != 0) {
-        rc = flash_program(FREYA_AUTOSTART_ADDR + FREYA_PASSWORD_OFF,
-                           pass, FREYA_PASSWORD_LEN);
-        if (rc != FLASH_OK) {
-            flash_end();
-            return rc;
-        }
-    }
-    flash_end();
-    return FLASH_OK;
-}
-
 int app_autostart_enabled(void)
 {
-    return slot_word(0) == FREYA_AUTOSTART_MAGIC;
+    uint32_t v = 0xFFFFFFFFUL;
+
+    if (settings_get("autostart", &v, sizeof v) != 0) return 0;
+    return v == FREYA_AUTOSTART_MAGIC;
 }
 
 int app_autostart_set(int enable)
 {
-    uint8_t pass[FREYA_PASSWORD_LEN];
-    uint32_t magic = enable ? FREYA_AUTOSTART_MAGIC : SLOT_ERASED;
+    uint32_t v = enable ? FREYA_AUTOSTART_MAGIC : 0xFFFFFFFFUL;
 
-    slot_pass_read(pass);
-    return slot_write(magic, slot_word(FREYA_LOGLEVEL_OFF),
-                      slot_word(FREYA_RAMDUMP_OFF), pass);
+    return settings_set("autostart", &v, sizeof v);
 }
 
 uint32_t app_log_level_stored(void)
 {
-    return slot_word(FREYA_LOGLEVEL_OFF);
+    uint32_t v = 0xFFFFFFFFUL;
+
+    if (settings_get("loglevel", &v, sizeof v) != 0) return 0xFFFFFFFFUL;
+    return v;
 }
 
 int app_log_level_store(uint32_t level)
 {
-    uint8_t pass[FREYA_PASSWORD_LEN];
-
-    slot_pass_read(pass);
-    return slot_write(slot_word(0), level, slot_word(FREYA_RAMDUMP_OFF), pass);
+    return settings_set("loglevel", &level, sizeof level);
 }
 
 int app_ramdump_enabled(void)
 {
-    return slot_word(FREYA_RAMDUMP_OFF) == FREYA_RAMDUMP_MAGIC;
+    uint32_t v = 0xFFFFFFFFUL;
+
+    if (settings_get("ramdump", &v, sizeof v) != 0) return 0;
+    return v == FREYA_RAMDUMP_MAGIC;
 }
 
 int app_ramdump_set(int enable)
 {
-    uint8_t pass[FREYA_PASSWORD_LEN];
-    uint32_t flag = enable ? FREYA_RAMDUMP_MAGIC : SLOT_ERASED;
+    uint32_t v = enable ? FREYA_RAMDUMP_MAGIC : 0xFFFFFFFFUL;
 
-    slot_pass_read(pass);
-    return slot_write(slot_word(0), slot_word(FREYA_LOGLEVEL_OFF), flag, pass);
+    return settings_set("ramdump", &v, sizeof v);
 }
 
 int app_password_enabled(void)
@@ -1404,7 +1293,7 @@ int app_password_enabled(void)
     uint8_t pass[FREYA_PASSWORD_LEN];
     unsigned i;
 
-    slot_pass_read(pass);
+    app_password_read(pass);
     for (i = 0; i < FREYA_PASSWORD_LEN; i++)
         if (pass[i] != 0xFF) return 1;
     return 0;
@@ -1412,7 +1301,8 @@ int app_password_enabled(void)
 
 void app_password_read(uint8_t *out)
 {
-    slot_pass_read(out);
+    if (settings_get("password", out, FREYA_PASSWORD_LEN) != 0)
+        memset(out, 0xFF, FREYA_PASSWORD_LEN);
 }
 
 int app_password_set(const uint8_t *pass)
@@ -1421,8 +1311,7 @@ int app_password_set(const uint8_t *pass)
 
     if (pass) memcpy(use, pass, FREYA_PASSWORD_LEN);
     else memset(use, 0xFF, sizeof use);
-    return slot_write(slot_word(0), slot_word(FREYA_LOGLEVEL_OFF),
-                      slot_word(FREYA_RAMDUMP_OFF), use);
+    return settings_set("password", use, FREYA_PASSWORD_LEN);
 }
 
 #endif /* FREYA_APP_FLASH_ADDR */

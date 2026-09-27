@@ -4,19 +4,20 @@
  * 128 KiB internal flash @ 0x08000000
  * 20 KiB SRAM            @ 0x20000000
  *
- * Flash map - the kernel keeps the bottom 48 KiB, the first unused
- * 128-byte aligned slot holds the auto-start flag and reserved padding,
- * and the rest of the 128 KiB holds one program image, installed from the
- * card or packed in when the module is programmed, then copied to RAM when
- * it fits.  The size register on these parts often still reads 64 KiB.
+ * Flash map - the kernel keeps the bottom 48 KiB, then one program image,
+ * installed from the card or packed in when the module is programmed,
+ * then copied to RAM when it fits.  The kernel extension follows the
+ * program and stops at the last page, which holds two copies of the
+ * system settings.  The size register on these parts often still reads
+ * 64 KiB.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
- *   0x0800C000 .. 0x0800C07F   auto-start flag + reserved          (128 B)
- *   0x0800C080 .. 0x080133FF   program flash region             (29568 B)
- *   0x08013400 .. 0x0801FFFF   kernel extension              (51 KiB)
+ *   0x0800C000 .. 0x08012FFF   program flash region             (28672 B)
+ *   0x08013000 .. 0x0801FBFF   kernel extension                  (51 KiB)
+ *   0x0801FC00 .. 0x0801FFFF   system settings, two copies        (1 KiB)
  *
- * The extension is its own image at the top of the 128 KiB.  The program
- * region stops short of it, so install and uninstall never erase it,
- * and the 48 KiB image still ends on the page before the auto-start slot.
+ * The extension is its own image.  The program region stops short of it,
+ * so install and uninstall never erase it, and a settings erase is the
+ * last page only.
  *
  * RAM map - the whole system has to fit in a fifth of what the Black Pill
  * offers, so the heap is small and the program region is sized for the
@@ -37,7 +38,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x08013400, LENGTH = 51K
+    KEXT  (rx)  : ORIGIN = 0x08013000, LENGTH = 51K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
@@ -50,10 +51,12 @@ __app_ram_end        = 0x20003800;
 __worker_stacks      = __stack_limit;
 __thread_stack_top   = __stack_top - __irq_stack_size;
 __shell_stack_limit  = __worker_stacks + __worker_count * __worker_stack_size;
-__autostart_start    = 0x0800C000;
-__autostart_end      = 0x0800C080;
-__app_flash_start    = 0x0800C080;
-__app_flash_end      = 0x08013400;
+__settings_start     = 0x0801FC00;
+__settings_end       = 0x08020000;
+__autostart_start    = __settings_start;
+__autostart_end      = __settings_end;
+__app_flash_start    = 0x0800C000;
+__app_flash_end      = 0x08013000;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;
@@ -73,7 +76,7 @@ SECTIONS
      * the SPI master and the cipher.  Claimed before .text so the
      * wildcard below does not take them.  The extension is 51 KiB so
      * SPI, XTEA, the virtual machine and the shell variables fit beside
-     * the scheduler.
+     * the scheduler.  The last page of flash is system settings.
      * Float helpers for the variables live here too: the 48 KiB image
      * has no room for them.
      * A call across the two images is an ordinary branch.
@@ -100,10 +103,10 @@ SECTIONS
          * for it; the 48 KiB image still does.  The Black Pill script
          * claims those sections up here instead. */
         *shell.o(.text.shell_poll_runtime)
-        /* Terminal login and password-slot handling are runtime-only.
-         * Keep them in the extension so the fixed 48 KiB boot image
-         * remains clear of the auto-start slot. */
-        *loader.o(.text.slot_*)
+        /* Terminal login, the password and the settings area are
+         * runtime-only.  Keep them in the extension so the fixed 48 KiB
+         * boot image stays inside its flash. */
+        *settings.o(.text .text.* .rodata .rodata.*)
         *loader.o(.text.app_*password*)
         *shell.o(.text.cmd_password)
         *shell.o(.text.line_holds_secret)
@@ -224,14 +227,18 @@ SECTIONS
     __ramfunc_load     = LOADADDR(.ramfunc);
     __kernel_flash_end = LOADADDR(.ramfunc) + SIZEOF(.ramfunc);
 
-    ASSERT((__autostart_start & 127) == 0,
-           "Freya: auto-start slot is not 128-byte aligned")
+    ASSERT((__settings_start & 127) == 0,
+           "Freya: system settings are not 128-byte aligned")
     ASSERT((__app_flash_start & 127) == 0,
            "Freya: program flash is not 128-byte aligned")
-    ASSERT((__autostart_end - __autostart_start) == 128,
-           "Freya: auto-start slot is not 128 bytes")
-    ASSERT(__kernel_flash_end <= __autostart_start,
-           "Freya: kernel image overflows into the autostart slot")
+    ASSERT((__settings_end - __settings_start) == 1024,
+           "Freya: system settings are not 1 KiB")
+    ASSERT(__settings_end == 0x08020000,
+           "Freya: system settings are not the last bytes of flash")
+    ASSERT(__kernel_flash_end <= __app_flash_start,
+           "Freya: kernel image overflows into the program region")
+    ASSERT(__kext_end <= __settings_start,
+           "Freya: kernel extension overflows into system settings")
     ASSERT(__ramfunc_end <= __app_ram_end,
            "Freya: the RAM resident flash routines do not fit the program region")
 

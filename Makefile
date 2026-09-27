@@ -318,57 +318,74 @@ test:
 	@BOARD=$(BOARD) sh tests/run_tests.sh
 
 # Kernel plus, when PROGRAM or SCRIPT is set, that image at the address the
-# linker reserved.  The region bounds and the auto-start slot are read from
-# the kernel ELF so they cannot drift away from boards/<board>/freya.ld.
+# linker reserved.  The region bounds are read from the kernel ELF so they
+# cannot drift away from boards/<board>/freya.ld.  System settings are a
+# separate image at the end of flash: two copies, the firmware sum, and
+# the auto-start flag when AUTOSTART=1.
 ifneq ($(PROGRAM)$(SCRIPT),)
-$(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PACK_INPUT) tools/pack_image.py tools/fwsum.py
+$(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PACK_INPUT) tools/pack_image.py
 	@echo "  PACK  $@"
 	@set -eu; \
 	 start=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__app_flash_start" { print "0x" $$1 }'); \
 	 end=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__app_flash_end" { print "0x" $$1 }'); \
-	 slot=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__autostart_start" { print "0x" $$1 }'); \
-	 slot_end=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__autostart_end" { print "0x" $$1 }'); \
-	 test -n "$$start" && test -n "$$end" && test -n "$$slot" && test -n "$$slot_end"; \
+	 test -n "$$start" && test -n "$$end"; \
 	 python3 tools/pack_image.py \
 	     --kernel $(BUILD)/$(TARGET).bin \
 	     $(PACK_KIND) \
 	     --load-addr $$start \
 	     --region-end $$end \
-	     --slot-addr $$slot \
-	     --slot-end $$slot_end \
-	     $(PACK_AUTOSTART) \
-	     --out $@; \
+	     --out $@
+
+ifeq ($(AUTOSTART),1)
+SETTINGS_BIN := $(BUILD)/settings-on.bin
+else
+SETTINGS_BIN := $(BUILD)/settings.bin
+endif
+
+$(SETTINGS_BIN): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin tools/fwsum.py tools/settings.py
+	@set -eu; \
 	 kext=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
 	 test -n "$$kext"; \
 	 python3 tools/fwsum.py \
 	     --span 0x08000000:$(BUILD)/$(TARGET).bin \
 	     --span $$kext:$(BUILD)/$(TARGET)-kext.bin \
-	     --store-addr $$(( $$slot + 12 )) \
-	     --patch $@
+	     $(PACK_AUTOSTART) \
+	     --settings-out $@
 
-all: $(FLASH_IMAGE)
+all: $(FLASH_IMAGE) $(SETTINGS_BIN)
 endif
 
 image: $(FLASH_IMAGE)
 
 # The thread scheduler is a second image (__kext_start).  It is written on
 # its own so the gap between the kernel and that address is not erased.
-# The control sum lives in the auto-start slot.  On the Blue Pill that
-# slot shares a 1 KiB page with the start of the program; on the F4 it
-# shares sector 3 with nothing else that is used.  The page is read back
-# and written with only the sum word changed.
+# System settings are the last 1 KiB of flash.  A packed program replaces
+# that page (auto-start off unless AUTOSTART=1).  A kernel-only flash
+# reads the page back and updates the firmware sum in both copies, and
+# leaves the sum alone when both copies are corrupt.
 ifeq ($(BOARD),bluepill)
-CKSUM_PAGE_BASE := 0x0800C000
+CKSUM_PAGE_BASE := 0x0801FC00
 CKSUM_PAGE_SIZE := 1024
 else
-CKSUM_PAGE_BASE := 0x0800C000
-CKSUM_PAGE_SIZE := 16384
+CKSUM_PAGE_BASE := 0x08060000
+CKSUM_PAGE_SIZE := 131072
 endif
 
+ifneq ($(PROGRAM)$(SCRIPT),)
+flash: $(FLASH_IMAGE) $(SETTINGS_BIN) $(BUILD)/$(TARGET)-kext.bin tools/fwsum.py
+	@set -eu; \
+	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
+	slot=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__settings_start" { print "0x" $$1 }'); \
+	test -n "$$addr" && test -n "$$slot"; \
+	st-flash $(STFLASH_OPTS) write $(FLASH_IMAGE) 0x08000000; \
+	st-flash $(STFLASH_OPTS) write $(BUILD)/$(TARGET)-kext.bin $$addr; \
+	st-flash $(STFLASH_OPTS) write $(SETTINGS_BIN) $$slot; \
+	st-flash $(STFLASH_OPTS) reset
+else
 flash: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin tools/fwsum.py
 	@set -eu; \
 	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
-	slot=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__autostart_start" { print "0x" $$1 }'); \
+	slot=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__settings_start" { print "0x" $$1 }'); \
 	test -n "$$addr" && test -n "$$slot"; \
 	st-flash $(STFLASH_OPTS) write $(FLASH_IMAGE) 0x08000000; \
 	st-flash $(STFLASH_OPTS) write $(BUILD)/$(TARGET)-kext.bin $$addr; \
@@ -376,22 +393,25 @@ flash: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin tools/fwsum.py
 	    $(patsubst %,--st-opt %,$(STFLASH_OPTS)) \
 	    --span 0x08000000:$(BUILD)/$(TARGET).bin \
 	    --span $$addr:$(BUILD)/$(TARGET)-kext.bin \
-	    --store-addr $$(( $$slot + 12 )) \
+	    --settings-addr $$slot \
 	    --page-base $(CKSUM_PAGE_BASE) --page-size $(CKSUM_PAGE_SIZE); \
 	st-flash $(STFLASH_OPTS) reset
+endif
 
 ifeq ($(PROGRAM)$(SCRIPT),)
 openocd: $(BUILD)/$(TARGET).elf
 	openocd $(OPENOCD_PRE) -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
 	        -c "program $< verify reset exit"
 else
-openocd: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin
+openocd: $(FLASH_IMAGE) $(SETTINGS_BIN) $(BUILD)/$(TARGET)-kext.bin
 	@set -eu; \
 	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
-	test -n "$$addr"; \
+	slot=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__settings_start" { print "0x" $$1 }'); \
+	test -n "$$addr" && test -n "$$slot"; \
 	openocd $(OPENOCD_PRE) -f interface/stlink.cfg -f $(OPENOCD_TARGET) \
 	        -c "program $(FLASH_IMAGE) verify 0x08000000" \
-	        -c "program $(BUILD)/$(TARGET)-kext.bin verify reset exit $$addr"
+	        -c "program $(BUILD)/$(TARGET)-kext.bin verify $$addr" \
+	        -c "program $(SETTINGS_BIN) verify reset exit $$slot"
 endif
 
 # DfuSe file for a board whose ROM loader speaks USB DFU.  The kernel and
@@ -399,6 +419,19 @@ endif
 ifdef DFU_VID
 dfu: $(BUILD)/$(TARGET).dfu
 
+ifneq ($(PROGRAM)$(SCRIPT),)
+$(BUILD)/$(TARGET).dfu: $(FLASH_IMAGE) $(SETTINGS_BIN) $(BUILD)/$(TARGET)-kext.bin tools/dfu_image.py
+	@set -eu; \
+	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
+	slot=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__settings_start" { print "0x" $$1 }'); \
+	test -n "$$addr" && test -n "$$slot"; \
+	python3 tools/dfu_image.py \
+	    --vid $(DFU_VID) --pid $(DFU_PID) --device $(DFU_DEVICE) \
+	    --image 0x08000000:$(FLASH_IMAGE) \
+	    --image $$addr:$(BUILD)/$(TARGET)-kext.bin \
+	    --image $$slot:$(SETTINGS_BIN) \
+	    --out $@
+else
 $(BUILD)/$(TARGET).dfu: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin tools/dfu_image.py
 	@set -eu; \
 	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
@@ -408,6 +441,7 @@ $(BUILD)/$(TARGET).dfu: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin tools/dfu_ima
 	    --image 0x08000000:$(FLASH_IMAGE) \
 	    --image $$addr:$(BUILD)/$(TARGET)-kext.bin \
 	    --out $@
+endif
 else
 dfu:
 	$(error '$(BOARD)' has no DFU firmware target)

@@ -481,6 +481,7 @@ static int cmd_sysinfo(int argc, char **argv)
     inf("auto-start"); kprintf("%s\r\n", onoff(app_autostart_enabled()));
     inf("ram dump");   kprintf("%s\r\n", onoff(app_ramdump_enabled()));
     inf("password");   kprintf("%s\r\n", onoff(app_password_enabled()));
+    inf("settings");   kprintf("%s\r\n", settings_ok() ? "ok" : "fail");
 #endif
     inf("checksum");
     fw_cksum_show();
@@ -574,19 +575,22 @@ static int cmd_meminfo(int argc, char **argv)
                 kprintf("     empty - 'install <file>', or flash one in with the kernel\r\n");
             }
         }
-        kprintf("  auto-start     : %s  at 0x%08x  (%u B)\r\n",
+        kprintf("  settings       : %s  at 0x%08x  (%u B, two copies)\r\n",
+                settings_ok() ? "ok" : "fail",
+                (unsigned)FREYA_SETTINGS_ADDR,
+                (unsigned)FREYA_SETTINGS_SIZE);
+        kprintf("  auto-start     : %s  at 0x%08x\r\n",
                 onoff(app_autostart_enabled()),
-                (unsigned)FREYA_AUTOSTART_ADDR,
-                (unsigned)FREYA_AUTOSTART_SIZE);
+                (unsigned)(FREYA_SETTINGS_ADDR + FREYA_SET_AUTOSTART_OFF));
         kprintf("  log level      : %s (%d)  stored at 0x%08x\r\n",
                 log_level_str(log_get_level()), log_get_level(),
-                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_LOGLEVEL_OFF));
+                (unsigned)(FREYA_SETTINGS_ADDR + FREYA_LOGLEVEL_OFF));
         kprintf("  ram dump       : %s  stored at 0x%08x\r\n",
                 onoff(app_ramdump_enabled()),
-                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_RAMDUMP_OFF));
+                (unsigned)(FREYA_SETTINGS_ADDR + FREYA_RAMDUMP_OFF));
         kprintf("  password       : %s  stored at 0x%08x\r\n",
                 onoff(app_password_enabled()),
-                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_PASSWORD_OFF));
+                (unsigned)(FREYA_SETTINGS_ADDR + FREYA_PASSWORD_OFF));
     }
 #endif
 
@@ -1343,7 +1347,8 @@ static int cmd_slot_flag(int argc, char **argv, const char *label, uint32_t addr
 
 static int cmd_autostart(int argc, char **argv)
 {
-    return cmd_slot_flag(argc, argv, "auto-start", FREYA_AUTOSTART_ADDR,
+    return cmd_slot_flag(argc, argv, "auto-start",
+                         FREYA_SETTINGS_ADDR + FREYA_SET_AUTOSTART_OFF,
                          app_autostart_enabled, app_autostart_set, 1);
 }
 
@@ -1444,8 +1449,8 @@ static int cmd_loglevel(int argc, char **argv)
         kprintf("log level is %s (%d)\r\n",
                 log_level_str(log_get_level()), log_get_level());
 #ifdef FREYA_APP_FLASH_ADDR
-        kprintf("stored at 0x%08x (second word of the auto-start slot)\r\n",
-                (unsigned)(FREYA_AUTOSTART_ADDR + FREYA_LOGLEVEL_OFF));
+        kprintf("stored at 0x%08x (system settings)\r\n",
+                (unsigned)(FREYA_SETTINGS_ADDR + FREYA_LOGLEVEL_OFF));
 #else
         kprintf("(this board has no auto-start slot; the level is RAM only)\r\n");
 #endif

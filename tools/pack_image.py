@@ -11,9 +11,8 @@ A script is stored the way `install` writes one: an 8-byte header
 
 `make flash PROGRAM=hello` and `make flash SCRIPT=boot.sh` run this.
 The addresses come from the kernel ELF, which is where the linker script
-reserved the region.  The auto-start slot is left erased (flag off)
-unless `--autostart` is passed; packing must not autorun on every reset
-unless asked.
+reserved the region.  System settings live at the end of flash, outside
+this image; the auto-start flag is written with the settings area.
 """
 import argparse
 import struct
@@ -22,7 +21,6 @@ import sys
 FLASH_BASE_DEFAULT = 0x08000000
 MAGIC = 0x41595246  # 'FRYA'
 SCRIPT_MAGIC = 0x54524353  # 'S','C','R','T'
-AUTOSTART_MAGIC = 0x31415946  # first word of the auto-start slot
 XIP = 0x1
 HDR = 72  # freya_app_header_t, ABI 3
 SCRIPT_HDR = 8  # freya_script_header_t
@@ -60,14 +58,6 @@ def main():
     p.add_argument("--region-end", required=True, help="first address after the region")
     p.add_argument("--flash-base", default=hex(FLASH_BASE_DEFAULT),
                    help="start of internal flash (default 0x08000000)")
-    p.add_argument("--slot-addr",
-                   help="auto-start slot base from the kernel ELF "
-                        "(__autostart_start), e.g. 0x0800C000")
-    p.add_argument("--slot-end",
-                   help="first address after the auto-start slot "
-                        "(__autostart_end)")
-    p.add_argument("--autostart", action="store_true",
-                   help="write the auto-start magic at the slot; default off")
     p.add_argument("--out", required=True, help="combined image to write")
     args = p.parse_args()
 
@@ -82,29 +72,11 @@ def main():
 
     offset = load - base
     region = end - load
-    slot = parse_addr(args.slot_addr) if args.slot_addr else None
-    slot_end = parse_addr(args.slot_end) if args.slot_end else None
-
-    if args.autostart and slot is None:
-        die("--autostart needs --slot-addr from the kernel ELF")
-    if slot is not None:
-        if not (base <= slot < load):
-            die(f"auto-start slot {slot:#x} is not between flash "
-                f"{base:#x} and the program region {load:#x}")
-        if slot_end is not None and not (slot < slot_end <= load):
-            die(f"auto-start slot {slot:#x}..{slot_end:#x} is not "
-                f"inside the gap before {load:#x}")
-        if args.autostart:
-            magic_end = slot + 4
-            limit = slot_end if slot_end is not None else load
-            if magic_end > limit:
-                die(f"auto-start magic at {slot:#x} does not fit "
-                    f"before {limit:#x}")
 
     with open(args.kernel, "rb") as f:
         kernel = f.read()
 
-    kernel_limit = (slot - base) if slot is not None else offset
+    kernel_limit = offset
     if len(kernel) > kernel_limit:
         what = "auto-start slot" if slot is not None else "program region"
         die(f"kernel is {len(kernel)} bytes and the {what} starts at "
@@ -151,13 +123,11 @@ def main():
     image = bytearray(b"\xFF" * (offset + region))
     image[:len(kernel)] = kernel
     image[offset:offset + len(payload)] = payload
-    if args.autostart:
-        struct.pack_into("<I", image, slot - base, AUTOSTART_MAGIC)
 
     with open(args.out, "wb") as f:
         f.write(image)
 
-    extra = ", autostart on" if args.autostart else ""
+    extra = ""
     kind = "script" if args.script else "program"
     print(f"packed {kind} {label} at {load:#010x}: {nbytes} bytes, "
           f"image {len(image)} bytes{extra} -> {args.out}")

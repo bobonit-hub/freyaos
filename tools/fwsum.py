@@ -12,6 +12,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import settings as settings_mod
+
 SKIP_LEN = 4
 
 
@@ -49,6 +52,29 @@ def load_spans(spans, skip_addr):
     return total
 
 
+def write_settings_file(path, fw_sum, autostart):
+    area = settings_mod.fresh(fw_sum, autostart)
+    with open(path, "wb") as f:
+        f.write(area)
+    flag = "on" if autostart else "off"
+    print(f"firmware sum 0x{fw_sum:08x} in {path}, autostart {flag}")
+
+
+def stamp_settings_page(page, page_base, settings_addr, fw_sum, autostart):
+    off = settings_addr - page_base
+    if off < 0 or off + settings_mod.AREA > len(page):
+        die(f"settings at {settings_addr:#x} do not fit the page "
+            f"{page_base:#x}+{len(page):#x}")
+    area = bytearray(page[off:off + settings_mod.AREA])
+    # None keeps a flag already stored.  --autostart forces it on.
+    flag = True if autostart else None
+    status = settings_mod.stamp(area, fw_sum, flag)
+    if status != "ok":
+        return status
+    page[off:off + settings_mod.AREA] = area
+    return "ok"
+
+
 def self_test():
     data = bytes([1, 2, 3, 4, 5])
     if sum_bytes(data, 0x100, 0, 0) != 15:
@@ -63,6 +89,7 @@ def self_test():
     if sum_bytes(image, 0x200, store, SKIP_LEN) != got:
         die("self-test: storing the sum changed it")
     print("fwsum self-test ok")
+    settings_mod.self_test()
 
 
 def stamp_device(spans, store, page_base, page_size, st_opts):
@@ -93,6 +120,12 @@ def main():
     p.add_argument("--span", action="append", default=[],
                    help="ADDR:FILE, flash address of the first byte")
     p.add_argument("--store-addr", help="where the sum word is stored")
+    p.add_argument("--settings-out",
+                   help="write a fresh settings area with the sum in both copies")
+    p.add_argument("--settings-addr",
+                   help="flash address of the settings area, for --device")
+    p.add_argument("--autostart", action="store_true",
+                   help="set the auto-start flag in the settings area")
     p.add_argument("--patch", help="image to write the sum into")
     p.add_argument("--image-base", default="0x08000000",
                    help="flash address of byte 0 of --patch")
@@ -109,8 +142,42 @@ def main():
         self_test()
         return
 
+    if args.settings_out or args.settings_addr:
+        total = load_spans(args.span, 0)
+        if args.settings_out:
+            write_settings_file(args.settings_out, total, args.autostart)
+            return
+        if not args.device:
+            die("--settings-addr is only used with --device")
+        if not args.page_base or not args.page_size:
+            die("--device needs --page-base and --page-size")
+        settings_addr = parse_addr(args.settings_addr)
+        page_base = parse_addr(args.page_base)
+        page_size = parse_addr(args.page_size)
+        fd, page_path = tempfile.mkstemp(prefix="fwsum-")
+        os.close(fd)
+        try:
+            subprocess.check_call(["st-flash", *args.st_opt, "read", page_path,
+                                   hex(page_base), hex(page_size)])
+            with open(page_path, "rb") as f:
+                blob = bytearray(f.read())
+            if len(blob) < page_size:
+                blob.extend(b"\xFF" * (page_size - len(blob)))
+            status = stamp_settings_page(blob, page_base, settings_addr,
+                                         total, args.autostart)
+            if status != "ok":
+                die("both settings copies are corrupt; checksum not modified")
+            with open(page_path, "wb") as f:
+                f.write(blob[:page_size])
+            subprocess.check_call(["st-flash", *args.st_opt, "write",
+                                   page_path, hex(page_base)])
+        finally:
+            os.unlink(page_path)
+        print(f"firmware sum 0x{total:08x} at {settings_addr:#x}")
+        return
+
     if not args.store_addr:
-        die("--store-addr is required")
+        die("--store-addr or --settings-out is required")
     store = parse_addr(args.store_addr)
     if args.device:
         if not args.page_base or not args.page_size:

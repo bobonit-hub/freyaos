@@ -7,8 +7,8 @@ It is linked with boards/bluepill/app_flash.ld and started with runflash.
 from plm.error import PlmError
 
 # Blue Pill program flash, include/freya_api.h FREYA_APP_FLASH_ADDR.
-FLASH_ADDR = 0x0800C080
-FLASH_SIZE = 29568
+FLASH_ADDR = 0x0800C000
+FLASH_SIZE = 28672
 ABI_VERSION = 3
 APP_MAGIC = 0x41595246
 XIP_FLAG = 1
