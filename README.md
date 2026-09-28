@@ -411,13 +411,15 @@ sx -k build/apps/hello.bin < /dev/ttyUSB0 > /dev/ttyUSB0   # lrzsz
 python3 tools/send.py /dev/ttyUSB0 build/apps/hello.bin    # no lrzsz needed, sets the rate itself
 ```
 
-`tools/fremote.py` is the other way round: it opens the console itself and
-drives the shell, in the same shape as MicroPython's `mpremote`. A path
-with a leading `:` is on the card.
+`tools/fremote.py` is the other way round: it opens either the UART console
+or the ESP32-C6 TLS console and drives the shell, in the same shape as
+MicroPython's `mpremote`. A path with a leading `:` is on the card.
 
 ```sh
 python3 tools/fremote.py                          # shell; Ctrl-X leaves it
 python3 tools/fremote.py u0 fs ls :/
+python3 tools/fremote.py --tls 192.0.2.10         # TLS shell; password is hidden
+python3 tools/fremote.py --tls freya.local fs ls :/
 python3 tools/fremote.py fs cp build/apps/hello.bin :/hello.bin
 python3 tools/fremote.py fs cp :/notes.txt .
 python3 tools/fremote.py exec "led blink" + fs df
@@ -427,7 +429,14 @@ python3 tools/fremote.py exec "led blink" + fs df
 same bytes as the file, including a trailing 0x1A. `fs ls`, `fs rm`,
 `fs mkdir`, `fs df` and `fs cd` are the shell commands of the
 same name. `fs mv` is the shell's `rename`. `u0` is `/dev/ttyUSB0`, `a0` is `/dev/ttyACM0` and `c3` is
-`COM3`. With no port, the only USB serial device is used.
+`COM3`. With no port, the only USB serial device is used. `--tls HOST`
+connects to port 8022 (`HOST:PORT` overrides it), prompts for the eight-byte
+terminal password without echoing it, and verifies TLS 1.3 against the Freya
+certificate in `coprocessor/esp32c6/certs/freya.crt`. Set the password first
+with `password("xxxxxxxx")` on the UART console. Later UART connections also
+detect the board's `password:` request and prompt locally without echoing the
+password. A TLS invocation opens only the TLS connection; it does not open or
+mirror a UART. `--tls` and a UART port cannot be selected together.
 
 minicom, Tera Term and ExtraPuTTY can send XMODEM from their menus. Because
 XMODEM has no length field, the sender pads the last packet; Freya strips that

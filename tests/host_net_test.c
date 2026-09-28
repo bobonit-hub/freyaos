@@ -78,7 +78,8 @@ int esp_link_response(uint16_t op, void *p, uint16_t *n)
 int uart_term_pending(void) { return 0; }
 int uart_term_peek(uint8_t *dst, int max) { (void)dst; (void)max; return 0; }
 void uart_term_drop(int n) { (void)n; }
-void uart_rx_push(uint8_t c) { (void)c; }
+void uart_term_disconnected(void) { }
+void uart_term_rx_push(uint8_t c) { (void)c; }
 int app_password_enabled(void) { return 0; }
 void app_password_read(uint8_t *out) { if (out) memset(out, 0, 8); }
 

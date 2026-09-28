@@ -100,6 +100,23 @@ client reports a verification failure unless that check is left non-fatal.
 The OpenSSH client speaks a different protocol and will not complete this
 handshake.
 
+`fremote.py` is the normal interactive client. Set the eight-character
+password once through UART, then connect by C6 address:
+
+```sh
+python3 tools/fremote.py u0 exec 'password("12345678")'
+python3 tools/fremote.py --tls <c6-address>
+python3 tools/fremote.py --tls <c6-address> exec "wifi status"
+```
+
+The TLS form prompts for the password without echoing it, requires TLS 1.3,
+and verifies the server with `coprocessor/esp32c6/certs/freya.crt`. It opens
+the network console only; it neither opens nor mirrors the UART transport.
+The shell, `exec`, command chaining, and `fs` operations use the selected
+transport in the same way. On a later password-protected UART connection,
+`fremote.py` detects the board's login request and uses the same hidden local
+prompt instead of waiting indefinitely for the shell prompt.
+
 ## Web server
 
 The same certificate serves HTTPS on port 443. TLS 1.3 is required, and

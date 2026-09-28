@@ -497,13 +497,15 @@ void term_pump(void)
         return;
     }
     state = resp[0];
+    if (state < 3)
+        uart_term_disconnected();
     nrx = (int)resp[1] | ((int)resp[2] << 8);
     if (nrx < 0 || nrx > TERM_CHUNK || (uint16_t)(3 + nrx) > nresp) {
         next_ms = sys_ticks() + 20;
         return;
     }
     for (i = 0; i < nrx; i++)
-        uart_rx_push(resp[3 + i]);
+        uart_term_rx_push(resp[3 + i]);
     next_ms = sys_ticks() + (state >= 2 ? 20U : 500U);
 }
 

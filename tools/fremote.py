@@ -2,12 +2,13 @@
 """
 Remote shell and SD card utility for a Freya board.
 
-Talks to the serial console the way mpremote talks to MicroPython: an
-interactive shell, one-shot commands, and copy/list/remove on the card.
+Talks to the UART or TLS console the way mpremote talks to MicroPython:
+an interactive shell, one-shot commands, and copy/list/remove on the card.
 A path with a leading ':' is on the board. Anything else is on the host.
 
     python3 tools/fremote.py                         # shell on the only port
-    python3 tools/fremote.py u0                      # /dev/ttyUSB0, then the shell
+    python3 tools/fremote.py u0                      # UART on /dev/ttyUSB0
+    python3 tools/fremote.py --tls 192.0.2.10        # TLS console, hidden password
     python3 tools/fremote.py fs ls :/
     python3 tools/fremote.py fs cp build/apps/hello.bin :/hello.bin
     python3 tools/fremote.py fs cp :/notes.txt .
@@ -15,11 +16,15 @@ A path with a leading ':' is on the board. Anything else is on the host.
 
 'fs cp' uses XMODEM. 'download --size' and 'upload' on the board keep
 the exact byte count, so a file that ends in 0x1A is not truncated.
-Requires pyserial (pip install pyserial).
+UART requires pyserial (pip install pyserial). TLS uses the self-signed
+Freya certificate shipped with this source tree and requires TLS 1.3.
 """
+import getpass
 import os
 import re
 import secrets
+import socket
+import ssl
 import sys
 import time
 
@@ -32,6 +37,11 @@ except ImportError:
 
 SOH, STX, EOT, ACK, NAK, CAN, SUB = 0x01, 0x02, 0x04, 0x06, 0x15, 0x18, 0x1A
 BAUD = 921600
+TLS_PORT = 8022
+TLS_SERVER_NAME = "freya"
+TLS_CERT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "coprocessor", "esp32c6", "certs", "freya.crt")
 
 _LL_LINE = re.compile(
     r"^  (\S)\S{4} +(\S+) +(\d{4}-\d{2}-\d{2} \d{2}:\d{2})  (.*)$")
@@ -102,6 +112,144 @@ def default_port() -> str:
     if not found:
         raise RemoteError("no serial port found; pass one, for example u0 or /dev/ttyUSB0")
     raise RemoteError("several serial ports: " + ", ".join(found))
+
+
+def parse_tls_endpoint(endpoint: str):
+    """Return (host, port) for HOST, HOST:PORT, or [IPv6]:PORT."""
+    if not endpoint:
+        raise RemoteError("--tls needs a host")
+    host = endpoint
+    port = TLS_PORT
+    if endpoint.startswith("["):
+        m = re.fullmatch(r"\[([^\]]+)\](?::(\d+))?", endpoint)
+        if not m:
+            raise RemoteError(f"bad TLS endpoint: {endpoint}")
+        host = m.group(1)
+        if m.group(2):
+            port = int(m.group(2))
+    elif endpoint.count(":") == 1:
+        host, text_port = endpoint.rsplit(":", 1)
+        if not host or not text_port.isdigit():
+            raise RemoteError(f"bad TLS endpoint: {endpoint}")
+        port = int(text_port)
+    if not host or not 1 <= port <= 65535:
+        raise RemoteError(f"bad TLS endpoint: {endpoint}")
+    return host, port
+
+
+def read_password() -> bytes:
+    """Read and validate the terminal password without echoing it."""
+    password = getpass.getpass("Freya terminal password: ")
+    try:
+        encoded = password.encode("ascii")
+    except UnicodeEncodeError:
+        raise RemoteError("terminal password must be eight printable ASCII characters")
+    if len(encoded) != 8 or any(c < 0x20 or c > 0x7E for c in encoded):
+        raise RemoteError("terminal password must be eight printable ASCII characters")
+    return encoded
+
+
+class TlsPort:
+    """Small pyserial-shaped wrapper around the Freya TLS console."""
+
+    def __init__(self, endpoint: str, password: bytes, connect_timeout=10):
+        host, port = parse_tls_endpoint(endpoint)
+        if not os.path.isfile(TLS_CERT):
+            raise RemoteError(f"Freya TLS certificate not found: {TLS_CERT}")
+        context = ssl.create_default_context(cafile=TLS_CERT)
+        context.minimum_version = ssl.TLSVersion.TLSv1_3
+        context.maximum_version = ssl.TLSVersion.TLSv1_3
+        self._socket = None
+        self._pending = b""
+        try:
+            raw = socket.create_connection((host, port), connect_timeout)
+            try:
+                self._socket = context.wrap_socket(
+                    raw, server_hostname=TLS_SERVER_NAME)
+            except Exception:
+                raw.close()
+                raise
+            self._timeout = 0.05
+            self._login(password)
+        except RemoteError:
+            if self._socket is not None:
+                self._socket.close()
+            raise
+        except (OSError, ssl.SSLError) as exc:
+            if self._socket is not None:
+                self._socket.close()
+            raise RemoteError(f"TLS connection to {endpoint} failed: {exc}")
+
+    @property
+    def timeout(self):
+        return self._timeout
+
+    @timeout.setter
+    def timeout(self, value):
+        self._timeout = value
+
+    @property
+    def in_waiting(self):
+        return self._socket.pending()
+
+    def fileno(self):
+        return self._socket.fileno()
+
+    def close(self):
+        self._socket.close()
+
+    def flush(self):
+        pass
+
+    def write(self, data):
+        try:
+            self._socket.settimeout(10)
+            self._socket.sendall(data)
+        except OSError as exc:
+            raise RemoteError(f"TLS console write failed: {exc}")
+        return len(data)
+
+    def read(self, n):
+        if self._pending:
+            take = self._pending[:n]
+            self._pending = self._pending[n:]
+            return take
+        self._socket.settimeout(self._timeout)
+        try:
+            data = self._socket.recv(n)
+        except (socket.timeout, ssl.SSLWantReadError):
+            return b""
+        except OSError as exc:
+            raise RemoteError(f"TLS console read failed: {exc}")
+        if not data:
+            raise RemoteError("TLS console closed")
+        return data
+
+    def _read_until(self, marker, timeout=20):
+        data = bytearray()
+        deadline = time.time() + timeout
+        while marker not in data and time.time() < deadline:
+            self.timeout = min(0.2, max(0.01, deadline - time.time()))
+            chunk = self.read(64)
+            if chunk:
+                data.extend(chunk)
+        if marker not in data:
+            raise RemoteError("TLS console login timed out")
+        end = data.find(marker) + len(marker)
+        self._pending = bytes(data[end:]) + self._pending
+        return bytes(data[:end])
+
+    def _login(self, password):
+        if not isinstance(password, bytes) or len(password) != 8:
+            raise RemoteError("terminal password must be eight bytes")
+        self._read_until(b"username: ")
+        self.write(b"admin\n")
+        self._read_until(b"password: ")
+        self.write(password + b"\n")
+        reply = self._read_until(b"\n")
+        if reply.strip():
+            text = reply.decode("latin1", "replace").strip()
+            raise RemoteError(f"TLS console login failed: {text}")
 
 
 def parse_ll(text: str):
@@ -242,12 +390,16 @@ class Xmodem:
 
 # ---------------------------------------------------------------- board
 class Board:
-    def __init__(self, port, baud=BAUD):
-        if serial is None:
-            raise RemoteError("pyserial is required: pip install pyserial")
-        self.port = serial.Serial(port, baud, timeout=0.05)
-        self.port.reset_input_buffer()
+    def __init__(self, port, baud=BAUD, tls_password=None):
+        if tls_password is not None:
+            self.port = TlsPort(port, tls_password)
+        else:
+            if serial is None:
+                raise RemoteError("pyserial is required: pip install pyserial")
+            self.port = serial.Serial(port, baud, timeout=0.05)
+            self.port.reset_input_buffer()
         self._pending = b""
+        self._login_password = tls_password
 
     def close(self):
         self.port.close()
@@ -278,8 +430,17 @@ class Board:
         """Reach a fresh prompt. Ctrl-C abandons a half-typed block and
         stops a program the console is running."""
         self.write(b"\x03")
-        text = self._read_until_prompt(5)
-        if "freya:" not in text:
+        state, text = self._read_until_login_or_prompt(5)
+        if state == "password":
+            password = self._login_password
+            if password is None:
+                password = read_password()
+            self.write(password + b"\r")
+            state, reply = self._read_until_login_or_prompt(5)
+            text += reply
+            if state == "password":
+                raise RemoteError("terminal password was denied")
+        if state != "prompt":
             raise RemoteError("no Freya prompt on this port")
         return text
 
@@ -361,6 +522,29 @@ class Board:
                 return text[:found.end()]
             if time.time() >= deadline:
                 return text
+            self.port.timeout = 0.2
+            chunk = self.port.read(64)
+            if chunk:
+                buf.extend(chunk)
+
+    def _read_until_login_or_prompt(self, timeout):
+        """Read through either the UART password request or a shell prompt."""
+        buf = bytearray(self._pending)
+        self._pending = b""
+        deadline = time.time() + timeout
+        while True:
+            raw = bytes(buf)
+            password_at = raw.find(b"password: ")
+            prompt = _PROMPT.search(raw.decode("latin1"))
+            if password_at >= 0 and (not prompt or password_at < prompt.start()):
+                end = password_at + len(b"password: ")
+                self._pending = raw[end:]
+                return "password", raw[:end].decode("latin1")
+            if prompt:
+                self._pending = raw[prompt.end():]
+                return "prompt", raw[:prompt.end()].decode("latin1")
+            if time.time() >= deadline:
+                return "timeout", raw.decode("latin1")
             self.port.timeout = 0.2
             chunk = self.port.read(64)
             if chunk:
@@ -630,7 +814,10 @@ def cmd_repl(board: Board):
     try:
         tty.setraw(fd)
         while True:
-            r, _, _ = select.select([fd, board.port], [], [])
+            if board.port.in_waiting:
+                r = [board.port]
+            else:
+                r, _, _ = select.select([fd, board.port], [], [])
             if fd in r:
                 data = os.read(fd, 64)
                 if b"\x18" in data:          # Ctrl-X, same exit as mpremote
@@ -670,6 +857,7 @@ def dispatch(board, args):
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     port = None
+    tls_endpoint = None
     baud = BAUD
     commands = []
     i = 0
@@ -683,6 +871,11 @@ def main(argv=None):
             if i >= len(argv):
                 raise RemoteError("--port needs a device")
             port = argv[i]
+        elif a == "--tls":
+            i += 1
+            if i >= len(argv):
+                raise RemoteError("--tls needs a host")
+            tls_endpoint = argv[i]
         elif a in ("-b", "--baud"):
             i += 1
             baud = int(argv[i])
@@ -698,13 +891,19 @@ def main(argv=None):
             break
         i += 1
 
-    if port is None:
+    if tls_endpoint is not None and port is not None:
+        raise RemoteError("choose either a UART port or --tls, not both")
+    tls_password = None
+    if tls_endpoint is not None:
+        port = tls_endpoint
+        tls_password = read_password()
+    elif port is None:
         port = default_port()
     else:
         port = resolve_port(port)
 
     groups = split_chain(commands) if commands else [[]]
-    board = Board(port, baud)
+    board = Board(port, baud, tls_password=tls_password)
     try:
         board.sync()
         for group in groups:

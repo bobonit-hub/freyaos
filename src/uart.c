@@ -22,8 +22,9 @@ static volatile uint32_t s_overruns;
 static volatile uint8_t  s_raw_mode;     /* 1 = do not treat Ctrl-C specially */
 static volatile int      s_waiters;      /* blocked in uart_getc          */
 
-/* A copy of what the console transmitted, for the C6 terminal session.
- * The shell drains it; bytes are dropped only when that copy is full.
+/* Output selected for the C6 terminal session.  UART input selects the
+ * physical terminal; C6 input selects TLS.  This keeps the two terminals
+ * usable without echoing either one's commands and replies to the other.
  * Boards without the coprocessor do not keep the copy: it is 1 KiB,
  * which the Blue Pill's kernel RAM does not have. */
 #if BOARD_ESP_LINK
@@ -31,6 +32,7 @@ static volatile int      s_waiters;      /* blocked in uart_getc          */
 #define TERM_TX_MASK    (TERM_TX_SIZE - 1)
 static uint8_t  s_term_tx[TERM_TX_SIZE];
 static volatile uint16_t s_term_th, s_term_tt;
+static volatile uint8_t s_term_output;
 #endif
 
 __attribute__((weak)) void term_pump(void) { }
@@ -111,6 +113,15 @@ void uart_term_drop(int n)
     }
     irq_restore(pm);
 }
+
+void uart_term_disconnected(void)
+{
+    uint32_t pm = irq_save();
+
+    s_term_th = s_term_tt = 0;
+    s_term_output = 0;
+    irq_restore(pm);
+}
 #else
 static void term_tx_push(uint8_t c) { (void)c; }
 
@@ -124,6 +135,7 @@ int uart_term_peek(uint8_t *dst, int max)
 }
 
 void uart_term_drop(int n) { (void)n; }
+void uart_term_disconnected(void) { }
 #endif
 
 void uart_init(uint32_t baud)
@@ -178,6 +190,9 @@ void usart2_interrupt(uint32_t *frame)
         uint8_t c = (uint8_t)(USART2->DR & 0xFF);
         uint16_t next = (uint16_t)((s_head + 1) & RX_MASK);
 
+#if BOARD_ESP_LINK
+        s_term_output = 0;
+#endif
         if (c == CTRL_C && !s_raw_mode && g_app.running) {
             /*
              * Hand the kill to PendSV instead of rewriting the frame here:
@@ -205,11 +220,14 @@ void usart2_interrupt(uint32_t *frame)
     }
 }
 
-void uart_rx_push(uint8_t c)
+void uart_term_rx_push(uint8_t c)
 {
     uint16_t next;
     uint32_t pm = irq_save();
 
+#if BOARD_ESP_LINK
+    s_term_output = 1;
+#endif
     if (c == CTRL_C && !s_raw_mode && g_app.running)
         app_request_stop();
     next = (uint16_t)((s_head + 1) & RX_MASK);
@@ -229,8 +247,14 @@ void uart_set_raw(int raw)
 
 void uart_putc(char c)
 {
-    while (!(USART2->SR & USART_SR_TXE)) { }
-    USART2->DR = (uint32_t)(uint8_t)c;
+#if BOARD_ESP_LINK
+    if (!s_term_output || s_cap_on) {
+#endif
+        while (!(USART2->SR & USART_SR_TXE)) { }
+        USART2->DR = (uint32_t)(uint8_t)c;
+#if BOARD_ESP_LINK
+    }
+#endif
     if (s_cap_on) {
         if (s_cap_buf && s_cap_len < s_cap_max)
             s_cap_buf[s_cap_len++] = c;
@@ -238,6 +262,9 @@ void uart_putc(char c)
             s_cap_drop = 1;
         return;
     }
+#if BOARD_ESP_LINK
+    if (!s_term_output) return;
+#endif
     term_tx_push((uint8_t)c);
     if (c == '\n' || uart_term_pending() >= 48)
         term_pump();

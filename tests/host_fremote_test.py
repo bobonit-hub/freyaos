@@ -55,6 +55,12 @@ class FakePort:
     def flush(self):
         pass
 
+    def reset_input_buffer(self):
+        self.data.clear()
+
+    def close(self):
+        pass
+
     def read(self, n):
         take = bytes(self.data[:n])
         del self.data[:n]
@@ -84,6 +90,98 @@ def test_parse():
     check(rows == [("apps", True, 0), ("notes.txt", False, 2048)], "ll lines become names")
     groups = fremote.split_chain(["fs", "ls", "+", "exec", "led blink"])
     check(groups == [["fs", "ls"], ["exec", "led blink"]], "a plus chains commands")
+    check(fremote.parse_tls_endpoint("192.0.2.1") == ("192.0.2.1", 8022),
+          "TLS host uses the terminal port")
+    check(fremote.parse_tls_endpoint("board.local:9443") == ("board.local", 9443),
+          "TLS host may select a port")
+    check(fremote.parse_tls_endpoint("[2001:db8::1]:8022") == ("2001:db8::1", 8022),
+          "a bracketed IPv6 TLS endpoint is accepted")
+
+
+def test_transports():
+    print("\nUART and TLS transports")
+    old_getpass = fremote.getpass.getpass
+    fremote.getpass.getpass = lambda _prompt: "12345678"
+    try:
+        check(fremote.read_password() == b"12345678",
+              "the hidden password prompt returns eight bytes")
+    finally:
+        fremote.getpass.getpass = old_getpass
+
+    tls = fremote.TlsPort.__new__(fremote.TlsPort)
+    prompts = iter((b"username: ", b"password: ", b"\r\n"))
+    sent = []
+    tls._read_until = lambda _marker, timeout=20: next(prompts)
+    tls.write = sent.append
+    tls._login(b"12345678")
+    check(sent == [b"admin\n", b"12345678\n"],
+          "TLS login sends admin and the configured password")
+
+    made = []
+    old_tls = fremote.TlsPort
+    old_serial = fremote.serial
+
+    class FakeTls:
+        def __init__(self, endpoint, password):
+            made.append(("tls", endpoint, password))
+
+    class FakeSerialModule:
+        @staticmethod
+        def Serial(port, baud, timeout):
+            made.append(("uart", port, baud, timeout))
+            return FakePort(b"")
+
+    fremote.TlsPort = FakeTls
+    fremote.serial = FakeSerialModule
+    try:
+        fremote.Board("board.local", tls_password=b"12345678")
+        fremote.Board("/dev/ttyUSB0")
+    finally:
+        fremote.TlsPort = old_tls
+        fremote.serial = old_serial
+    check(made[0] == ("tls", "board.local", b"12345678"),
+          "TLS selection opens only the TLS transport")
+    check(made[1][0] == "uart" and len(made) == 2,
+          "UART selection opens only the serial transport")
+
+
+def test_password_sync():
+    print("\npassword-protected UART startup")
+
+    class LockedPort(FakePort):
+        def write(self, data):
+            super().write(data)
+            if data == b"12345678\r":
+                self.data.extend(b"********\r\nok\r\nfreya:/> ")
+
+    board = fremote.Board.__new__(fremote.Board)
+    board.port = LockedPort(b"password: ")
+    board._pending = b""
+    board._login_password = None
+    old_read_password = fremote.read_password
+    asked = []
+    fremote.read_password = lambda: asked.append(True) or b"12345678"
+    try:
+        text = board.sync()
+    finally:
+        fremote.read_password = old_read_password
+    check(asked == [True], "UART asks for the password only when locked")
+    check(board.port.written == b"\x0312345678\r",
+          "UART sends the hidden password before synchronising")
+    check(text.endswith("freya:/> "), "UART reaches the shell prompt after login")
+
+    board = fremote.Board.__new__(fremote.Board)
+    board.port = LockedPort(b"password: ")
+    board._pending = b""
+    board._login_password = b"12345678"
+    fremote.read_password = lambda: (_ for _ in ()).throw(
+        AssertionError("TLS password was requested twice"))
+    try:
+        text = board.sync()
+    finally:
+        fremote.read_password = old_read_password
+    check(text.endswith("freya:/> "),
+          "TLS reuses its hidden login password for the protected shell")
 
 
 def test_transfer_start():
@@ -132,6 +230,8 @@ def test_xmodem():
 
 def main():
     test_parse()
+    test_transports()
+    test_password_sync()
     test_transfer_start()
     test_xmodem()
     print(f"\n{fails} failures")

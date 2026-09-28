@@ -138,10 +138,11 @@ void uart_drain_tx(void);
 int  uart_getc_raw_timeout(uint32_t ms); /* bypasses Ctrl-C handling    */
 int  uart_getc_nb(void);               /* -1 when the ring is empty     */
 int  uart_is_raw(void);
-void uart_rx_push(uint8_t c);          /* same ring the console ISR uses */
-int  uart_term_pending(void);          /* mirrored console output bytes */
+void uart_term_rx_push(uint8_t c);     /* C6 input; selects TLS output  */
+int  uart_term_pending(void);          /* TLS-selected output bytes     */
 int  uart_term_peek(uint8_t *dst, int max);
 void uart_term_drop(int n);
+void uart_term_disconnected(void);     /* select UART and discard TLS TX */
 void term_pump(void);                  /* STM32 console <-> C6 TLS shell */
 int  uart_waiters(void);               /* threads blocked in uart_getc  */
 void uart_set_raw(int raw);
