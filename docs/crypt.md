@@ -6,7 +6,7 @@ arithmetic: nothing is kept between calls, and a handler may use it.
 The console drives the same call with `crypt`.
 
 `samples/crypt` checks the published block vector, or encrypts a file
-on the card. Build it with `make` and run `run crypt.bin`.
+on the card. Build it with `make` and run `run("crypt.bin")`.
 
 ## Calls
 
@@ -62,9 +62,9 @@ key `000102030405060708090a0b0c0d0e0f` encrypts the block
 that block as the nonce is the same eight bytes:
 
 ```
-freya: crypt 000102030405060708090a0b0c0d0e0f 4142434445464748 0000000000000000
+freya: crypt("000102030405060708090a0b0c0d0e0f", "4142434445464748", "0000000000000000")
 497df3d072612cb5
-freya: crypt 000102030405060708090a0b0c0d0e0f 4142434445464748 497df3d072612cb5
+freya: crypt("000102030405060708090a0b0c0d0e0f", "4142434445464748", "497df3d072612cb5")
 0000000000000000
 ```
 

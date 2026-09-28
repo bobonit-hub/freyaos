@@ -7,8 +7,8 @@
  * Reading extra pages proves nothing, because unimplemented flash reads
  * back as something.  So this program writes.
  *
- *     run flashprobe.bin        probe to twice the size used below
- *     run flashprobe.bin 256    probe to 256 KiB
+ *     run("flashprobe.bin")        probe to twice the size used below
+ *     run("flashprobe.bin", 256)    probe to 256 KiB
  *
  * One erase unit at a time, starting at the last unit inside the declared
  * flash and walking upwards, it programs a 256 byte block, reads it back,
@@ -504,8 +504,8 @@ int app_main(const freya_api_t *api, int argc, char **argv)
      */
     if (running_from_flash()) {
         api->puts("flashprobe: this one has to run from RAM - an erase stalls\r\n"
-                  "            instruction fetch from flash.  Use 'run "
-                  "flashprobe.bin'.\r\n");
+                  "            instruction fetch from flash.  Use 'run(\""
+                  "flashprobe.bin\")'.\r\n");
         return FREYA_EXIT_FAIL;
     }
 

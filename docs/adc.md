@@ -55,10 +55,10 @@ appropriate.
 
 ## Console
 
-`adc PA0`, `adc temp`, and `adc vref` perform the same call and print the raw
-count:
+`adc("PA0")`, `adc("temp")`, and `adc("vref")` perform the same call and print
+the raw count. The source is required:
 
 ```
-freya: adc PA0
+freya: adc("PA0")
 PA0 = 2037 / 4095
 ```

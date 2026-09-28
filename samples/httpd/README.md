@@ -12,12 +12,12 @@ upload, no directory listing, no other methods.
 
 ```
 freya: mkdir("/www")
-freya: run httpd.bin
+freya: run("httpd.bin")
 httpd: https://192.168.1.20/  TLS 1.3, docroot /www
 ```
 
 With no card, the same pages go on the SPI NOR volume and the docroot
-is named on the command line: `run httpd.bin /spi1/www`.
+is named on the command line: `run("httpd.bin", "/spi1/www")`.
 
 Copy `samples/httpd/www/` into that directory first (`index.html`,
 `hello.txt`, `status.sh`). From another machine, leaving certificate

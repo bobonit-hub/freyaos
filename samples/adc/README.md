@@ -4,8 +4,8 @@ Reads one external ADC pin, then the internal temperature sensor and voltage
 reference. All three values are raw 12-bit counts.
 
 ```
-run adc.bin          # PA0
-run adc.bin B1       # PB1
+run("adc.bin")          # PA0
+run("adc.bin", "B1")    # PB1
 ```
 
 Connect an external voltage only between ground and 3.3 V. The common ADC

@@ -25,7 +25,7 @@ the signal wire going to the pin.
 ## Run
 
 ```
-freya: run pwm.bin
+freya: run("pwm.bin")
 --- pwm starting (Ctrl-C stops it) ---
 pwm: PB6 at 1000 Hz, fading an LED. Ctrl-C stops it
   64.00%
@@ -35,10 +35,10 @@ pwm: channel closed, the pin is an input again
 ```
 
 ```
-run pwm.bin            # fade an LED on PB6 at 1 kHz
-run pwm.bin B7         # the same on PB7
-run pwm.bin B7 200     # and at 200 Hz, slow enough to see it flicker
-run pwm.bin A0 servo   # sweep a servo on PA0 instead
+run("pwm.bin")            # fade an LED on PB6 at 1 kHz
+run("pwm.bin", "B7")         # the same on PB7
+run("pwm.bin", "B7", 200)     # and at 200 Hz, slow enough to see it flicker
+run("pwm.bin", "A0", "servo")   # sweep a servo on PA0 instead
 ```
 
 | Argument | |
@@ -94,8 +94,8 @@ so it lands on 312 ns steps rather than on ten-thousandths of a 20 ms frame.
 The sample closes its channel, which stops the pin and makes it an input
 again. Freya does that anyway when a run ends — Ctrl-C and faults included —
 so nothing a program leaves behind keeps driving a motor once the shell is
-back. A channel started at the console with `pwm PB6 1000 25` is not a
-program's and is left alone; `pwm PB6 off` stops that one.
+back. A channel started at the console with `pwm("PB6", 1000, 25)` is not a
+program's and is left alone; `pwm("PB6", "off")` stops that one.
 
 ## Build
 
@@ -109,6 +109,6 @@ board. Copy the `.bin` onto the card (or `download` it over XMODEM) and `run`
 it, or install the flash image so it needs no card:
 
 ```
-freya: install pwm.xip.bin
-freya: runflash
+freya: install("pwm.xip.bin")
+freya: runflash()
 ```

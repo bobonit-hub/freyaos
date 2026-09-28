@@ -6,7 +6,7 @@ inside one call. It is polled, like SPI. There is no slave mode and no
 interrupt. The console drives the same calls with `i2c`.
 
 `samples/i2c` scans a bus and reads a register. Build it with `make` and run
-`run i2c.bin`.
+`run("i2c.bin")`.
 
 ## Calls
 
@@ -150,17 +150,17 @@ The kernel returns `FREYA_ERR_HANDLER`.
 The same commands a program can make:
 
 ```
-freya: i2c 1 100000
+freya: i2c(1, 100000)
 I2C1  100000 Hz
-freya: i2c 1 scan
+freya: i2c(1, "scan")
 68
-freya: i2c 1 0x68 w 0x75 r 1
+freya: i2c(1, 0x68, "w", 0x75, "r", 1)
 68
-freya: i2c 1 off
+freya: i2c(1, "off")
 I2C1 off
 ```
 
 `scan` prints each address that answered, from `0x08` to `0x77`. `w` takes
 up to 32 bytes, each decimal or hex. `r` takes a count. Ctrl-C abandons a
 scan. A bus left open here is still open after a program runs, until
-`i2c <bus> off`.
+`i2c(bus, "off")`.

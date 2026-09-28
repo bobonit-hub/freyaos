@@ -6,7 +6,7 @@
  *     run log.bin error        only the error line is stored
  *
  * Lines go to /freya.log (or the console if the card is not mounted).
- * 'cat /freya.log' shows which names actually landed.
+ * 'cat("/freya.log")' shows which names actually landed.
  */
 #include "freya_api.h"
 
@@ -83,6 +83,6 @@ int app_main(const freya_api_t *api, int argc, char **argv)
              argc, (argc > 0) ? argv[0] : "-");
 
     api->puts("done. lines at or below the filter are in /freya.log\r\n");
-    api->puts("(cat /freya.log   or, if the card is out, they already printed)\r\n");
+    api->puts("(cat(\"/freya.log\")   or, if the card is out, they already printed)\r\n");
     return 0;
 }

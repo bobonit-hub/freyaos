@@ -322,45 +322,55 @@ are in [docs/console-commands.md](docs/console-commands.md).
 
 | Command | What it does |
 |---|---|
-| `help [command]` | list commands, or describe one |
-| `sysinfo` | CPU, unique id, clocks, reset cause, uptime, log level, auto-start and ram-dump flags, card, filesystem |
-| `meminfo` | flash and RAM usage: .data, .bss, heap, program region, stack |
-| `mount` | initialise the card and mount the filesystem |
-| `power [sd [on\|off]]` | show the socket supply, or switch it |
-| `ls [-l] [path]` | list a directory; `-l` adds sizes, dates and attributes |
-| `cd [path]`, `pwd` | move around |
-| `mkdir <dir>...` | create directories |
-| `rm [-r] <path>...` | remove files, empty directories, or whole trees |
-| `rename <old> <new>` | rename or move a file or directory (no data copy) |
-| `download <file> [--raw] [--size <n>]` | receive a file over XMODEM; `--size` keeps that many bytes |
-| `upload <file>` | send a file over XMODEM |
-| `cat <file>` | print a file |
-| `write <file> <text...>` | append a line to a file |
-| `hexdump <file> [off] [len]` | dump a file in hex |
-| `flashdump [file]` | write internal flash to a file on the card (default `/freya.flash`) |
-| `df` | capacity, free and used space |
-| `load <file>` | load a program image into RAM |
-| `run [file] [args...]` | run the loaded program |
-| `runflash [args...]` | run the program stored in internal flash |
-| `stop` | stop, or unload, the program |
-| `status` | exit status of the last command and the last program (also `$?`) |
-| `install <file>` | write a program, or a shell script, into internal flash |
-| `saveflash [file]` | copy the installed program or script from flash onto the card |
-| `uninstall` | erase the program flash region |
-| `autostart [on\|off]` | run the flash program or script automatically at boot |
-| `ramdump [on\|off]` | write SRAM to `/freya.ram` after a BusFault (default off) |
-| `password [<8 bytes>\|off]` | set or clear the 8-byte terminal password |
+| `help(["command"])` | list commands, or describe one |
+| `sysinfo()` | CPU, unique id, clocks, reset cause, uptime, log level, auto-start, ram-dump and password flags, card, filesystem |
+| `cksum()` | firmware control sum, and whether the stored sum matches |
+| `meminfo()` | flash and RAM usage: .data, .bss, heap, program region, stack |
+| `mount()` | initialise the card and mount the filesystem |
+| `power(["sd" [, "on"\|"off"]])` | show the socket supply, or switch it |
+| `ls(["-l"] [, "path"])` | list a directory; `-l` adds sizes, dates and attributes |
+| `cd(["path"])`, `pwd()` | move around |
+| `mkdir("dir" [, ...])` | create directories |
+| `rm(["-r"\|"-rf",] "path" [, ...])` | remove files, empty directories, or whole trees |
+| `rename("old", "new")` | rename or move a file or directory (no data copy) |
+| `download("file" [, "--raw"] [, "--size", bytes])` | receive a file over XMODEM; `--size` keeps that many bytes |
+| `upload("file")` | send a file over XMODEM |
+| `cat("file")` | print a file |
+| `write("file", value [, ...])` | append a line to a file |
+| `hexdump("file" [, offset [, length]])` | dump a file in hex |
+| `flashdump(["file"])` | write internal flash to a file on the card (default `/freya.flash`) |
+| `df()` | capacity, free and used space |
+| `load("file"\|"@flash")` | load a program image into RAM, or bind the flash image |
+| `run(["file"\|"@flash" [, arg ...]])` | run the loaded program, or load and run a file |
+| `runflash([arg [, ...]])` | run the program stored in internal flash |
+| `stop(["thread"])` | stop the program, or one thread by name |
+| `threads()` | list threads: id, priority, state, name |
+| `status()` | exit status of the last command and the last program (also `$?`) |
+| `install("file")` | write a program, or a shell script, into internal flash |
+| `saveflash(["file"])` | copy the installed program or script from flash onto the card |
+| `uninstall()` | erase the program flash region |
+| `autostart(["on"\|"off"])` | run the flash program or script automatically at boot |
+| `ramdump(["on"\|"off"])` | write SRAM to `/freya.ram` after a BusFault (default off) |
+| `password(["xxxxxxxx"\|"off"])` | set or clear the 8-byte terminal password |
 | `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps; with `RTC=ds3231`, also the chip on PB6/PB7 |
-| `loglevel [level]` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
-| `crypt [<key> <nonce> <hex>]` | XTEA-CTR: the same call encrypts and decrypts |
-| `pin <pin> [mode] [0\|1\|toggle]` | read or drive one pin: `pin PB5 out 1`, `pin PB0 up` |
-| `pwm [<pin> <hz> <duty%>]` | list the PWM channels, or start one: `pwm PB6 1000 25`, `pwm PB6 off` |
-| `sleep <ms>` | wait that many milliseconds; Ctrl-C returns early |
-| `source <file>\|@flash` | run a shell script from a file, or from program flash |
+| `loglevel(["off"\|"error"\|"warn"\|"info"\|"debug"\|0..4])` | show or set the file log level |
+| `pin("pin" [, "in"\|"up"\|"down"\|"out"\|"od"\|"analog"\|0\|1\|"toggle" [, 0\|1\|"toggle"]])` | read or drive one pin: `pin("PB5", "out", 1)`, `pin("PB0", "up")` |
+| `pwm([["pin", hz, duty] \| ["pin", "off"]])` | list the PWM channels, or start or stop one |
+| `adc("pin"\|"temp"\|"vref")` | take one raw 12-bit ADC sample |
+| `i2c([bus [, hz\|"off"\|"scan"\|addr, ...]])` | list the I2C buses, or open, scan and talk to one |
+| `spi([bus, hz [, mode] \| bus, "off" \| bus, "x", ...])` | list the SPI buses, or open one and shift bytes |
+| `wifi(["on"\|"off"\|"status"\|"scan"\|"connect"\|"disconnect"\|"credentials", ...])` | control the ESP32-C6 Wi-Fi coprocessor |
+| `ping("host" [, timeout_ms])` | resolve and ping a host through the ESP32-C6 |
+| `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | bounded HTTP request through the ESP32-C6 |
+| `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one and talk to it |
+| `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts |
+| `sleep(ms)` | wait that many milliseconds; Ctrl-C returns early |
+| `yield()` | let a script thread run |
+| `source("file"\|"@flash")` | run a shell script from a file, or from program flash |
 | `set`, `unset`, `$name` | integer, float, string, array and dict variables |
 | `fn`, `return` | a function of 0..32 arguments and 1..32 values |
 | `if` / `else` / `end`, `loop <count\|condition>` | run commands when a status is 0, or repeat them |
-| `uptime`, `led`, `echo`, `clear`, `reboot` | the usual small change |
+| `uptime()`, `led("on"\|"off"\|"blink")`, `echo([value [, ...]])`, `clear()`, `reboot()` | the usual small change |
 
 Ctrl-C stops a running program, Ctrl-U clears the input line, and the up and
 down cursor keys walk the command history.
@@ -371,10 +381,10 @@ the size the MCU reports) onto the card as a raw image. It overwrites
 leaves whatever was written. `saveflash` copies only the installed program
 image (not the kernel) to `/<name>.xip.bin`, or to a path you give.
 
-`ls` prints names only; `ls -l` adds sizes and timestamps:
+`ls()` prints names only; `ls("-l")` adds sizes and timestamps:
 
 ```
-freya: ls -l
+freya: ls("-l")
 /:
   d---a      <DIR>  2026-09-21 20:14  apps
   -w--a       2048  2026-09-21 20:31  notes.txt
@@ -388,7 +398,7 @@ The card is ordinary FAT, so a card reader works. To transfer over the console
 instead, start the receiver on Freya and then send from the host:
 
 ```
-freya: download hello.bin
+freya: download("hello.bin")
 Ready to receive 'hello.bin' over XMODEM.
 ```
 
@@ -475,7 +485,7 @@ the compiler emits. They round to nearest, ties to even, and they keep
 subnormals. A program that never uses `float` does not carry that code.
 
 ```
-freya: run hello.bin
+freya: run("hello.bin")
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program RAM region
   api version 3, table size 316 bytes
@@ -485,7 +495,7 @@ hello from a program running in Freya's program RAM region
 --- hello stopped by Ctrl-C, exit status 130, 4193 ms ---
 ```
 
-`run <file>` loads and runs in one step, `load` then `run` separates the two,
+`run("file")` loads and runs in one step, `load` then `run` separates the two,
 and any extra words on the line arrive as `argv`. Only one program exists at a
 time — Freya does not multitask.
 
@@ -574,7 +584,7 @@ A program that crashes is contained the same way: the fault is reported with
 the faulting address and the decoded fault status, and the shell comes back.
 
 ```
-freya: run spin.bin fault
+freya: run("spin.bin", "fault")
 spin: about to touch 0xF0000000 ...
 
 [freya] program fault at pc=0x2001004e lr=0x20010027
@@ -627,15 +637,15 @@ the status rather than deduced from it. `run` prints both on its closing line,
 replaced — and `$?` in a command line is the number on its own:
 
 ```
-freya: run hello.bin 3
+freya: run("hello.bin", 3)
 --- hello starting (Ctrl-C stops it) ---
 ...
 exiting with status 3
 
 --- hello exited, exit status 3, 12 ms ---
-freya: echo $?
+freya: echo($?)
 3
-freya: status
+freya: status()
   command    : 0
   program    : hello
   ended by   : exited
@@ -714,12 +724,12 @@ image there from the card, and `make flash PROGRAM=<app>` writes the same
 kind of image into the module together with the kernel:
 
 ```
-freya: install hello.xip.bin
+freya: install("hello.xip.bin")
 install: console input is dropped while flash is busy
   erasing 2 pages ... writing ... ok
 installed /hello.xip.bin at 0x0800c080: 1.2 KiB in 2 pages
 
-freya: run @flash
+freya: run("@flash")
 --- hello starting (Ctrl-C stops it) ---
 hello from a program running in Freya's program flash region
   api version 3, table size 316 bytes

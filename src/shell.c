@@ -860,7 +860,7 @@ static int cmd_rm(int argc, char **argv)
         kprintf("removed %s\r\n", path);
         count++;
     }
-    if (!count) return usage("rm [-r] <file|directory>");
+    if (!count) return usage("rm [-r|-rf] <file|directory>");
     return 0;
 }
 
@@ -2662,17 +2662,17 @@ static const command_t s_cmds[] = {
     { "cd",       cmd_cd,       "cd([\"path\"])" },
     { "pwd",      cmd_pwd,      "pwd()" },
     { "mkdir",    cmd_mkdir,    "mkdir(\"dir\" [, ...])" },
-    { "rm",       cmd_rm,       "rm([\"-r\",] \"path\" [, ...])" },
+    { "rm",       cmd_rm,       "rm([\"-r\"|\"-rf\",] \"path\" [, ...])" },
     { "rename",   cmd_rename,   "rename(\"old\", \"new\")" },
-    { "download", cmd_download, "download(\"file\" [, \"--raw\"|\"--size\", bytes])" },
+    { "download", cmd_download, "download(\"file\" [, \"--raw\"] [, \"--size\", bytes])" },
     { "upload",   cmd_upload,   "upload(\"file\")" },
     { "cat",      cmd_cat,      "cat(\"file\")" },
     { "write",    cmd_write,    "write(\"file\", value [, ...])" },
     { "hexdump",  cmd_hexdump,  "hexdump(\"file\" [, offset [, length]])" },
     { "flashdump",cmd_flashdump,"flashdump([\"file\"])" },
     { "df",       cmd_df,       "df()" },
-    { "load",     cmd_load,     "load(\"file\")" },
-    { "run",      cmd_run,      "run([\"file\" [, arg ...]])" },
+    { "load",     cmd_load,     "load(\"file\"|\"@flash\")" },
+    { "run",      cmd_run,      "run([\"file\"|\"@flash\" [, arg ...]])" },
 #ifdef FREYA_APP_FLASH_ADDR
     { "runflash", cmd_runflash, "runflash([arg [, ...]])" },
 #endif
@@ -2688,18 +2688,18 @@ static const command_t s_cmds[] = {
     { "password", cmd_password, "password([\"xxxxxxxx\"|\"off\"])" },
 #endif
     { "date",     cmd_date,     "date([\"YYYY-MM-DD HH:MM:SS\"])" },
-    { "loglevel", cmd_loglevel, "loglevel([\"level\"])" },
+    { "loglevel", cmd_loglevel, "loglevel([\"off\"|\"error\"|\"warn\"|\"info\"|\"debug\"|0..4])" },
     { "uptime",   cmd_uptime,   "uptime()" },
     { "led",      cmd_led,      "led(\"on\"|\"off\"|\"blink\")" },
-    { "pin",      cmd_pin,      "pin([\"pin\" [, \"mode\"|level [, level]]])" },
-    { "pwm",      cmd_pwm,      "pwm([\"pin\" [, hz [, duty]]])" },
-    { "adc",      cmd_adc,      "adc([\"pin\"|\"temp\"|\"vref\"])" },
+    { "pin",      cmd_pin,      "pin(\"pin\" [, \"in\"|\"up\"|\"down\"|\"out\"|\"od\"|\"analog\"|0|1|\"toggle\" [, 0|1|\"toggle\"]])" },
+    { "pwm",      cmd_pwm,      "pwm([[\"pin\", hz, duty] | [\"pin\", \"off\"]])" },
+    { "adc",      cmd_adc,      "adc(\"pin\"|\"temp\"|\"vref\")" },
     { "i2c",      cmd_i2c,      "i2c([bus [, hz|\"off\"|\"scan\"|addr, ...]])" },
-    { "spi",      cmd_spi,      "spi([bus [, hz|\"off\"|\"x\", ...]])" },
-    { "wifi",     cmd_wifi,     "wifi([action [, ...]])" },
-    { "ping",     cmd_ping,     "ping(\"host\" [, ms])" },
-    { "curl",     cmd_curl,     "curl([options,] \"http[s]://...\")" },
-    { "w1",       cmd_w1,       "w1([\"pin\"|\"off\"|\"search\"|...])" },
+    { "spi",      cmd_spi,      "spi([bus, hz [, mode] | bus, \"off\" | bus, \"x\", ...])" },
+    { "wifi",     cmd_wifi,     "wifi([\"on\"|\"off\"|\"status\"|\"scan\"|\"connect\"|\"disconnect\"|\"credentials\", ...])" },
+    { "ping",     cmd_ping,     "ping(\"host\" [, timeout_ms])" },
+    { "curl",     cmd_curl,     "curl([\"--basic\", \"user:password\",] [\"--compressed\",] [\"--data\", text,] [\"--output\", file,] [\"--user-agent\", text,] [\"--insecure\",] [\"--verbose\",] \"http[s]://...\")" },
+    { "w1",       cmd_w1,       "w1([\"pin\" [, \"off\"|\"reset\"|\"search\"]])" },
     { "crypt",    cmd_crypt,    "crypt([\"key\", \"nonce\", \"hex\"])" },
     { "echo",     cmd_echo,     "echo([value [, ...]])" },
     { "sleep",    cmd_sleep,    "sleep(ms)" },

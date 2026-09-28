@@ -6,7 +6,7 @@ polled. There is no slave mode and no interrupt. The console drives the
 same calls with `spi`.
 
 `samples/spi` loops the bus back to itself, or reads a flash chip's
-JEDEC id. Build it with `make` and run `run spi.bin`.
+JEDEC id. Build it with `make` and run `run("spi.bin")`.
 
 ## Calls
 
@@ -114,17 +114,17 @@ them. The kernel returns `FREYA_ERR_HANDLER`.
 open. The same commands a program can make:
 
 ```
-freya: spi 1 1000000
+freya: spi(1, 1000000)
 SPI2  750000 Hz  mode 0
-freya: pin PB12 out 1
+freya: pin("PB12", "out", 1)
 PB12 = 1
-freya: pin PB12 0
+freya: pin("PB12", 0)
 PB12 = 0
-freya: spi 1 x 0x9F 0xFF 0xFF 0xFF
+freya: spi(1, "x", 0x9F, 0xFF, 0xFF, 0xFF)
 ff ef 40 18
-freya: pin PB12 1
+freya: pin("PB12", 1)
 PB12 = 1
-freya: spi 1 off
+freya: spi(1, "off")
 SPI2 off
 ```
 
@@ -132,4 +132,4 @@ SPI2 off
 `pin`: drive it high, then low for the transfer, then high again.
 750 kHz is what the Black Pill's divider makes of 1 MHz; the Blue Pill
 lands on 562.5 kHz. A bus left open here is still open after a program
-runs, until `spi <bus> off`.
+runs, until `spi(bus, "off")`.

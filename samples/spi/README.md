@@ -27,7 +27,7 @@ there; `spi 1 1000000` at the console prints the rate the hardware runs.
 ## Run
 
 ```
-freya: run spi.bin
+freya: run("spi.bin")
 --- spi starting (Ctrl-C stops it) ---
   00 -> 00
   ff -> ff
@@ -43,17 +43,17 @@ spi: loopback ok
 ```
 
 ```
-run spi.bin           # MOSI tied to MISO
-run spi.bin id        # JEDEC id, chip select PB12
-run spi.bin id PB10   # the same, chip select PB10
+run("spi.bin")           # MOSI tied to MISO
+run("spi.bin", "id")        # JEDEC id, chip select PB12
+run("spi.bin", "id", "PB10")   # the same, chip select PB10
 ```
 
 A bus the console already has open is `bus or its pins are taken`;
-`spi 1 off` releases it.
+`spi(1, "off")` releases it.
 
 ## Cleaning up
 
 The sample closes the bus, which returns the three pins to inputs. Freya
 does that anyway when the run ends. A bus opened at the console with
-`spi 1 1000000` is not the program's and stays open. A chip select the
+`spi(1, 1000000)` is not the program's and stays open. A chip select the
 sample drove as an output is left as an output, idle high.

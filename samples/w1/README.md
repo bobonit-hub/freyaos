@@ -29,13 +29,13 @@ conversion current from the data pin; the sample holds that pin high for
 750 ms either way.
 
 PB12 can be something else at the time. A pin that is already a PWM output,
-or either line of an open I2C bus, stays that until `pwm <pin> off` or
+or either line of an open I2C bus, stays that until `pwm(pin, "off")` or
 `i2c <bus> off`.
 
 ## Run
 
 ```
-freya: run w1.bin
+freya: run("w1.bin")
 --- w1 starting (Ctrl-C stops it) ---
 w1: PB12
 28 aa 14 1e 0b 00 00 9a  21.875 C
@@ -45,17 +45,17 @@ w1: 1 device
 ```
 
 ```
-run w1.bin           # PB12
-run w1.bin B0        # PB0
-run w1.bin PB1       # PB1
+run("w1.bin")           # PB12
+run("w1.bin", "B0")        # PB0
+run("w1.bin", "PB1")       # PB1
 ```
 
 The pin may be `PB12` or `B12`. Nothing answering is exit status 1 and
 `no device`. A pin the console already has open is `that pin is taken`;
-`w1 PB12 off` releases it.
+`w1("PB12", "off")` releases it.
 
 ## Cleaning up
 
 The sample closes the pin, which returns it to an input. Freya does that
-anyway when the run ends. A pin opened at the console with `w1 PB12` is
+anyway when the run ends. A pin opened at the console with `w1("PB12")` is
 not the program's and stays open.

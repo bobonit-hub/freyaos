@@ -1013,7 +1013,7 @@ int main(void)
     expect_has("spi names chip select", "chip select is a pin you drive");
     rc = run("help wifi");
     expect_rc("help wifi succeeds", rc, 0);
-    expect_has("help wifi shows an action", "action");
+    expect_has("help wifi shows an action", "\"connect\"");
     rc = run("wifi()");
     expect_rc("wifi status succeeds", rc, 0);
     expect_has("wifi status reports off", "wifi: off");

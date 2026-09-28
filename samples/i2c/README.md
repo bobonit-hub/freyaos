@@ -25,12 +25,12 @@ Black Pill the package has no PB11, so SDA is PB9. `i2c` with no arguments
 prints the pair the board you are looking at actually uses.
 
 PB6 and PB7 are also PWM pins, and on the Black Pill so is PB9. A pin that is
-already a PWM output cannot be opened as I2C until `pwm <pin> off`.
+already a PWM output cannot be opened as I2C until `pwm(pin, "off")`.
 
 ## Run
 
 ```
-freya: run i2c.bin
+freya: run("i2c.bin")
 --- i2c starting (Ctrl-C stops it) ---
 i2c: scanning bus 1 at 100000 Hz
   0x68
@@ -40,18 +40,18 @@ i2c: 1 device
 ```
 
 ```
-run i2c.bin              # scan bus 1
-run i2c.bin 2            # scan bus 2
-run i2c.bin 1 0x68       # read one byte from 0x68
-run i2c.bin 1 0x68 0x75  # write 0x75, then read one byte
+run("i2c.bin")              # scan bus 1
+run("i2c.bin", 2)            # scan bus 2
+run("i2c.bin", 1, 0x68)       # read one byte from 0x68
+run("i2c.bin", 1, 0x68, 0x75)  # write 0x75, then read one byte
 ```
 
 An address may be decimal or `0x`. Nothing answering is exit status 1 and
 `no answer`. A bus the console already has open is `bus or its pins are taken`;
-`i2c 1 off` releases it.
+`i2c(1, "off")` releases it.
 
 ## Cleaning up
 
 The sample closes the bus, which returns the pins to inputs. Freya does that
-anyway when the run ends. A bus opened at the console with `i2c 1 100000` is
+anyway when the run ends. A bus opened at the console with `i2c(1, 100000)` is
 not the program's and stays open.

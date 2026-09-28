@@ -24,7 +24,7 @@ int app_main(const freya_api_t *api, int argc, char **argv)
 
 `samples/irq` is the worked example: a timer blinking the LED and a button on
 a pin, counted and reported. `samples/pwm` is the other one, fading an LED and
-sweeping a servo. Build them with `make` and run `run irq.bin`.
+sweeping a servo. Build them with `make` and run `run("irq.bin")`.
 
 ## Pins
 
@@ -202,7 +202,7 @@ handler: they write compare registers and nothing else. `pwm_open()` and
 Every channel a program opened is closed when its run ends, however it ended,
 and its pins go back to being inputs — nothing a program leaves behind keeps
 driving a motor after the shell comes back. A channel started at the console
-with `pwm` is not a program's, and keeps running until `pwm <pin> off`.
+with `pwm` is not a program's, and keeps running until `pwm(pin, "off")`.
 
 ## Handlers, and what they may do
 

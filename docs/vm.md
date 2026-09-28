@@ -99,7 +99,7 @@ illegal for both: a register has no address to give.
 ## The sample
 
 ```
-freya: run vm.bin
+freya: run("vm.bin")
 vm: R0=42  steps=2  status=1
 ```
 

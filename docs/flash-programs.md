@@ -268,19 +268,19 @@ problem with a worse outcome.
 
 ## Shell and boot
 
-* `install <file>` — validate the header, erase the pages the image needs,
+* `install("file")` — validate the header, erase the pages the image needs,
   stream it from the card 512 bytes at a time, verify by read-back, report
   pages and bytes written. Skip the write entirely if the region already holds
   an identical image; flash endurance is 10k cycles and there is no reason to
   spend one per `run`.
-* `uninstall` — erase the region.
-* `run @flash [args...]` — run what is installed. Treating the installed image
+* `uninstall()` — erase the region.
+* `run("@flash" [, arg ...])` — run what is installed. Treating the installed image
   as a pseudo-path rather than adding a command means `load`, `run`, `stop` and
   the `g_app` bookkeeping all work as they do now.
-* `runflash [args...]` — the same run, with `@flash` filled in. A program
+* `runflash([arg, ...])` — the same run, with `@flash` filled in. A program
   packed into the module by `make flash PROGRAM=<app>` is started this way,
   and so is one installed from the card.
-* `meminfo` — one more line for the program flash region and what occupies it.
+* `meminfo()` — one more line for the program flash region and what occupies it.
 * `boot_autorun()` — try the installed image when `/autorun.bin` is absent, or
   when there is no card at all. This is the part that makes the feature feel
   like an operating system rather than a trick: a Blue Pill with nothing in the

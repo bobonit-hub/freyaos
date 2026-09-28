@@ -14,15 +14,16 @@ Every command Freya implements.  The Black Pill now has the same list.
 |---|---|
 | `help(["command"])` | list commands, or describe one |
 | `sysinfo()` | firmware version, CPU, unique id, clocks, reset cause, uptime, log level, auto-start, ram-dump and password flags, card, filesystem |
+| `cksum()` | firmware control sum of the kernel and the extension, and whether the stored sum matches |
 | `meminfo()` | flash and RAM usage: .data, .bss, heap, program region, stack |
 | `mount()` | initialise the card and mount it on `/`, or the Black Pill SPI flash (LittleFS) on `/spi1` |
 | `power(["sd" [, "on"\|"off"]])` | show the socket supply, or switch it |
 | `ls(["-l"] [, "path"])` | list a directory; `-l` adds sizes, dates and attributes |
 | `cd(["path"])`, `pwd()` | move around |
 | `mkdir("dir" [, ...])` | create directories |
-| `rm(["-r",] "path" [, ...])` | remove files, empty directories, or whole trees |
+| `rm(["-r"\|"-rf",] "path" [, ...])` | remove files, empty directories, or whole trees |
 | `rename("old", "new")` | rename or move a file or directory (no data copy) |
-| `download("file" [, "--raw"\|"--size", bytes])` | receive a file over XMODEM; `--size` stores that many bytes and drops the padding |
+| `download("file" [, "--raw"] [, "--size", bytes])` | receive a file over XMODEM; `--raw` keeps the padding byte, `--size` stores that many bytes |
 | `upload("file")` | send a file over XMODEM; the first line gives the exact size |
 | `cat("file")` | print a file |
 | `write("file", value [, ...])` | append a line to a file |
@@ -30,7 +31,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `flashdump(["file"])` | write internal flash to a file on the card (default `/freya.flash`) |
 | `df()` | capacity, free and used space |
 | `load("file"\|"@flash")` | load a program image into RAM, or bind the flash image |
-| `run(["file"\|"@flash" [, arg ...]])` | run the loaded program |
+| `run(["file"\|"@flash" [, arg ...]])` | run the loaded program, or load and run a file or `@flash` |
 | `runflash([arg [, ...]])` | run the program stored in internal flash |
 | `stop(["thread"])` | stop the program, or one thread by name |
 | `threads()` | list threads: id, priority, state, name |
@@ -42,16 +43,16 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `ramdump(["on"\|"off"])` | write SRAM to `/freya.ram` after a BusFault (default off) |
 | `password(["xxxxxxxx"\|"off"])` | set or clear the 8-byte terminal password in the auto-start slot |
 | `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps; with `RTC=ds3231`, also the chip on PB6/PB7 |
-| `loglevel(["level"])` | show or set the file log level (`off`/`error`/`warn`/`info`/`debug`, or `0`..`4`) |
-| `pin(["pin" [, "mode"\|level [, level]]])` | list pins, or read or drive one |
-| `pwm(["pin" [, hz [, duty]]])` | list the PWM channels, or start and stop one |
-| `adc(["pin"\|"temp"\|"vref"])` | take one raw 12-bit ADC sample |
+| `loglevel(["off"\|"error"\|"warn"\|"info"\|"debug"\|0..4])` | show or set the file log level |
+| `pin("pin" [, "in"\|"up"\|"down"\|"out"\|"od"\|"analog"\|0\|1\|"toggle" [, 0\|1\|"toggle"]])` | read a pin, set its mode, or drive it |
+| `pwm([["pin", hz, duty] \| ["pin", "off"]])` | list the PWM channels, or start or stop one |
+| `adc("pin"\|"temp"\|"vref")` | take one raw 12-bit ADC sample; the source is required |
 | `i2c([bus [, hz\|"off"\|"scan"\|addr, ...]])` | list the I2C buses, or open, scan and talk to one |
-| `spi([bus [, hz\|"off"\|"x", ...]])` | list the SPI buses, or open one and shift bytes |
+| `spi([bus, hz [, mode] \| bus, "off" \| bus, "x", ...])` | list the SPI buses, or open one and shift bytes |
 | `wifi(["on"\|"off"\|"status"\|"scan"\|"connect"\|"disconnect"\|"credentials", ...])` | control the ESP32-C6 Wi-Fi coprocessor |
 | `ping("host" [, timeout_ms])` | resolve and ping a host through the ESP32-C6 |
-| `curl([options,] "http[s]://...")` | make a bounded HTTP request through the ESP32-C6 |
-| `w1(["pin"\|"off"\|"search"\|...])` | list open 1-Wire pins, or open one and talk to it |
+| `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | make a bounded HTTP request through the ESP32-C6 |
+| `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one, check presence, or walk the ROMs |
 | `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts |
 | `sleep(ms)` | wait that many milliseconds; Ctrl-C returns early |
 | `yield()` | let a script thread run |
@@ -62,13 +63,17 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `return <expr> [, <expr>]...` | leave the function with those values |
 | `if <command>` ... `else` ... `end` | run the following commands when that command's status is 0 |
 | `loop <count\|condition>` ... `end` | repeat the commands up to `end` |
-| `uptime()`, `led(...)`, `echo(...)`, `clear()`, `reboot()` | the usual small change |
+| `uptime()` | time since boot |
+| `led("on"\|"off"\|"blink")` | drive the board LED |
+| `echo([value [, ...]])` | print values, separated by spaces |
+| `clear()` | clear the terminal |
+| `reboot()` | sync the filesystem and restart |
 
 ## Socket power
 
-`power` is `api->power()`. `power sd off` closes every open file, unmounts,
+`power` is `api->power()`. `power("sd", "off")` closes every open file, unmounts,
 releases PA4..PA7 and drives PA8 high, which opens the VDD switch described
-in [sd-slot.txt](sd-slot.txt). `power sd on` drives PA8 low and waits for
+in [sd-slot.txt](sd-slot.txt). `power("sd", "on")` drives PA8 low and waits for
 the rail; the card is not identified again until `mount`. `mount` itself
 turns the rail on when it was off. A program does the same with
 `api->power(FREYA_PWR_SD, 0)` and `api->power(FREYA_PWR_SD, 1)`. The call
@@ -106,32 +111,33 @@ them — the same `src/gpio.c` and `src/pwm.c` a program reaches through
 for the same reason, and what works at the prompt works in a program.
 
 A pin is named the way `FREYA_PB(0)` is written: `PB0`, `pb0` and `B0` are the
-same pin. `pin PB0` reads it; a mode word (`in`, `up`, `down`, `out`, `od`,
+same pin. `pin("PB0")` reads it; a mode word (`in`, `up`, `down`, `out`, `od`,
 `analog`) sets it; `0`, `1` or `toggle` drives it, making the pin a push-pull
 output first if no mode was given. Either way the command finishes by reading
-the pin back, so what it prints is what the pin really is:
+the pin back, so what it prints is what the pin really is. A pin is required;
+with no argument the command prints its usage.
 
 ```
-
-`adc PA0` takes one analog conversion and leaves PA0 in analog mode.
-`adc temp` and `adc vref` read the internal sources. Values are raw counts
-from 0 to 4095; [adc.md](adc.md) describes the pin set, conflicts, and
-conversion to voltage.
-freya: pin PB5 out
+freya: pin("PB5", "out")
 PB5 = 0
-freya: pin PB5 1
+freya: pin("PB5", 1)
 PB5 = 1
-freya: pin PB0 up
+freya: pin("PB0", "up")
 PB0 = 1
 ```
+
+`adc("PA0")` takes one analog conversion and leaves PA0 in analog mode.
+`adc("temp")` and `adc("vref")` read the internal sources. The source is
+required. Values are raw counts from 0 to 4095; [adc.md](adc.md) describes
+the pin set, conflicts, and conversion to voltage.
 
 `pwm` with no arguments lists the board's eight channels, which timer and
 channel each pin is, and what each is doing:
 
 ```
-freya: pwm PB6 1000 25
+freya: pwm("PB6", 1000, 25)
 PB6  TIM4 CH1  1000 Hz 25.00%
-freya: pwm
+freya: pwm()
   PA0  TIM2 CH1  off
   PA1  TIM2 CH2  off
   PB0  TIM3 CH3  off
@@ -146,7 +152,7 @@ usage: pwm [<pin> <hz> <duty%> | <pin> off]
 
 A duty cycle is a percentage and may have a decimal point: `7.5` is what a
 servo sits at. A channel started here keeps running — that is the point of it
-— until `pwm PB6 off`, which also puts the pin back to an input. A channel a
+— until `pwm("PB6", "off")`, which also puts the pin back to an input. A channel a
 *program* opened is closed when its run ends instead.
 
 Frequencies are 1 Hz to 1 MHz, the channels of one timer share one frequency,
@@ -172,7 +178,7 @@ command says the chip was not written. The wiring is in
 `api->i2c_transfer()`. With no arguments it lists the buses and the pins:
 
 ```
-freya: i2c
+freya: i2c()
   1  I2C1  SCL PB6  SDA PB7  off
   2  I2C2  SCL PB10  SDA PB11  off
 pull SCL and SDA up to 3.3 V
@@ -191,7 +197,7 @@ the worked transcript and the reasons a call is refused.
 `api->spi_transfer()`. With no arguments it lists the buses and the pins:
 
 ```
-freya: spi
+freya: spi()
   1  SPI2  PB13 PB14 PB15  off
 chip select is a pin you drive
 usage: spi [<bus> <hz> [mode] | <bus> off | <bus> x <byte>...]
@@ -210,9 +216,9 @@ is refused.
 With no arguments it lists the pins that are open:
 
 ```
-freya: w1 PB12
+freya: w1("PB12")
 PB12  1-Wire
-freya: w1
+freya: w1()
   PB12
 pull the data pin up to 3.3 V
 usage: w1 [<pin> | <pin> off | <pin> reset | <pin> search]
@@ -231,7 +237,7 @@ cipher and prints the usage. Otherwise the key is 32 hex digits, the nonce
 is 16 and the data is one hex word, with no `0x`. The same command decrypts:
 
 ```
-freya: crypt 000102030405060708090a0b0c0d0e0f 4142434445464748 0000000000000000
+freya: crypt("000102030405060708090a0b0c0d0e0f", "4142434445464748", "0000000000000000")
 497df3d072612cb5
 ```
 
@@ -241,7 +247,7 @@ Ctrl-C stops a running program and every thread it created. It also
 stops a `sleep`, a `loop` or a `wait`, and every script thread, and throws
 away a script that is still being typed. `stop` with no name does the same
 when a program is running, and unloads it otherwise;
-`stop <name>` stops that thread and leaves the run going. A script thread
+`stop("name")` stops that thread and leaves the run going. A script thread
 is stopped the same way, by the name of its function. `threads` lists
 both. Ctrl-U clears the input line, and the up and down cursor keys walk
 the command history. While a program runs, only `threads`, `stop` and
@@ -251,14 +257,14 @@ the command history. While a program runs, only `threads`, `stop` and
 it worked, 1 when it failed, 127 for a word that is not a command, and for
 `run` the status of the program — its own code, 130 after Ctrl-C, or 131..134
 after a fault. `$name` becomes that variable the same way. Both are expanded
-before the line is split, so `echo $?` and `write /runs.txt $?` both work,
+before the line is split, so `echo($?)` and `write("/runs.txt", $?)` both work,
 and `status` prints the same numbers with the reason and the run time beside
 them.
 
 ## Scripts
 
 `;` separates commands on one line. A new line separates them the same
-way, and quotes hide a semicolon, so `echo "a;b"` is one command.
+way, and quotes hide a semicolon, so `echo("a;b")` is one command.
 
 `if` runs the command written after it. When that command's status is
 0, the commands up to `else` or `end` run. Otherwise they are skipped,
@@ -274,14 +280,14 @@ While it waits, a script thread that is ready runs. `yield` does that
 and does not wait. The calls are in [shell.md](shell.md).
 
 ```
-freya: if echo hi
-> echo yes
+freya: if echo("hi")
+> echo("yes")
 > else
-> echo no
+> echo("no")
 > end
 hi
 yes
-freya: loop 3; echo tick; sleep 200; end
+freya: loop 3; echo("tick"); sleep(200); end
 tick
 tick
 tick
@@ -303,7 +309,7 @@ the expression produced: an integer, a byte, a bool, empty, none, a float,
 an immutable heap-backed string, an auto array, or a dict. There are eight
 of them. A name is a letter or `_` and then
 letters, digits or `_`, at most seven characters. `unset <name>` removes one. `$name` in a later command is
-the value as text, so `echo $n` and `loop $n` both work. A name that is not
+the value as text, so `echo($n)` and `loop $n` both work. A name that is not
 set is an error.
 
 An integer is a decimal or `0x` hex literal. Hex keeps all 32 bits, so
@@ -337,7 +343,7 @@ cells. The full rules are in [shell.md](shell.md).
 freya: set n 1 + 2 * 3
 freya: set x 7.5 / 2
 freya: set s "%d %s" $n "items"
-freya: echo $s
+freya: echo($s)
 7 items
 ```
 
@@ -354,9 +360,9 @@ chosen from its status.
 
 ```
 freya: if $n == 7
-> echo yes
+> echo("yes")
 > else
-> echo no
+> echo("no")
 > end
 yes
 ```
@@ -384,7 +390,7 @@ freya: fn add
 > return $1 + $2
 > end
 freya: set n add(2, 3)
-freya: echo $n
+freya: echo($n)
 5
 freya: fn
 add
@@ -417,10 +423,10 @@ conditions.
 freya: set n int("0x10")
 freya: set x float($n)
 freya: set s hex($n)
-freya: echo $s
+freya: echo($s)
 10
 freya: set n hex($s)
-freya: echo $n
+freya: echo($n)
 16
 ```
 
@@ -442,10 +448,10 @@ which may be negative (`srand(-1)` stores the bit pattern), and returns
 ```
 freya: set n srand(1)
 freya: set n rand()
-freya: echo $n
+freya: echo($n)
 16838
 freya: set n rand()
-freya: echo $n
+freya: echo($n)
 5758
 ```
 
@@ -456,10 +462,10 @@ float. An angle past about a million, or one that is not a number, is
 
 ```
 freya: set x sin(pi() / 2)
-freya: echo $x
+freya: echo($x)
 1
 freya: set x cos(pi())
-freya: echo $x
+freya: echo($x)
 -1
 ```
 
@@ -475,7 +481,7 @@ stops it and returns 0.
 
 ```
 freya: set n set("PB5", 1)
-freya: echo get("PB5")
+freya: echo(get("PB5"))
 1
 freya: set n adc("PA0")
 freya: set n pwm("PB6", 1000, 25)
@@ -487,9 +493,9 @@ the end of the line, so a semicolon there does not start another
 command. Quotes hide the hash, so `echo "a # b"` prints the hash. A
 line that is only a comment is skipped.
 
-`source <file>` reads a script from the card and runs it. The file is
+`source("file")` reads a script from the card and runs it. The file is
 plain text, at most 1024 bytes, and each command is still one line of
-at most 159 characters. `source @flash` runs the script stored in the
+at most 159 characters. `source("@flash")` runs the script stored in the
 program flash region, which needs no card. A short flash script is
 copied into RAM first, so the script may `install` or `uninstall`
 without erasing the text it is still reading; a longer one is read
@@ -498,20 +504,20 @@ deep including the line that started it. Ctrl-C stops the script the
 same way it stops a `loop`.
 
 ```
-freya: source /blink.sh
+freya: source("/blink.sh")
 PB5 = 1
-freya: install /blink.sh
+freya: install("/blink.sh")
 install: console input is dropped while flash is busy
   erasing 1 page ... writing ... ok
 installed script /blink.sh at 0x0800c080: 24 B in 1 page
-freya: source @flash
+freya: source("@flash")
 PB5 = 1
 ```
 
 `install` of a text file stores that script in the program flash region,
 in place of a program image. `saveflash` copies it back (default
 `/script.sh`). `uninstall` erases it. `runflash` on a script says to
-use `source @flash`. With `autostart on`, the next boot runs the script
+use `source("@flash")`. With `autostart("on")`, the next boot runs the script
 when `/autorun.bin` is absent. `make flash SCRIPT=boot.sh AUTOSTART=1`
 packs that script with the flag already on.
 
@@ -533,15 +539,15 @@ them at `freya:` on either module.
 
 | Command | Why it was missing on the Black Pill |
 |---|---|
-| `runflash [args...]` | no program flash region |
-| `install <file>` | no F4 flash programmer |
-| `saveflash [file]` | nothing to copy out of flash |
-| `uninstall` | nothing to erase |
-| `autostart [on\|off]` | no auto-start slot |
-| `ramdump [on\|off]` | flag lived in that same slot; dump was compiled out |
+| `runflash([arg, ...])` | no program flash region |
+| `install("file")` | no F4 flash programmer |
+| `saveflash(["file"])` | nothing to copy out of flash |
+| `uninstall()` | nothing to erase |
+| `autostart(["on"\|"off"])` | no auto-start slot |
+| `ramdump(["on"\|"off"])` | flag lived in that same slot; dump was compiled out |
 
 Related behaviour that followed the same `#ifdef`, and is now common too:
-`load @flash` / `run @flash`, persistent `loglevel` in the slot, `sysinfo`
+`load("@flash")` / `run("@flash")`, persistent `loglevel` in the slot, `sysinfo`
 and `meminfo` lines for auto-start / ram-dump / program flash, and a
 BusFault dump of SRAM to `/freya.ram` when the flag is on.
 

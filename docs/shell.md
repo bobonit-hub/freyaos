@@ -78,17 +78,17 @@ Any other status takes the `else`. A branch that is skipped does not
 change `$?`. A condition does: true leaves 0 and false leaves 1.
 
 ```
-freya: if echo hi
-> echo yes
+freya: if echo("hi")
+> echo("yes")
 > else
-> echo no
+> echo("no")
 > end
 hi
 yes
 freya: if $n == 7
-> echo yes
+> echo("yes")
 > else
-> echo no
+> echo("no")
 > end
 yes
 ```
@@ -109,17 +109,17 @@ takes no argument. `break` inside a function does not leave a loop
 outside that function.
 
 ```
-freya: loop 3; echo tick; sleep 200; end
+freya: loop 3; echo("tick"); sleep(200); end
 tick
 tick
 tick
-freya: set n 0; loop $n < 3; set n $n + 1; echo $n; end
+freya: set n 0; loop $n < 3; set n $n + 1; echo($n); end
 1
 2
 3
 ```
 
-`sleep <ms>` waits that many milliseconds. The count has the same shape
+`sleep(ms)` waits that many milliseconds. The count has the same shape
 and the same limit as a loop count. Ctrl-C cuts a `sleep` or a `loop`
 short, and stops a `source` the same way.
 
@@ -191,7 +191,7 @@ that.
 freya: set n 1 + 2 * 3
 freya: set x 7.5 / 2
 freya: set s "%d %s" $n "items"
-freya: echo $s
+freya: echo($s)
 7 items
 ```
 
@@ -223,7 +223,7 @@ With no variables it prints `no variables`.
 
 ```
 freya: set n 1 + 2 * 3
-freya: echo $n
+freya: echo($n)
 7
 freya: set
 n = 7
@@ -262,7 +262,7 @@ freya: fn add
 > return $1 + $2
 > end
 freya: set n add(2, 3)
-freya: echo $n
+freya: echo($n)
 5
 freya: fn pair
 > if $1 /= 0
@@ -271,11 +271,11 @@ freya: fn pair
 > return 0, 0, "no"
 > end
 freya: set a, b, c pair(1)
-freya: echo $a
+freya: echo($a)
 1
-freya: echo $b
+freya: echo($b)
 2.5
-freya: echo $c
+freya: echo($c)
 ok
 freya: fn
 add
@@ -361,20 +361,20 @@ limits a binary read.
 
 ```
 freya: set a array(30, 10, 20)
-freya: echo min($a)
+freya: echo(min($a))
 10
-freya: echo max($a)
+freya: echo(max($a))
 30
 freya: set b sort($a)
-freya: echo $b
+freya: echo($b)
 [10, 20, 30]
 freya: unset b
 freya: set a array(10, 20)
 freya: set a[2] 30
-freya: echo $a[1]
+freya: echo($a[1])
 20
 freya: set d dict("b", 2, "a", 1)
-freya: echo $d["a"]
+freya: echo($d["a"])
 1
 freya: set
 a = [10, 20, 30]
@@ -433,10 +433,10 @@ fit in an integer is `integer overflow`.
 freya: set n int("0x10")
 freya: set x float($n)
 freya: set s hex($n)
-freya: echo $s
+freya: echo($s)
 10
 freya: set n hex($s)
-freya: echo $n
+freya: echo($n)
 16
 ```
 
@@ -496,22 +496,22 @@ The result is limited by available heap.
 
 ```
 freya: set s match("abc-12", "%a+")
-freya: echo $s
+freya: echo($s)
 abc
 freya: set a, b match("abc-12", "(%a+)%-(%d+)")
-freya: echo $a
+freya: echo($a)
 abc
-freya: echo $b
+freya: echo($b)
 12
 freya: set a, b find("abc-12", "%d+")
-freya: echo $a
+freya: echo($a)
 5
-freya: echo $b
+freya: echo($b)
 6
 freya: set s, n gsub("a1b2", "%d", "x")
-freya: echo $s
+freya: echo($s)
 axbx
-freya: echo $n
+freya: echo($n)
 2
 ```
 
@@ -536,10 +536,10 @@ byte, empty, or a string is refused. The same seed repeats the same sequence.
 ```
 freya: set n srand(1)
 freya: set n rand()
-freya: echo $n
+freya: echo($n)
 16838
 freya: set n rand()
-freya: echo $n
+freya: echo($n)
 5758
 ```
 
@@ -552,10 +552,10 @@ about a million radians, or a value that is not a number, is
 
 ```
 freya: set x sin(pi() / 2)
-freya: echo $x
+freya: echo($x)
 1
 freya: set x cos(pi())
-freya: echo $x
+freya: echo($x)
 -1
 ```
 
@@ -587,13 +587,13 @@ year before 1970 or a day past the end of the month, is
 ```
 freya: set n time(2026, 1, 1, 0, 0, 0)
 freya: set s date($n)
-freya: echo $s
+freya: echo($s)
 2026-01-01 00:00:00
 freya: set n year($n)
-freya: echo $n
+freya: echo($n)
 2026
 freya: set n now()
-freya: echo $n
+freya: echo($n)
 1767225600
 ```
 
@@ -612,7 +612,7 @@ channel that is not running is an error.
 
 ```
 freya: set n set("PB5", 1)
-freya: echo get("PB5")
+freya: echo(get("PB5"))
 1
 freya: set n adc("PA0")
 freya: set n pwm("PB6", 1000, 25)
@@ -677,7 +677,7 @@ freya: fn ontick
 freya: set t timer(1000000, 0, "ontick")
 freya: set n wait(0)
 tick
-freya: echo $n
+freya: echo($n)
 0
 freya: set n tclose($t)
 ```
@@ -729,7 +729,7 @@ freya: set n spawn("blink", 1)
 tick
 freya: set n join($n)
 tock
-freya: echo $n
+freya: echo($n)
 0
 ```
 
@@ -773,10 +773,10 @@ freya: set n write($f, "hi", 10b)
 freya: set n close($f)
 freya: set f open("/n.txt")
 freya: set s read($f)
-freya: echo $s
+freya: echo($s)
 hi
 freya: set s read($f)
-freya: echo $s
+freya: echo($s)
 empty
 freya: set n close($f)
 ```
@@ -825,32 +825,32 @@ freya: set s hex(file_checksum("/copy.bin"))
 
 ## Scripts on the card and in flash
 
-`source <file>` reads a script from the card and runs it. The file is
+`source("file")` reads a script from the card and runs it. The file is
 plain text, at most 1024 bytes, and each command is still one line of
 at most 159 characters. A file that is not text is refused. `source`
 inside a script is allowed, three deep including the line that started
 it.
 
-`source @flash` runs the script stored in the program flash region, and
+`source("@flash")` runs the script stored in the program flash region, and
 needs no card. A short flash script is copied into RAM first, so the
 script may `install` or `uninstall` without erasing the text it is still
 reading. A longer one is read from the flash as it runs.
 
 ```
-freya: source /blink.sh
+freya: source("/blink.sh")
 PB5 = 1
-freya: install /blink.sh
+freya: install("/blink.sh")
 install: console input is dropped while flash is busy
   erasing 1 page ... writing ... ok
 installed script /blink.sh at 0x0800c080: 24 B in 1 page
-freya: source @flash
+freya: source("@flash")
 PB5 = 1
 ```
 
-`install` of a text file stores that script in the program flash region,
-in place of a program image. `saveflash` copies it back, default
-`/script.sh`. `uninstall` erases it. `runflash` on a script says to use
-`source @flash`. With `autostart on`, the next boot runs the script when
+`install("file")` stores that script in the program flash region,
+in place of a program image. `saveflash()` copies it back, default
+`/script.sh`. `uninstall()` erases it. `runflash()` on a script says to use
+`source("@flash")`. With `autostart("on")`, the next boot runs the script when
 `/autorun.bin` is absent. `make flash SCRIPT=boot.sh AUTOSTART=1` writes
 that script into the module with the flag already set.
 
