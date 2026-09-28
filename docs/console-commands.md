@@ -13,7 +13,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | Command | What it does |
 |---|---|
 | `help(["command"])` | list commands, or describe one |
-| `sysinfo()` | firmware version, CPU, unique id, clocks, reset cause, uptime, log level, auto-start, ram-dump and password flags, card, filesystem |
+| `sysinfo()` | OS version, firmware version, CPU, unique id, clocks, reset cause, uptime, log level, auto-start, ram-dump and password flags, card, filesystem |
 | `cksum()` | firmware control sum of the kernel and the extension, and whether the stored sum matches |
 | `meminfo()` | flash and RAM usage: .data, .bss, heap, program region, stack |
 | `mount()` | initialise the card and mount it on `/`, or the Black Pill SPI flash (LittleFS) on `/spi1` |

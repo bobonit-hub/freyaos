@@ -464,7 +464,8 @@ static int cmd_sysinfo(int argc, char **argv)
     rtc_get(&t);
 
     kprintf("Freya %s \"%s\"  (built %s)\r\n",
-            FREYA_FIRMWARE_VERSION, FREYA_CODENAME, FREYA_BUILD_ID);
+            FREYA_OS_VERSION, FREYA_CODENAME, FREYA_BUILD_ID);
+    inf("firmware");   kprintf("%s\r\n", FREYA_FIRMWARE_VERSION);
     inf("board");      kprintf("%s\r\n", BOARD_NAME);
     inf("core");       kprintf("%s, CPUID 0x%08x\r\n", BOARD_CORE, SCB->CPUID);
     inf("device id");  kprintf("0x%03x  rev 0x%04x\r\n",
@@ -9053,7 +9054,7 @@ void console_banner(void)
     uart_puts("\r\n");
     uart_puts(art);
     kprintf("Freya %s \"%s\" for %s - built %s\r\n",
-            FREYA_FIRMWARE_VERSION, FREYA_CODENAME, BOARD_MCU, FREYA_BUILD_ID);
+            FREYA_OS_VERSION, FREYA_CODENAME, BOARD_MCU, FREYA_BUILD_ID);
     kprintf("%u MHz, %s reset. Type 'help()'.\r\n\r\n",
             g_clocks.hclk_hz / 1000000UL, sys_reset_cause_str());
 }

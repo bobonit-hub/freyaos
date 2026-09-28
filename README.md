@@ -6,7 +6,7 @@ metal on the STM32F411CEU6 "Black Pill", the STM32F103C8T6 "Blue Pill",
 and the STM32F405xx.
 No HAL and no CMSIS: Freya brings the chip up itself. LittleFS, on the SPI flash, is the one vendored library. Freya
 talks to the hardware through its own register definitions, and lives
-entirely in internal flash. This is release 3.1.1, "Poltergeist". The notes
+entirely in internal flash. This is release 3.1.2, "Poltergeist". The notes
 are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 Freya gives you a serial console, a real FAT filesystem on an SD card, and the
@@ -25,7 +25,7 @@ cycle and needs no card at all.
  |_|  |_|  \___|\__, |\__,_|
                  __/ |
                 |___/
-Freya 3.1.1 "Poltergeist" for STM32F411CEU6
+Freya 3.1.2 "Poltergeist" for STM32F411CEU6
 96 MHz, power-on reset. Type 'help()'.
 
 [boot] clocks     : HSE 25 MHz crystal + PLL, sysclk 96 MHz, flash 3 WS
@@ -58,7 +58,7 @@ The Blue Pill boots the same way, on three quarters of the clock and a fifth of
 the RAM:
 
 ```
-Freya 3.1.1 "Poltergeist" for STM32F103C8T6
+Freya 3.1.2 "Poltergeist" for STM32F103C8T6
 72 MHz, power-on reset. Type 'help'.
 
 [boot] clocks     : HSE 8 MHz crystal + PLL, sysclk 72 MHz, flash 2 WS
@@ -231,9 +231,12 @@ make clean
 ```
 
 `RTC=ds3231` and `FIRMWARE_VERSION=` combine with `BOARD=`. Leave `RTC`
-unset and the driver is left out of the image. The firmware version defaults
-to the value hardcoded in `src/freya.h`; an override must have
-`major.minor.patch` numeric form. `sysinfo()` displays the selected version.
+unset and the driver is left out of the image. The banner and the first
+line of `sysinfo()` print the OS version from this documentation, 3.1.2
+"Poltergeist"; `FIRMWARE_VERSION` does not change that. The firmware
+version defaults to the value hardcoded in `src/freya.h`; an override must
+have `major.minor.patch` numeric form. `sysinfo()` prints that firmware
+version on its own line.
 
 Each board builds into its own directory, so the two never overwrite each
 other: the result is `build/<board>/freya.bin` (around 42.5 KiB on the Black
@@ -323,7 +326,7 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | Command | What it does |
 |---|---|
 | `help(["command"])` | list commands, or describe one |
-| `sysinfo()` | CPU, unique id, clocks, reset cause, uptime, log level, auto-start, ram-dump and password flags, card, filesystem |
+| `sysinfo()` | OS version, firmware version, CPU, unique id, clocks, reset cause, uptime, log level, auto-start, ram-dump and password flags, card, filesystem |
 | `cksum()` | firmware control sum, and whether the stored sum matches |
 | `meminfo()` | flash and RAM usage: .data, .bss, heap, program region, stack |
 | `mount()` | initialise the card and mount the filesystem |

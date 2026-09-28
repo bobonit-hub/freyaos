@@ -1,3 +1,22 @@
+# Freya 3.1.2 "Poltergeist"
+
+28 September 2026
+
+The console banner and the first line of `sysinfo` print the OS version.
+That version is this release and does not follow `FIRMWARE_VERSION`.
+`sysinfo` prints the firmware version on its own line:
+
+```
+Freya 3.1.2 "Poltergeist" for STM32F411CEU6
+```
+
+The program ABI is still version 3.
+
+## What changed
+
+* The OS version is 3.1.2 "Poltergeist". `make FIRMWARE_VERSION=` changes
+  only the firmware version, and `sysinfo()` prints that version separately.
+
 # Freya 3.1.1 "Poltergeist"
 
 26 September 2026

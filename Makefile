@@ -65,8 +65,9 @@ CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) \
              -Wno-unused-parameter \
              -Iinclude -I$(SRC_DIR) -I$(BOARD_DIR)
 
-# With no override, src/freya.h supplies the hardcoded release version.
+# With no override, src/freya.h supplies the hardcoded firmware version.
 # An override must remain the same three-component numeric form.
+# The OS version printed by the banner is not this value.
 FIRMWARE_VERSION ?=
 ifneq ($(strip $(FIRMWARE_VERSION)),)
 ifeq ($(shell printf '%s\n' '$(FIRMWARE_VERSION)' | grep -Ec '^[0-9]+\.[0-9]+\.[0-9]+$$'),0)

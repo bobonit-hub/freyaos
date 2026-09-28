@@ -26,8 +26,11 @@
 #error "system settings are not the last bytes of internal flash"
 #endif
 
-/* The build may override the firmware version, but a source build always
- * has a version of its own.  Keep this in major.minor.patch form. */
+/* The OS version is the release named in the documentation.  A firmware
+ * build does not change it.  The build may override the firmware version;
+ * a source build always has one of its own.  Keep both in
+ * major.minor.patch form. */
+#define FREYA_OS_VERSION        "3.1.2"
 #ifndef FREYA_FIRMWARE_VERSION
 #define FREYA_FIRMWARE_VERSION  "3.1.1"
 #endif
