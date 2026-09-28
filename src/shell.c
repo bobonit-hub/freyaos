@@ -115,83 +115,11 @@ static const char *hist_get(int back)
     return s_hist[idx];
 }
 
-#if BOARD_ESP_LINK
-/* 1 when this new character is the secret argument of a password command.
- * password() and password off stay visible; the eight secret bytes do not. */
-static int term_hides_char(const char *buf, int len, int c)
-{
-    if (c < 0x20 || c > 0x7E) return 0;
-    if (len >= 10 && memcmp(buf, "password(\"", 10) == 0) {
-        int i;
-
-        if (c == '"') return 0;
-        for (i = 10; i < len; i++)
-            if (buf[i] == '"') return 0;
-        return 1;
-    }
-    if (len >= 9 && memcmp(buf, "password ", 9) == 0) {
-        int an = len - 9;
-
-        if (an < 3 && (an == 0 || memcmp(buf + 9, "off", (size_t)an) == 0) &&
-            c == (int)"off"[an])
-            return 0;
-        if (an == 3 && memcmp(buf + 9, "off", 3) == 0)
-            return 0;
-        return 1;
-    }
-    return 0;
-}
-
-/* The serial line does not echo.  A TLS client does, so the mirror has to
- * hide a secret that the client already painted.  A character that arrives
- * alone is rubbed out; a whole line is rewritten as asterisks. */
-static void term_cover_password(int nstars)
-{
-    int i;
-
-    if (nstars < 0) nstars = 0;
-    uart_term_puts("\033[1A\r\033[2Kpassword: ");
-    for (i = 0; i < nstars; i++)
-        uart_term_puts("*");
-    uart_term_puts("\033[K");
-}
-
-static void term_cover_command(const char *line)
-{
-    int i = 0;
-    int hide = 0;
-
-    uart_term_puts("\033[1A\r\033[2K");
-    if (strncmp(line, "password(\"", 10) == 0) {
-        uart_term_puts("password(\"");
-        i = 10;
-        hide = 1;
-    } else if (strncmp(line, "password ", 9) == 0) {
-        uart_term_puts("password ");
-        i = 9;
-        hide = 1;
-    }
-    for (; line[i]; i++) {
-        char s[2];
-
-        if (hide && line[i] == '"') hide = 0;
-        s[0] = hide ? '*' : line[i];
-        s[1] = '\0';
-        uart_term_puts(s);
-    }
-    uart_term_puts("\033[K");
-}
-#endif
-
 /* Returns the line length, or -1 when the line was cancelled.
  * secret echoes '*' and does not recall history. */
 static int readline(char *buf, int max, int secret)
 {
     int len = 0;
-#if BOARD_ESP_LINK
-    int burst = 0;
-    int hid = 0;
-#endif
 
     s_hist_pos = 0;
     memset(buf, 0, (size_t)max);
@@ -201,29 +129,8 @@ static int readline(char *buf, int max, int secret)
         if (c < 0) continue;
 
         if (c == '\r' || c == '\n') {
-#if BOARD_ESP_LINK
-            int redact;
-
-            buf[len] = '\0';
-            redact = secret || line_holds_secret(buf);
-            if (burst && secret)
-                term_cover_password(len);
-            else if (burst && redact)
-                term_cover_command(buf);
-            else if (hid && !redact) {
-                uart_term_puts("\033[1A\r\033[2K");
-                uart_term_puts(buf);
-                uart_term_puts("\033[K");
-            }
-            uart_puts("\r\n");
-            if ((burst && redact) || (hid && !redact)) {
-                uart_term_puts("\033[2K");
-                uart_term_flush();
-            }
-#else
             uart_puts("\r\n");
             buf[len] = '\0';
-#endif
             return len;
         }
         if (c == 0x03) {                    /* Ctrl-C */
@@ -234,41 +141,12 @@ static int readline(char *buf, int max, int secret)
             return -1;
         }
         if (c == 0x15) {                    /* Ctrl-U */
-#if BOARD_ESP_LINK
-            if (secret && !burst) {
-                while (len) {
-                    uart_putc_local('\b');
-                    uart_putc_local(' ');
-                    uart_putc_local('\b');
-                    len--;
-                }
-            } else
-#endif
-            {
-                erase_line(len);
-                len = 0;
-            }
+            erase_line(len);
+            len = 0;
             continue;
         }
         if (c == 0x08 || c == 0x7F) {       /* backspace */
-            if (len > 0) {
-#if BOARD_ESP_LINK
-                int hidden = secret ||
-                    term_hides_char(buf, len - 1, (unsigned char)buf[len - 1]);
-
-                len--;
-                buf[len] = '\0';
-                if (hidden && !burst) {
-                    uart_putc_local('\b');
-                    uart_putc_local(' ');
-                    uart_putc_local('\b');
-                } else
-                    uart_puts("\b \b");
-#else
-                len--;
-                uart_puts("\b \b");
-#endif
-            }
+            if (len > 0) { len--; uart_puts("\b \b"); }
             continue;
         }
         if (c == 0x1B) {                    /* escape sequence */
@@ -299,27 +177,8 @@ static int readline(char *buf, int max, int secret)
         if (c < 0x20 || c > 0x7E) continue;
 
         if (len < max - 1) {
-#if BOARD_ESP_LINK
-            int hide = secret || term_hides_char(buf, len, c);
-            int more = uart_rx_ready();
-
-            buf[len++] = (char)c;
-            if (hide && !secret)
-                hid = 1;
-            if (hide && more)
-                burst = 1;
-            if (hide && burst) {
-                uart_putc_local(secret ? '*' : (char)c);
-            } else if (hide) {
-                uart_term_puts("\b*");
-                uart_putc_local(secret ? '*' : (char)c);
-                uart_term_flush();
-            } else
-                uart_putc((char)c);
-#else
             buf[len++] = (char)c;
             uart_putc(secret ? '*' : (char)c);
-#endif
         }
     }
 }

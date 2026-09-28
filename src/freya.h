@@ -127,11 +127,8 @@ void     ds3231_test_save(uint8_t *dst, int n);
 /* --------------------------------------------------------------- uart */
 void uart_init(uint32_t baud);
 void uart_putc(char c);
-void uart_putc_local(char c);          /* console only, not the TLS mirror */
 void uart_write(const void *buf, int len);
 void uart_puts(const char *s);
-void uart_term_puts(const char *s);    /* TLS console mirror only          */
-void uart_term_flush(void);            /* send the mirror now              */
 int  uart_getc(void);                  /* blocking, -1 when aborted     */
 int  uart_getc_timeout(uint32_t ms);   /* -1 on timeout                 */
 int  uart_rx_ready(void);
