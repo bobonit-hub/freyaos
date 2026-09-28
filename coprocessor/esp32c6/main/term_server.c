@@ -162,31 +162,109 @@ static int tls_send_all(esp_tls_t *tls, const char *text)
     return 0;
 }
 
-static int read_line(esp_tls_t *tls, char *out, int max)
+static int line_fail(char *out, int max)
+{
+    memset(out, 0, (size_t)max);
+    return -1;
+}
+
+/* openssl s_client echoes locally.  A finished line is rewritten as
+ * asterisks.  A character that arrives on its own is covered at once. */
+static int cover_secret_line(esp_tls_t *tls, int n)
+{
+    char msg[80];
+    int i, k = 0;
+    static const char pre[] = "\033[1A\r\033[2Kpassword: ";
+    static const char post[] = "\033[K\r\n";
+
+    if (n < 0) n = 0;
+    if (n > 32) n = 32;
+    for (i = 0; pre[i] && k < (int)sizeof msg - 1; i++)
+        msg[k++] = pre[i];
+    for (i = 0; i < n && k < (int)sizeof msg - 1; i++)
+        msg[k++] = '*';
+    for (i = 0; post[i] && k < (int)sizeof msg - 1; i++)
+        msg[k++] = post[i];
+    msg[k] = '\0';
+    return tls_send_all(tls, msg);
+}
+
+static int finish_line(esp_tls_t *tls, char *out, int n, int max,
+                       int secret, int covered)
+{
+    out[n] = '\0';
+    if (!secret) return n;
+    if (!covered) {
+        if (cover_secret_line(tls, n) != 0)
+            return line_fail(out, max);
+    } else if (tls_send_all(tls, "\r\n") != 0) {
+        return line_fail(out, max);
+    }
+    return n;
+}
+
+static int read_line(esp_tls_t *tls, char *out, int max, int secret)
 {
     int n = 0;
+    int covered = 0;
+    int burst = 0;
     TickType_t start = xTaskGetTickCount();
 
     while ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(20000)) {
-        char c;
+        char chunk[2];
         ssize_t r;
+        int got, i;
 
-        if (!term_net_up) return -1;
-        r = esp_tls_conn_read(tls, &c, 1);
+        if (!term_net_up) return line_fail(out, max);
+        r = esp_tls_conn_read(tls, chunk, 1);
         if (r == ESP_TLS_ERR_SSL_WANT_READ || r == ESP_TLS_ERR_SSL_WANT_WRITE) {
             vTaskDelay(1);
             continue;
         }
-        if (r <= 0) return -1;
-        if (c == '\n') {
-            out[n] = '\0';
-            return n;
+        if (r <= 0) return line_fail(out, max);
+        if (chunk[0] == '\n')
+            return finish_line(tls, out, n, max, secret, covered);
+        got = 1;
+        /* A second byte already waiting is a finished line, not a key.
+         * Do not read it when this byte already ends the line. */
+        if (secret && !burst) {
+            ssize_t r2 = esp_tls_conn_read(tls, chunk + 1, 1);
+
+            if (r2 == ESP_TLS_ERR_SSL_WANT_READ || r2 == ESP_TLS_ERR_SSL_WANT_WRITE) {
+                /* one key */
+            } else if (r2 <= 0) {
+                return line_fail(out, max);
+            } else {
+                burst = 1;
+                got = 2;
+            }
         }
-        if (c == '\r') continue;
-        if (n + 1 >= max) return -1;
-        out[n++] = c;
+        for (i = 0; i < got; i++) {
+            char c = chunk[i];
+
+            if (c == '\n') {
+                if (secret) memset(chunk, 0, sizeof chunk);
+                return finish_line(tls, out, n, max, secret, covered);
+            }
+            if (c == '\r') continue;
+            if ((c == 0x08 || c == 0x7F) && secret) {
+                if (n > 0) {
+                    n--;
+                    out[n] = '\0';
+                }
+                continue;
+            }
+            if (n + 1 >= max) return line_fail(out, max);
+            out[n++] = c;
+            if (secret && !burst && c >= 0x20 && c <= 0x7E) {
+                if (tls_send_all(tls, "\b*") != 0)
+                    return line_fail(out, max);
+                covered = 1;
+            }
+        }
+        if (secret) memset(chunk, 0, sizeof chunk);
     }
-    return -1;
+    return line_fail(out, max);
 }
 
 static bool password_ok(const char *got, int n)
@@ -216,13 +294,13 @@ static int login(esp_tls_t *tls)
 
     term_state = TERM_LOGIN;
     if (tls_send_all(tls, "username: ") != 0) return -1;
-    n = read_line(tls, line, (int)sizeof line);
+    n = read_line(tls, line, (int)sizeof line, 0);
     if (n < 0 || strcmp(line, "admin") != 0) {
         tls_send_all(tls, "denied\r\n");
         return -1;
     }
     if (tls_send_all(tls, "password: ") != 0) return -1;
-    n = read_line(tls, line, (int)sizeof line);
+    n = read_line(tls, line, (int)sizeof line, 1);
     if (!password_ok(line, n)) {
         memset(line, 0, sizeof line);
         tls_send_all(tls, term_pass_on ? "denied\r\n" : "password not set\r\n");

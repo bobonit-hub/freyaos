@@ -88,7 +88,9 @@ response, preventing retries from repeating a send or another side effect.
 The coprocessor listens on TCP port 8022 for one console session. TLS ends
 on the C6, using the self-signed certificate shipped in its firmware. After
 the handshake the client sends a line `admin` and a line with the eight-byte
-Freya terminal password. The session is then the USART2 console. `password()`
+Freya terminal password. The password is not left on the screen: a whole
+line is rewritten as asterisks, and a character that arrives on its own is
+covered as it is typed. The session is then the USART2 console. `password()`
 on the board has to be on first; with no password stored the login is refused.
 
 ```text

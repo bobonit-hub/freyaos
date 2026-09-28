@@ -81,6 +81,10 @@ void uart_putc(char c)
     s_out[s_outn] = '\0';
 }
 
+void uart_putc_local(char c)           { uart_putc(c); }
+void uart_term_puts(const char *s)     { (void)s; }
+void uart_term_flush(void)             { }
+
 void uart_puts(const char *s)          { while (*s) uart_putc(*s++); }
 void uart_write(const void *buf, int len)
 {

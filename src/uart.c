@@ -227,7 +227,7 @@ void uart_set_raw(int raw)
     s_raw_mode = (uint8_t)(raw ? 1 : 0);
 }
 
-void uart_putc(char c)
+static void uart_emit(char c, int mirror)
 {
     while (!(USART2->SR & USART_SR_TXE)) { }
     USART2->DR = (uint32_t)(uint8_t)c;
@@ -238,8 +238,35 @@ void uart_putc(char c)
             s_cap_drop = 1;
         return;
     }
-    term_tx_push((uint8_t)c);
+    if (mirror)
+        term_tx_push((uint8_t)c);
     if (c == '\n' || uart_term_pending() >= 48)
+        term_pump();
+}
+
+void uart_putc(char c)
+{
+    uart_emit(c, 1);
+}
+
+/* The serial console does not echo on its own.  The TLS client does, so a
+ * secret is covered on the mirror without changing what the UART shows. */
+void uart_putc_local(char c)
+{
+    uart_emit(c, 0);
+}
+
+void uart_term_puts(const char *s)
+{
+    if (!s) return;
+    while (*s) term_tx_push((uint8_t)*s++);
+    if (uart_term_pending() >= 48)
+        term_pump();
+}
+
+void uart_term_flush(void)
+{
+    if (uart_term_pending())
         term_pump();
 }
 
