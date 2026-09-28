@@ -11,8 +11,8 @@
  * system settings.  The size register on these parts often still reads
  * 64 KiB.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
- *   0x0800C000 .. 0x080123FF   program flash region             (25600 B)
- *   0x08012400 .. 0x0801FBFF   kernel extension                  (54 KiB)
+ *   0x0800C000 .. 0x08011FFF   program flash region              (24 KiB)
+ *   0x08012000 .. 0x0801FBFF   kernel extension                  (55 KiB)
  *   0x0801FC00 .. 0x0801FFFF   system settings, two copies        (1 KiB)
  *
  * The extension is its own image.  The program region stops short of it,
@@ -38,7 +38,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x08012400, LENGTH = 54K
+    KEXT  (rx)  : ORIGIN = 0x08012000, LENGTH = 55K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
@@ -56,7 +56,7 @@ __settings_end       = 0x08020000;
 __autostart_start    = __settings_start;
 __autostart_end      = __settings_end;
 __app_flash_start    = 0x0800C000;
-__app_flash_end      = 0x08012400;
+__app_flash_end      = 0x08012000;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;
@@ -74,7 +74,7 @@ SECTIONS
     /*
      * Threads, the switch, the console commands that talk to them, and
      * the SPI master and the cipher.  Claimed before .text so the
-     * wildcard below does not take them.  The extension is 51 KiB so
+     * wildcard below does not take them.  The extension is 55 KiB so
      * SPI, XTEA, the virtual machine and the shell variables fit beside
      * the scheduler.  The last page of flash is system settings.
      * Float helpers for the variables live here too: the 48 KiB image
@@ -99,10 +99,9 @@ SECTIONS
         *shell.o(.text.cmd_crypt)
         *crypt.o(.text .text.*)
         *vm.o(.text .text.*)
-        /* Socket power is left for .text.  This extension has no room
-         * for it; the 48 KiB image still does.  The Black Pill script
-         * claims those sections up here instead.  The DS3231 read
-         * stays in the kernel image for the same reason. */
+        /* Socket power is left for .text; the 48 KiB image still has
+         * room for it.  The Black Pill script claims those sections
+         * up here instead. */
         *shell.o(.text.shell_poll_runtime)
         /* Terminal login, the password and the settings area are
          * runtime-only.  Keep them in the extension so the fixed 48 KiB
@@ -145,14 +144,17 @@ SECTIONS
         *loader.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_api)
         *shell.o(.rodata.s_cmds)
-        /* The DS3231 read stays in the kernel image.  The write and the
-         * boot call fit here; the extension has no room for both halves. */
-        *ds3231.o(.text.ds3231_write)
-        *ds3231.o(.text.ds3231_write.*)
-        *ds3231.o(.rodata.ds3231_write*)
+        /* RTC decoding and bus helpers live here so enabling the driver
+         * does not overflow the fixed 48 KiB boot image.  The write entry
+         * itself remains in that image to balance the two regions. */
+        *ds3231.o(.text.month_days)
+        *ds3231.o(.text.to_bcd)
+        *ds3231.o(.text.from_bcd)
+        *ds3231.o(.text.ds3231_xfer)
+        *ds3231.o(.text.ds3231_pins_match)
+        *ds3231.o(.text.ds3231_read)
         *ds3231.o(.text.ds3231_boot)
-        *ds3231.o(.text.ds3231_boot.*)
-        *ds3231.o(.rodata.ds3231_boot*)
+        *ds3231.o(.rodata .rodata.*)
         . = ALIGN(4);
         __kext_end = .;
     } > KEXT

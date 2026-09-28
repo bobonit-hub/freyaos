@@ -11,9 +11,9 @@
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
  *   0x0800C000 .. 0x0800FFFF   unused (sector 3)
  *   0x08010000 .. 0x0801FFFF   program flash region              (64 KiB)
- *   0x08020000 .. 0x08033FFF   kernel extension (threads, SPI, XTEA,
- *                                  SPI flash, LittleFS, shell)     (80 KiB)
- *   0x08034000 .. 0x0807FBFF   unused
+ *   0x08020000 .. 0x0803FFFF   kernel extension (threads, SPI, XTEA,
+ *                                  SPI flash, LittleFS, shell)    (128 KiB)
+ *   0x08040000 .. 0x0807FBFF   unused
  *   0x0807FC00 .. 0x0807FFFF   system settings, two copies        (1 KiB)
  *
  * The extension is a separate image.  It sits in sector 5 so that writing
@@ -33,7 +33,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x08020000, LENGTH = 80K
+    KEXT  (rx)  : ORIGIN = 0x08020000, LENGTH = 128K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
 }
 

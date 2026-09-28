@@ -95,7 +95,7 @@
  * functions, the SPI master, XMODEM, the cipher and the virtual machine.
  * The program boundary leaves enough pages for that extension to grow.
  * An install does not erase it. */
-#define FREYA_APP_FLASH_SIZE     (0x08012400UL - FREYA_APP_FLASH_ADDR)
+#define FREYA_APP_FLASH_SIZE     (0x08012000UL - FREYA_APP_FLASH_ADDR)
 #elif defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
 #define FREYA_APP_LOAD_ADDR      0x20010000UL   /* 128 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE    (56U * 1024U)

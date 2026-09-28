@@ -1,4 +1,4 @@
-# Freya 3.1 "Poltergeist"
+# Freya 3.1.1 "Poltergeist"
 
 26 September 2026
 
@@ -6,7 +6,7 @@ Poltergeist follows Reptiloid. The console banner and `sysinfo` print the
 version and this name:
 
 ```
-Freya 3.1 "Poltergeist" for STM32F411CEU6
+Freya 3.1.1 "Poltergeist" for STM32F411CEU6
 ```
 
 The program ABI is still version 3.
@@ -32,8 +32,8 @@ The program ABI is still version 3.
   or a shell script from its own filesystem over HTTPS. See
   [docs/network.md](docs/network.md).
 * The Blue Pill has no coprocessor, so it does not keep the console
-  mirror that session uses. Its kernel extension is 51 KiB, from
-  `0x08013400`, and the program flash region is 29568 bytes. Command
+  mirror that session uses. Its kernel extension is 55 KiB, from
+  `0x08012000`, and the program flash region is 24 KiB. Command
   history there is seven lines.
 
 # Freya 2.0.1 "Reptiloid"

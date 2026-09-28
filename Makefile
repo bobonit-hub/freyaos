@@ -4,7 +4,7 @@
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
 #   make BOARD=stm32f405    build for the STM32F405xx (8 MHz crystal)
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
-#   make FIRMWARE_VERSION=3.0.1
+#   make FIRMWARE_VERSION=3.1.1
 #                           override the firmware version
 #   make flash              flash the image with st-flash
 #   make flash PROGRAM=hello
@@ -70,7 +70,7 @@ CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) \
 FIRMWARE_VERSION ?=
 ifneq ($(strip $(FIRMWARE_VERSION)),)
 ifeq ($(shell printf '%s\n' '$(FIRMWARE_VERSION)' | grep -Ec '^[0-9]+\.[0-9]+\.[0-9]+$$'),0)
-$(error FIRMWARE_VERSION='$(FIRMWARE_VERSION)' is invalid - use major.minor.patch, for example 3.0.1)
+$(error FIRMWARE_VERSION='$(FIRMWARE_VERSION)' is invalid - use major.minor.patch, for example 3.1.1)
 endif
 CFLAGS    += -DFREYA_FIRMWARE_VERSION='"$(FIRMWARE_VERSION)"'
 endif
