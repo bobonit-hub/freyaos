@@ -299,8 +299,9 @@ Blocks nest, eight deep.
 
 `set` with no name lists the variables. `set <name> <expr>` stores the
 value of the expression under that name, and the value's type is whatever
-the expression produced: an integer, a byte, a bool, empty, none, a float, a string of at most 31
-characters, an auto array, or a dict. There are eight of them. A name is a letter or `_` and then
+the expression produced: an integer, a byte, a bool, empty, none, a float,
+an immutable heap-backed string, an auto array, or a dict. There are eight
+of them. A name is a letter or `_` and then
 letters, digits or `_`, at most seven characters. `unset <name>` removes one. `$name` in a later command is
 the value as text, so `echo $n` and `loop $n` both work. A name that is not
 set is an error.
@@ -321,10 +322,12 @@ the other side as text. A string written next to further values is a format:
 
 `array(10, 20)` stores an auto array. Every element is the same type.
 `$a[i]` reads one, and `set a[i] <expr>` writes one. An index past the
-end grows the array, up to 8 elements, and fills the gap with zero.
+end grows the array and fills the gap with zero. Elements are packed in
+a byte block whose size is limited by the available system heap.
 `dict("b", 2, "a", 1)` stores a dict. Keys are one type, values are
 one type, and the keys stay sorted. `$d["a"]` reads a pair and
-`set d[k] <expr>` inserts or replaces one. There are at most 8 pairs.
+`set d[k] <expr>` inserts or replaces one. Pair storage grows until the
+available system heap is exhausted.
 `len` is the count. `min` and `max` are the least and greatest
 element, and `sort` returns the array in that order. `set b $a` copies. Four arrays and dicts may exist
 at once. `unset`, or storing something else over the name, frees the

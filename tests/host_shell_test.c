@@ -30,6 +30,8 @@ static int  s_synced;
 static int  s_have_exit;
 
 char freya_test_lay[4096];
+uint8_t freya_test_flash_mem[BOARD_FLASH_KIB * 1024U];
+uint8_t freya_test_ram_mem[2048];
 
 /* meminfo subtracts these.  One object keeps that subtraction defined.
  * The names are not the C library's __data_start and __bss_start; shell.c
@@ -130,7 +132,13 @@ char to_upper(char c)
     return (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
 }
 
-const char *flash_err_str(int rc)     { (void)rc; return "flash error"; }
+const char *flash_err_str(int rc)
+{
+    if (rc == FLASH_ERR_BUSY) return "a program is loaded";
+    if (rc == FLASH_ERR_RANGE) return "address out of range";
+    if (rc == FLASH_ERR_LOCKED) return "flash is locked";
+    return rc == FLASH_OK ? "ok" : "flash error";
+}
 
 void heap_stats(uint32_t *total, uint32_t *used, uint32_t *free_bytes,
                 uint32_t *largest, uint32_t *blocks)
@@ -503,6 +511,35 @@ int  app_flash_erase(void)
     s_installed = 0;
     kprintf("ok\r\n");
     return 0;
+}
+static int s_flash_open;
+int flash_begin(void)
+{
+    if (g_app.loaded || g_app.running) return FLASH_ERR_BUSY;
+    s_flash_open = 1;
+    return FLASH_OK;
+}
+void flash_end(void) { s_flash_open = 0; }
+uint32_t flash_page_size(void) { return BOARD_FLASH_PAGE_SIZE; }
+int flash_erase(uint32_t addr, uint32_t len)
+{
+    if (!s_flash_open) return FLASH_ERR_LOCKED;
+    if (addr < FREYA_APP_FLASH_ADDR ||
+        len > FREYA_APP_FLASH_SIZE ||
+        addr > FREYA_APP_FLASH_ADDR + FREYA_APP_FLASH_SIZE - len)
+        return FLASH_ERR_RANGE;
+    memset(freya_test_flash_mem + addr - 0x08000000UL, 0xFF, len);
+    return FLASH_OK;
+}
+int flash_program(uint32_t addr, const void *src, uint32_t len)
+{
+    if (!s_flash_open) return FLASH_ERR_LOCKED;
+    if (addr < FREYA_APP_FLASH_ADDR ||
+        len > FREYA_APP_FLASH_SIZE ||
+        addr > FREYA_APP_FLASH_ADDR + FREYA_APP_FLASH_SIZE - len)
+        return FLASH_ERR_RANGE;
+    memcpy(freya_test_flash_mem + addr - 0x08000000UL, src, len);
+    return FLASH_OK;
 }
 int  app_load(const char *path)        { (void)path; return -1; }
 int  app_install(const char *path)     { (void)path; return -1; }
@@ -908,6 +945,7 @@ int main(void)
     };
     unsigned i;
     int rc;
+    char cmd[160];
 
     plant_mmio();
 #if defined(FREYA_BOARD_BLUEPILL)
@@ -1013,7 +1051,7 @@ int main(void)
 
     rc = run("sysinfo");
     expect_rc("sysinfo succeeds", rc, 0);
-    expect_has("sysinfo reports the firmware version", "Freya 3.0.0");
+    expect_has("sysinfo reports the firmware version", "Freya 3.1.0");
 #if defined(FREYA_BOARD_BLUEPILL)
     expect_has("sysinfo names the board", "Blue Pill");
     expect_has("sysinfo reads the CPUID", "410fc231");
@@ -1538,6 +1576,25 @@ int main(void)
     rc = run("set s \"%d %s\" $n $s");
     rc = run("echo $s");
     expect_exact("a format takes the following values", "8 hello there\r\n");
+    rc = run("set s \"0123456789abcdef\" + \"0123456789abcdef\" + "
+             "\"0123456789abcdef\"; set t $s; set s $s + \"!\"; echo $t");
+    expect_rc("a string may grow beyond 31 characters", rc, 0);
+    expect_exact("a shared immutable string keeps its value",
+                 "0123456789abcdef0123456789abcdef0123456789abcdef\r\n");
+    rc = run("unset t; set s \"%d %s\" $n \"hello there\"");
+    rc = run("set t \"\"; loop 200; set t $t + \"x\"; end");
+    expect_rc("repeated immutable concatenation reclaims old strings", rc, 0);
+    rc = run("echo($t)");
+    expect_rc("console functions accept arbitrary-length strings", rc, 0);
+    {
+        char expected[203];
+        memset(expected, 'x', 200);
+        expected[200] = '\r';
+        expected[201] = '\n';
+        expected[202] = '\0';
+        expect_exact("a console function receives the complete string", expected);
+    }
+    rc = run("unset t");
 
     rc = run("if $n == 8; echo yes; else; echo no; end");
     expect_rc("if of == succeeds", rc, 0);
@@ -1585,9 +1642,12 @@ int main(void)
     rc = run("set a[0] 1b");
     expect_rc("an element of another type fails", rc, FREYA_EXIT_FAIL);
     expect_has("the array keeps its type", "type mismatch");
-    rc = run("set a[8] 1");
-    expect_rc("past the last slot fails", rc, FREYA_EXIT_FAIL);
-    expect_has("the array has a fixed ceiling", "out of range");
+    rc = run("set a[8] 80; set n len($a); echo $n; echo $a[8]");
+    expect_rc("an integer array grows past eight elements", rc, 0);
+    expect_exact("heap-backed integer elements are readable", "9\r\n80\r\n");
+    rc = run("unset a; set a array(1, 2, 3, 4, 5, 6, 7, 8, 9)");
+    expect_rc("array() accepts more than eight elements", rc, 0);
+    rc = run("unset a; set a array(10, 20, 30, 40, 0, 60)");
     rc = run("set b $a");
     rc = run("set a[0] 1");
     rc = run("echo $b[0]");
@@ -1608,6 +1668,10 @@ int main(void)
     rc = run("unset b");
 
     rc = run("set a array(1.5, 0.25, 2.0)");
+    rc = run("set a[8] 4.5; set n len($a); echo $n; echo $a[8]");
+    expect_rc("a float array grows past eight elements", rc, 0);
+    expect_exact("heap-backed float elements are readable", "9\r\n4.5\r\n");
+    rc = run("unset a; set a array(1.5, 0.25, 2.0)");
     rc = run("set n min($a)");
     rc = run("echo $n");
     expect_exact("min orders floats", "0.25\r\n");
@@ -1618,6 +1682,22 @@ int main(void)
     rc = run("unset b");
 
     rc = run("set a array(\"c\", \"a\", \"b\")");
+    rc = run("set s \"0123456789abcdef\" + \"0123456789abcdef\" + "
+             "\"0123456789abcdef\"; set a array($s); set b $a; "
+             "set a[0] \"changed\"; echo $b[0]");
+    expect_rc("string arrays share immutable elements safely", rc, 0);
+    expect_exact("a copied array keeps its long string",
+                 "0123456789abcdef0123456789abcdef0123456789abcdef\r\n");
+    rc = run("unset a; unset b; unset s; set a array(\"c\", \"a\", \"b\")");
+    rc = run("set a[8] \"z\"; set n len($a); echo $n; echo $a[8]");
+    expect_rc("a string array grows past eight elements", rc, 0);
+    expect_exact("heap-backed string elements are readable", "9\r\nz\r\n");
+    rc = run("set a[2000] \"too large\"");
+    expect_rc("an array cannot grow beyond the heap", rc, FREYA_EXIT_FAIL);
+    expect_has("heap exhaustion is reported", "out of memory");
+    rc = run("echo $a[0]");
+    expect_exact("failed growth preserves the array", "c\r\n");
+    rc = run("unset a; set a array(\"c\", \"a\", \"b\")");
     rc = run("set s min($a)");
     rc = run("echo $s");
     expect_exact("min orders strings", "a\r\n");
@@ -1681,6 +1761,18 @@ int main(void)
     rc = run("set n len($d)");
     rc = run("echo $n");
     expect_exact("replacing a key leaves the count", "3\r\n");
+    rc = run("set d[\"d\"] 4; set d[\"e\"] 5; set d[\"f\"] 6; "
+             "set d[\"g\"] 7; set d[\"h\"] 8; set d[\"i\"] 9; "
+             "set n len($d); echo $n");
+    expect_rc("a dict grows beyond eight pairs", rc, 0);
+    expect_exact("a heap-backed dict reports every pair", "9\r\n");
+    rc = run("set e $d; set d[\"i\"] 99; echo $e[\"i\"]");
+    expect_rc("a grown dict can be copied", rc, 0);
+    expect_exact("the copied dict is independent", "9\r\n");
+    run("unset e");
+    run("unset d");
+    rc = run("set d dict(\"c\", 3, \"a\", 1, \"b\", 9)");
+    expect_rc("a dict can be rebuilt after freeing its heap", rc, 0);
     rc = run("set e dict()");
     rc = run("set n len($e)");
     rc = run("echo $n");
@@ -1710,6 +1802,16 @@ int main(void)
     rc = run("if $d == dict(\"c\", 3, \"a\", 1, \"b\", 9); echo yes; else; echo no; end");
     expect_exact("dicts compare by key and value", "yes\r\n");
     rc = run("unset d");
+    rc = run("set d dict()");
+    for (i = 0; i < 1000 && rc == 0; i++) {
+        snprintf(cmd, sizeof cmd, "set d[%d] %d", i, i);
+        rc = run(cmd);
+    }
+    expect_rc("a dict cannot grow beyond the heap", rc, FREYA_EXIT_FAIL);
+    expect_has("dict heap exhaustion is reported", "out of memory");
+    rc = run("echo $d[0]");
+    expect_exact("failed dict growth preserves existing pairs", "0\r\n");
+    run("unset d");
     rc = run("set n 8");
 
     rc = run("if $n > 2; echo hi; else; echo lo; end");
@@ -1771,6 +1873,13 @@ int main(void)
     expect_rc("a nested call succeeds", rc, 0);
     rc = run("echo $n");
     expect_exact("the outer call saw the inner value", "5\r\n");
+    rc = run("set s \"0123456789abcdef\" + \"0123456789abcdef\" + "
+             "\"0123456789abcdef\"; set t id($s); set s \"changed\"; echo($t)");
+    expect_rc("user functions accept arbitrary-length strings", rc, 0);
+    expect_exact("a function returns the complete immutable string",
+                 "0123456789abcdef0123456789abcdef0123456789abcdef\r\n");
+    run("unset s");
+    run("unset t");
 
     rc = run("fn narg; return $0; end");
     rc = run("set n narg()");
@@ -2597,12 +2706,10 @@ int main(void)
     rc = run("set n write($x, \"0123456789abcdef\", \"0123456789abcdef\")");
     rc = run("set n seek($x, \"set\", 0)");
     rc = run("set s read($x, \"*a\")");
-    expect_rc("read *a of a long file fails", rc, FREYA_EXIT_FAIL);
-    expect_has("a long read is too long", "string too long");
-    rc = run("set s read($x, 31)");
+    expect_rc("read *a returns an arbitrary-length string", rc, 0);
     rc = run("echo $s");
-    expect_exact("a failed read leaves the position",
-                 "0123456789abcdef0123456789abcde\r\n");
+    expect_exact("a long file string preserves all text",
+                 "0123456789abcdef0123456789abcdef\r\n");
     rc = run("set n close($x)");
 
     rc = run("set x open(\"/n.txt\", \"w\")");
@@ -2619,6 +2726,84 @@ int main(void)
     rc = run("fn open; return 1; end");
     expect_rc("open cannot be defined", rc, FREYA_EXIT_FAIL);
     expect_has("fn refuses open", "bad name");
+
+    printf("binary memory builtins\n");
+    rc = run("set b bytes(0b, 255b, 65b)");
+    expect_rc("a byte array can be constructed", rc, 0);
+    rc = run("echo $b");
+    expect_exact("a byte array has a compact display", "bytes[3]\r\n");
+    rc = run("set n len($b); echo $n");
+    expect_exact("len counts byte array bytes", "3\r\n");
+    rc = run("set n $b[1]; echo $n");
+    expect_exact("byte array indexing returns a byte", "255\r\n");
+    rc = run("set c $b; set b[0] 7b; set n $c[0]; echo $n");
+    expect_exact("copying a byte array makes an independent value", "0\r\n");
+    rc = run("if $b /= $c; echo different; end");
+    expect_exact("byte arrays compare by content", "different\r\n");
+    rc = run("unset c");
+    rc = run("set d id($b); "
+             "set b[0] 8b; set n $d[0]; echo $n; set b[0] 7b");
+    expect_exact("byte arrays pass through user functions by value", "edge\r\n7\r\n");
+    rc = run("unset d");
+    rc = run("set b[3] 1b");
+    expect_rc("byte arrays do not grow by indexing", rc, FREYA_EXIT_FAIL);
+    expect_has("byte array growth is out of range", "out of range");
+    rc = run("set b[0] 7");
+    expect_rc("byte array elements stay bytes", rc, FREYA_EXIT_FAIL);
+    expect_has("an integer is not a byte element", "type mismatch");
+    rc = run("set n file_write(\"/raw.txt\", 0, 3, $b)");
+    expect_rc("binary file write succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("binary file write returns its count", "3\r\n");
+    rc = run("set d file_read(\"/raw.txt\", 1, 8)");
+    expect_rc("binary file read may stop at EOF", rc, 0);
+    rc = run("set n len($d); echo $n; set n $d[0]; echo $n; set n $d[1]; echo $n");
+    expect_exact("binary file read preserves NUL-safe bytes", "2\r\n255\r\n65\r\n");
+    rc = run("set n file_checksum(\"/raw.txt\"); echo $n");
+    expect_exact("file checksum uses the firmware byte sum", "327\r\n");
+    rc = run("set z file_read(\"/raw.txt\", 3, 2); set n len($z); echo $n");
+    expect_exact("binary read at EOF returns an empty byte array", "0\r\n");
+    rc = run("set n file_write(\"/raw.txt\", 0, 4, $b)");
+    expect_rc("binary file write checks the source length", rc, FREYA_EXIT_FAIL);
+    rc = run("unset d");
+    rc = run("unset z");
+
+    memset(freya_test_ram_mem, 0, sizeof freya_test_ram_mem);
+    rc = run("set n ram_write(0x20000010, 3, $b); echo $n");
+    expect_exact("RAM write returns its count", "3\r\n");
+    rc = run("set n ram_checksum(0x20000010, 3); echo $n");
+    expect_exact("RAM checksum uses the firmware byte sum", "327\r\n");
+    rc = run("set r ram_read(0x20000010, 3); set n $r[1]; echo $n");
+    expect_exact("RAM read returns the written bytes", "255\r\n");
+    rc = run("set r ram_read(0x1fffffff, 2)");
+    expect_rc("RAM read rejects an address below SRAM", rc, FREYA_EXIT_FAIL);
+    rc = run("set r ram_read(0x200007ff, 2)");
+    expect_rc("RAM read rejects a range past SRAM", rc, FREYA_EXIT_FAIL);
+    rc = run("unset r");
+
+    memset(freya_test_flash_mem, 0xAA, sizeof freya_test_flash_mem);
+    rc = run("set n flash_write(0, $b); echo $n");
+    expect_exact("flash write returns its count", "3\r\n");
+    snprintf(cmd, sizeof cmd,
+             "set f flash_read(0x%08x, 4); "
+             "set n $f[0]; echo $n; set n $f[3]; echo $n",
+             (unsigned)FREYA_APP_FLASH_ADDR);
+    rc = run(cmd);
+    expect_exact("flash write programs bytes and leaves the tail erased",
+                 "7\r\n255\r\n");
+    snprintf(cmd, sizeof cmd, "set f flash_read(0x%08x, 1)",
+             (unsigned)(0x08000000UL + BOARD_FLASH_KIB * 1024UL));
+    rc = run(cmd);
+    expect_rc("flash read rejects the end of physical flash", rc, FREYA_EXIT_FAIL);
+    g_app.loaded = 1;
+    rc = run("set n flash_write(0, $b)");
+    expect_rc("flash write refuses a loaded program", rc, FREYA_EXIT_FAIL);
+    expect_has("flash write reports why it is busy", "a program is loaded");
+    g_app.loaded = 0;
+    rc = run("unset f");
+    rc = run("fn file_checksum; return 1; end");
+    expect_rc("binary builtin names are reserved", rc, FREYA_EXIT_FAIL);
+    rc = run("unset b");
 
     printf("script threads\n");
     rc = run("fn add; echo a1; yield; echo a2; end; "
@@ -2771,8 +2956,8 @@ int main(void)
     rc = run("set n tclose(0)");
     expect_rc("ownership test timer closes", rc, 0);
 
-    rc = run("set p[8] 1");
-    expect_rc("failed first indexed write fails", rc, FREYA_EXIT_FAIL);
+    rc = run("set p[3000] 1");
+    expect_rc("heap-limited first indexed write fails", rc, FREYA_EXIT_FAIL);
     rc = run("unset p");
     expect_rc("failed first indexed write leaves no variable", rc, FREYA_EXIT_FAIL);
 
@@ -2805,6 +2990,11 @@ int main(void)
     expect_exact("the first capture is the letters", "abc\r\n");
     rc = run("echo $b");
     expect_exact("the second capture is the digits", "12\r\n");
+    rc = run("set s match(\"0123456789abcdef0123456789abcdef0123456789abcdef\", "
+             "\".+\"); echo($s)");
+    expect_rc("pattern functions return arbitrary-length strings", rc, 0);
+    expect_exact("match returns the complete long capture",
+                 "0123456789abcdef0123456789abcdef0123456789abcdef\r\n");
     rc = run("set n match(\"ab\", \"a()\")");
     rc = run("echo $n");
     expect_exact("an empty capture is the position", "2\r\n");
@@ -2858,8 +3048,10 @@ int main(void)
     expect_rc("a broken pattern fails", rc, FREYA_EXIT_FAIL);
     expect_has("a broken pattern is named", "bad pattern");
     rc = run("set s gsub(\"abcdefghijklmnop\", \".\", \"xy\")");
-    expect_rc("a long replacement fails", rc, FREYA_EXIT_FAIL);
-    expect_has("a long replacement is too long", "string too long");
+    expect_rc("gsub returns an arbitrary-length string", rc, 0);
+    rc = run("echo $s");
+    expect_exact("a long replacement preserves all text",
+                 "xyxyxyxyxyxyxyxyxyxyxyxyxyxyxyxy\r\n");
     rc = run("fn match; return 1; end");
     expect_rc("match cannot be defined", rc, FREYA_EXIT_FAIL);
     expect_has("fn refuses match", "bad name");

@@ -209,7 +209,7 @@ $CC $CFLAGS -c src/shell.c -o "$OUT/shell_host.o" \
     -D__kernel_flash_end=freya_test_kernel_flash_end
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_shell_test.c "$OUT/shell_host.o" src/print.c \
-    src/crypt.c -o "$OUT/hostshell"
+    src/crypt.c src/cksum.c -o "$OUT/hostshell"
 "$OUT/hostshell" || status=1
 
 echo

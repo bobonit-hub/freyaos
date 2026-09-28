@@ -11,8 +11,8 @@
  * system settings.  The size register on these parts often still reads
  * 64 KiB.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
- *   0x0800C000 .. 0x08012FFF   program flash region             (28672 B)
- *   0x08013000 .. 0x0801FBFF   kernel extension                  (51 KiB)
+ *   0x0800C000 .. 0x080123FF   program flash region             (25600 B)
+ *   0x08012400 .. 0x0801FBFF   kernel extension                  (54 KiB)
  *   0x0801FC00 .. 0x0801FFFF   system settings, two copies        (1 KiB)
  *
  * The extension is its own image.  The program region stops short of it,
@@ -38,7 +38,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x08013000, LENGTH = 51K
+    KEXT  (rx)  : ORIGIN = 0x08012400, LENGTH = 54K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
@@ -56,7 +56,7 @@ __settings_end       = 0x08020000;
 __autostart_start    = __settings_start;
 __autostart_end      = __settings_end;
 __app_flash_start    = 0x0800C000;
-__app_flash_end      = 0x08013000;
+__app_flash_end      = 0x08012400;
 __ram_start       = 0x20000000;
 __ram_end         = 0x20005000;
 __stack_top       = __ram_end;

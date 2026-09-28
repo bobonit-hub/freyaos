@@ -111,8 +111,8 @@ recommendation.
 **The upper 64 KiB is part of the map.** Most STM32F103C8 dies are physically
 the 128 KiB part, and `FLASHSIZE_BASE` still often reports 64 KiB. Freya no
 longer stays inside that report. Every supported board is built as having at
-least 128 KiB. The Blue Pill program region runs to `0x080133FF`; the last
-51 KiB is the kernel extension. The size used by `sysinfo`,
+least 128 KiB. The Blue Pill program region runs to `0x080123FF`; the last
+54 KiB is the kernel extension. The size used by `sysinfo`,
 `meminfo` and `flashdump` is at least 128 KiB.
 
 `samples/flashprobe` still walks erase units above that floor, programs a

@@ -255,7 +255,7 @@ static int expand_status(const char *in, char *out, int size)
             continue;
         }
         if (in[0] == '$' && in[1] >= '0' && in[1] <= '9') {
-            char tmp[40];
+            char tmp[LINE_MAX];
             int idx = 0, k = 0;
 
             while (in[1 + k] >= '0' && in[1 + k] <= '9') {
@@ -279,7 +279,7 @@ static int expand_status(const char *in, char *out, int size)
             continue;
         }
         if (in[0] == '$' && name_char(in[1], 1)) {
-            char tmp[40];
+            char tmp[LINE_MAX];
             int n = 0;
 
             while (name_char(in[1 + n], 0)) n++;
@@ -436,10 +436,14 @@ static int is_flash_path(const char *p)
  * 128.  A larger report (the Black Pill's 512) is kept. */
 static uint32_t mcu_flash_kib(void)
 {
+#ifdef FREYA_HOST
+    return BOARD_FLASH_KIB;
+#else
     uint32_t kib = *(volatile uint16_t *)FLASHSIZE_BASE;
 
     if (kib < BOARD_FLASH_KIB) kib = BOARD_FLASH_KIB;
     return kib;
+#endif
 }
 
 /* ----------------------------------------------------------- commands */
@@ -3006,7 +3010,7 @@ static int KEXT script_check(const char *text, char *walk)
 /* ---------------------------------------------------------- variables */
 /*
  * Eight names.  A value is an integer, a float, a byte (0..255),
- * a bool, empty, none, a short string, an auto array, or a dict.
+ * a bool, empty, none, an immutable heap string, an auto array, or a dict.
  * The next assignment decides which.  An array's elements are one
  * type, and it grows when an index past the end is written.  A dict's
  * keys are one type and its values are another; the keys are kept
@@ -3026,11 +3030,15 @@ static int KEXT script_check(const char *text, char *walk)
 #define VAR_NAME  8
 #define VAR_STR   32
 #define COLL_MAX  4
-#define ARR_MAX   8
-#define DICT_MAX  8
 
 enum { V_NONE = 0, V_INT, V_FLT, V_STR, V_BYTE, V_EMPTY, V_BOOL, V_NIL,
-       V_ARR, V_DICT };
+       V_ARR, V_DICT, V_BYTES };
+
+typedef struct {
+    uint32_t refs;
+    uint32_t len;
+    char text[];
+} shell_str_t;
 
 typedef struct {
     char name[VAR_NAME];
@@ -3038,7 +3046,7 @@ typedef struct {
     union {
         int32_t i;
         float f;
-        char s[VAR_STR];
+        shell_str_t *s;
     } u;
 } shell_var_t;
 
@@ -3046,7 +3054,7 @@ typedef struct {
     uint8_t type;
     int32_t i;
     float f;
-    char s[VAR_STR];
+    shell_str_t *s;
 } val_t;
 
 static shell_var_t s_var[VAR_MAX];
@@ -3056,6 +3064,111 @@ static int KEXT vfail(const char *msg)
 {
     kprintf("%s: %s\r\n", s_vwho, msg);
     return -1;
+}
+
+static const char *KEXT str_text(const shell_str_t *s)
+{
+    return s ? s->text : "";
+}
+
+static uint32_t KEXT str_len(const shell_str_t *s)
+{
+    return s ? s->len : 0;
+}
+
+static shell_str_t *KEXT str_new(const char *text, uint32_t len)
+{
+    shell_str_t *s;
+
+    if (!len) return NULL;
+    if (len > UINT32_MAX - (uint32_t)sizeof *s - 1U) return NULL;
+    s = kmalloc((uint32_t)sizeof *s + len + 1U);
+    if (!s) return NULL;
+    s->refs = 1;
+    s->len = len;
+    memcpy(s->text, text, len);
+    s->text[len] = '\0';
+    return s;
+}
+
+static shell_str_t *KEXT str_alloc(uint32_t len)
+{
+    shell_str_t *s;
+
+    if (!len) return NULL;
+    if (len > UINT32_MAX - (uint32_t)sizeof *s - 1U) return NULL;
+    s = kmalloc((uint32_t)sizeof *s + len + 1U);
+    if (!s) return NULL;
+    s->refs = 1;
+    s->len = len;
+    s->text[len] = '\0';
+    return s;
+}
+
+static void KEXT str_retain(shell_str_t *s)
+{
+    if (s) s->refs++;
+}
+
+static void KEXT str_release(shell_str_t *s)
+{
+    if (s && --s->refs == 0) kfree(s);
+}
+
+static int KEXT val_string(val_t *v, const char *text, uint32_t len)
+{
+    shell_str_t *s = str_new(text, len);
+
+    if (len && !s) return vfail("out of memory");
+    v->type = V_STR;
+    v->s = s;
+    return 0;
+}
+
+typedef struct {
+    char *p;
+    uint32_t n;
+    uint32_t cap;
+} str_buf_t;
+
+static int KEXT str_buf_add(str_buf_t *b, const char *text, uint32_t len)
+{
+    uint32_t need, cap;
+    char *p;
+
+    if (!len) return 0;
+    if (b->n > UINT32_MAX - len) return -1;
+    need = b->n + len;
+    if (need <= b->cap) {
+        memcpy(b->p + b->n, text, len);
+        b->n = need;
+        return 0;
+    }
+    cap = b->cap ? b->cap : 32U;
+    while (cap < need && cap <= UINT32_MAX / 2U) cap *= 2U;
+    if (cap < need) cap = need;
+    p = kmalloc(cap);
+    if (!p && cap != need) {
+        cap = need;
+        p = kmalloc(cap);
+    }
+    if (!p) return -1;
+    if (b->n) memcpy(p, b->p, b->n);
+    memcpy(p + b->n, text, len);
+    kfree(b->p);
+    b->p = p;
+    b->n = need;
+    b->cap = cap;
+    return 0;
+}
+
+static int KEXT str_buf_value(str_buf_t *b, val_t *out)
+{
+    int rc = val_string(out, b->p, b->n);
+    kfree(b->p);
+    b->p = NULL;
+    b->n = b->cap = 0;
+    return rc;
 }
 
 static void KEXT vskip(const char **pp)
@@ -3127,10 +3240,11 @@ static int KEXT type_hold_i(int type)
 }
 
 static int KEXT coll_text(int id, char *out, int size);
+static int KEXT is_ref(int type);
 
 static void KEXT val_text(const val_t *v, char *out, int size)
 {
-    if (v->type == V_ARR || v->type == V_DICT) {
+    if (is_ref(v->type)) {
         if (coll_text(v->i, out, size) != 0) ksnprintf(out, size, "...");
         return;
     }
@@ -3139,13 +3253,13 @@ static void KEXT val_text(const val_t *v, char *out, int size)
     else if (v->type == V_BOOL) ksnprintf(out, size, v->i ? "true" : "false");
     else if (v->type == V_EMPTY) ksnprintf(out, size, "empty");
     else if (v->type == V_NIL) ksnprintf(out, size, "none");
-    else ksnprintf(out, size, "%s", v->s);
+    else ksnprintf(out, size, "%s", str_text(v->s));
 }
 
 /*
- * Four collections.  An array is one block of cells, all one type, and
- * it grows when an index past the end is written.  A dict is two
- * parallel blocks, keys kept sorted, so lookup is a binary search.
+ * Four collections.  An array is one packed byte block, all one type,
+ * and it grows when an index past the end is written.  A dict is two
+ * parallel cell blocks, keys kept sorted, so lookup is a binary search.
  * Keys are one type and values are another.  A variable holds the slot
  * number.  Copying a value clones the cells.  Freeing a slot returns
  * its blocks to the heap.
@@ -3155,7 +3269,7 @@ typedef struct {
     union {
         int32_t i;
         float f;
-        char s[VAR_STR];
+        shell_str_t *s;
     } u;
 } cell_t;
 
@@ -3164,9 +3278,12 @@ typedef struct {
     uint8_t et;
     uint8_t kt;
     uint8_t vt;
-    uint8_t n;
+    uint8_t refs;
+    uint32_t n;
+    uint32_t cap;
     cell_t *a;
     cell_t *b;
+    uint8_t *bytes;
 } coll_t;
 
 static coll_t s_coll[COLL_MAX];
@@ -3174,6 +3291,11 @@ static coll_t s_coll[COLL_MAX];
 static int KEXT is_coll(int type)
 {
     return type == V_ARR || type == V_DICT;
+}
+
+static int KEXT is_ref(int type)
+{
+    return is_coll(type) || type == V_BYTES;
 }
 
 static int KEXT scalar_ok(int type)
@@ -3189,7 +3311,7 @@ static void KEXT cell_from_val(cell_t *c, const val_t *v)
     c->type = v->type;
     if (type_hold_i(v->type)) c->u.i = v->i;
     else if (v->type == V_FLT) c->u.f = v->f;
-    else if (v->type == V_STR) memcpy(c->u.s, v->s, VAR_STR);
+    else if (v->type == V_STR) c->u.s = v->s;
 }
 
 static void KEXT cell_to_val(const cell_t *c, val_t *v)
@@ -3197,21 +3319,18 @@ static void KEXT cell_to_val(const cell_t *c, val_t *v)
     v->type = c->type;
     v->i = 0;
     v->f = 0.f;
-    v->s[0] = '\0';
+    v->s = NULL;
     if (type_hold_i(c->type)) v->i = c->u.i;
     else if (c->type == V_FLT) v->f = c->u.f;
-    else if (c->type == V_STR) memcpy(v->s, c->u.s, VAR_STR);
-}
-
-static void KEXT cell_zero(cell_t *c, int type)
-{
-    memset(c, 0, sizeof *c);
-    c->type = (uint8_t)type;
+    else if (c->type == V_STR) {
+        v->s = c->u.s;
+        str_retain(v->s);
+    }
 }
 
 static int KEXT cell_cmp(const cell_t *a, const cell_t *b)
 {
-    if (a->type == V_STR) return strcmp(a->u.s, b->u.s);
+    if (a->type == V_STR) return strcmp(str_text(a->u.s), str_text(b->u.s));
     if (a->type == V_FLT) return (a->u.f > b->u.f) - (a->u.f < b->u.f);
     if (a->type == V_EMPTY || a->type == V_NIL) return 0;
     return (a->u.i > b->u.i) - (a->u.i < b->u.i);
@@ -3225,6 +3344,7 @@ static int KEXT coll_new(int kind)
         if (s_coll[i].kind) continue;
         memset(&s_coll[i], 0, sizeof s_coll[i]);
         s_coll[i].kind = (uint8_t)kind;
+        s_coll[i].refs = 1;
         return i;
     }
     return -1;
@@ -3232,40 +3352,164 @@ static int KEXT coll_new(int kind)
 
 static void KEXT coll_free(int id)
 {
+    coll_t *c;
+    uint32_t i;
+
     if (id < 0 || id >= COLL_MAX || !s_coll[id].kind) return;
+    if (s_coll[id].refs > 1) {
+        s_coll[id].refs--;
+        return;
+    }
+    c = &s_coll[id];
+    if (c->kind == V_ARR && c->et == V_STR) {
+        for (i = 0; i < c->n; i++) {
+            shell_str_t *s;
+            memcpy(&s, c->bytes + i * sizeof s, sizeof s);
+            str_release(s);
+        }
+    } else if (c->kind == V_DICT) {
+        for (i = 0; i < c->n; i++) {
+            if (c->a[i].type == V_STR) str_release(c->a[i].u.s);
+            if (c->b[i].type == V_STR) str_release(c->b[i].u.s);
+        }
+    }
     kfree(s_coll[id].a);
     kfree(s_coll[id].b);
+    kfree(s_coll[id].bytes);
     memset(&s_coll[id], 0, sizeof s_coll[id]);
 }
 
 static void KEXT val_drop(val_t *v)
 {
     if (!v) return;
-    if (is_coll(v->type)) coll_free(v->i);
+    if (is_ref(v->type)) coll_free(v->i);
+    else if (v->type == V_STR) str_release(v->s);
     v->type = V_NONE;
 }
 
-static int KEXT coll_blocks(coll_t *c)
+static int KEXT dict_alloc(coll_t *c, uint32_t capacity)
 {
-    int n = (c->kind == V_ARR) ? ARR_MAX : DICT_MAX;
+    uint32_t size;
+    cell_t *a, *b;
 
-    if (!c->a) {
-        c->a = kmalloc((uint32_t)sizeof(cell_t) * (uint32_t)n);
-        if (!c->a) return -1;
-        memset(c->a, 0, sizeof(cell_t) * (size_t)n);
+    if (capacity > UINT32_MAX / (uint32_t)sizeof(cell_t)) return -1;
+    size = capacity * (uint32_t)sizeof(cell_t);
+    a = kmalloc(size);
+    if (!a) return -1;
+    b = kmalloc(size);
+    if (!b) {
+        kfree(a);
+        return -1;
     }
-    if (c->kind == V_DICT && !c->b) {
-        c->b = kmalloc((uint32_t)sizeof(cell_t) * (uint32_t)n);
-        if (!c->b) return -1;
-        memset(c->b, 0, sizeof(cell_t) * (size_t)n);
+    memset(a, 0, size);
+    memset(b, 0, size);
+    if (c->n) {
+        memcpy(a, c->a, (size_t)c->n * sizeof(cell_t));
+        memcpy(b, c->b, (size_t)c->n * sizeof(cell_t));
     }
+    kfree(c->a);
+    kfree(c->b);
+    c->a = a;
+    c->b = b;
+    c->cap = capacity;
+    return 0;
+}
+
+static int KEXT dict_grow(coll_t *c, uint32_t count)
+{
+    uint32_t capacity;
+
+    if (count <= c->cap) return 0;
+    capacity = c->cap ? c->cap : 1U;
+    while (capacity < count && capacity <= UINT32_MAX / 2U)
+        capacity *= 2U;
+    if (capacity < count ||
+        capacity > UINT32_MAX / (uint32_t)sizeof(cell_t))
+        capacity = count;
+    if (dict_alloc(c, capacity) == 0) return 0;
+    if (capacity != count && dict_alloc(c, count) == 0) return 0;
+    return -1;
+}
+
+static uint32_t KEXT array_width(int type)
+{
+    if (type == V_INT || type == V_FLT) return 4;
+    if (type == V_STR) return (uint32_t)sizeof(shell_str_t *);
+    return 1;
+}
+
+static void KEXT array_load(const coll_t *c, uint32_t idx, cell_t *v)
+{
+    uint32_t width = array_width(c->et);
+    const uint8_t *p = c->bytes + idx * width;
+
+    memset(v, 0, sizeof *v);
+    v->type = c->et;
+    if (c->et == V_INT) memcpy(&v->u.i, p, sizeof v->u.i);
+    else if (c->et == V_FLT) memcpy(&v->u.f, p, sizeof v->u.f);
+    else if (c->et == V_STR) memcpy(&v->u.s, p, sizeof v->u.s);
+    else if (type_hold_i(c->et)) v->u.i = *p;
+}
+
+static void KEXT array_store(coll_t *c, uint32_t idx, const cell_t *v)
+{
+    uint32_t width = array_width(c->et);
+    uint8_t *p = c->bytes + idx * width;
+
+    if (c->et == V_STR) {
+        shell_str_t *old;
+
+        memcpy(&old, p, sizeof old);
+        str_retain(v->u.s);
+        str_release(old);
+        memcpy(p, &v->u.s, sizeof v->u.s);
+    } else if (c->et == V_INT) memcpy(p, &v->u.i, sizeof v->u.i);
+    else if (c->et == V_FLT) memcpy(p, &v->u.f, sizeof v->u.f);
+    else if (type_hold_i(c->et)) *p = (uint8_t)v->u.i;
+}
+
+/* Grow without losing the old array when the heap cannot satisfy it. */
+static int KEXT array_grow(coll_t *c, uint32_t count)
+{
+    uint32_t width = array_width(c->et);
+    uint32_t old_size, new_size, capacity;
+    uint8_t *p;
+
+    if (count <= c->n) return 0;
+    if (count > UINT32_MAX / width) return -1;
+    if (count <= c->cap) {
+        memset(c->bytes + c->n * width, 0, (count - c->n) * width);
+        c->n = count;
+        return 0;
+    }
+    capacity = c->cap ? c->cap : 1U;
+    while (capacity < count && capacity <= UINT32_MAX / 2U)
+        capacity *= 2U;
+    if (capacity < count || capacity > UINT32_MAX / width)
+        capacity = count;
+    old_size = c->n * width;
+    new_size = capacity * width;
+    p = kmalloc(new_size);
+    if (!p && capacity != count) {
+        capacity = count;
+        new_size = count * width;
+        p = kmalloc(new_size);
+    }
+    if (!p) return -1;
+    memset(p, 0, new_size);
+    if (old_size) memcpy(p, c->bytes, old_size);
+    kfree(c->bytes);
+    c->bytes = p;
+    c->cap = capacity;
+    c->n = count;
     return 0;
 }
 
 static int KEXT coll_clone(int id)
 {
     coll_t *src;
-    int nid, n;
+    int nid;
+    uint32_t size;
 
     if (id < 0 || id >= COLL_MAX || !s_coll[id].kind) return -1;
     src = &s_coll[id];
@@ -3276,15 +3520,66 @@ static int KEXT coll_clone(int id)
     s_coll[nid].vt = src->vt;
     s_coll[nid].n = src->n;
     if (!src->n) return nid;
-    if (coll_blocks(&s_coll[nid]) != 0) {
+    if (src->kind == V_BYTES || src->kind == V_ARR) {
+        size = src->kind == V_BYTES ? src->n :
+               src->n * array_width(src->et);
+        s_coll[nid].bytes = kmalloc(size);
+        if (!s_coll[nid].bytes) {
+            coll_free(nid);
+            return -1;
+        }
+        memcpy(s_coll[nid].bytes, src->bytes, size);
+        if (src->kind == V_ARR) {
+            s_coll[nid].cap = src->n;
+            if (src->et == V_STR) {
+                uint32_t i;
+                for (i = 0; i < src->n; i++) {
+                    shell_str_t *s;
+                    memcpy(&s, src->bytes + i * sizeof s, sizeof s);
+                    str_retain(s);
+                }
+            }
+        }
+        return nid;
+    }
+    s_coll[nid].n = 0;
+    if (dict_grow(&s_coll[nid], src->n) != 0) {
         coll_free(nid);
         return -1;
     }
-    n = src->n;
-    memcpy(s_coll[nid].a, src->a, sizeof(cell_t) * (size_t)n);
-    if (src->kind == V_DICT)
-        memcpy(s_coll[nid].b, src->b, sizeof(cell_t) * (size_t)n);
+    memcpy(s_coll[nid].a, src->a, sizeof(cell_t) * (size_t)src->n);
+    memcpy(s_coll[nid].b, src->b, sizeof(cell_t) * (size_t)src->n);
+    s_coll[nid].n = src->n;
+    for (size = 0; size < src->n; size++) {
+        if (src->a[size].type == V_STR) str_retain(src->a[size].u.s);
+        if (src->b[size].type == V_STR) str_retain(src->b[size].u.s);
+    }
     return nid;
+}
+
+static int KEXT bytes_new(uint32_t len, val_t *out)
+{
+    int id = coll_new(V_BYTES);
+
+    if (id < 0) return vfail("out of memory");
+    if (len) {
+        s_coll[id].bytes = kmalloc(len);
+        if (!s_coll[id].bytes) {
+            coll_free(id);
+            return vfail("out of memory");
+        }
+    }
+    s_coll[id].n = len;
+    out->type = V_BYTES;
+    out->i = id;
+    return id;
+}
+
+static coll_t *KEXT bytes_arg(int type, int id)
+{
+    if (type != V_BYTES) return NULL;
+    if (id < 0 || id >= COLL_MAX || s_coll[id].kind != V_BYTES) return NULL;
+    return &s_coll[id];
 }
 
 static int KEXT dict_find(const coll_t *c, const cell_t *key, int *pos)
@@ -3305,16 +3600,15 @@ static int KEXT dict_find(const coll_t *c, const cell_t *key, int *pos)
 
 static int KEXT array_put(coll_t *c, int32_t idx, const cell_t *v)
 {
-    int i;
+    uint32_t count;
 
     if (!scalar_ok(v->type)) return vfail("type mismatch");
-    if (idx < 0 || idx >= ARR_MAX) return vfail("out of range");
+    if (idx < 0) return vfail("out of range");
     if (c->n == 0) c->et = v->type;
     else if (v->type != c->et) return vfail("type mismatch");
-    if (coll_blocks(c) != 0) return vfail("out of memory");
-    for (i = (int)c->n; i < idx; i++) cell_zero(&c->a[i], c->et);
-    c->a[idx] = *v;
-    if (idx >= (int32_t)c->n) c->n = (uint8_t)(idx + 1);
+    count = (uint32_t)idx + 1U;
+    if (array_grow(c, count) != 0) return vfail("out of memory");
+    array_store(c, (uint32_t)idx, v);
     return 0;
 }
 
@@ -3331,11 +3625,15 @@ static int KEXT dict_put(coll_t *c, const cell_t *key, const cell_t *val)
     } else if (key->type != c->kt || val->type != c->vt) {
         return vfail("type mismatch");
     } else if (dict_find(c, key, &pos)) {
+        if (val->type == V_STR) {
+            str_retain(val->u.s);
+            str_release(c->b[pos].u.s);
+        }
         c->b[pos] = *val;
         return 0;
     }
-    if (c->n >= DICT_MAX) return vfail("dict too long");
-    if (coll_blocks(c) != 0) return vfail("out of memory");
+    if (c->n == UINT32_MAX || dict_grow(c, c->n + 1U) != 0)
+        return vfail("out of memory");
     if (c->n) dict_find(c, key, &pos);
     for (i = (int)c->n; i > pos; i--) {
         c->a[i] = c->a[i - 1];
@@ -3343,6 +3641,8 @@ static int KEXT dict_put(coll_t *c, const cell_t *key, const cell_t *val)
     }
     c->a[pos] = *key;
     c->b[pos] = *val;
+    if (key->type == V_STR) str_retain(key->u.s);
+    if (val->type == V_STR) str_retain(val->u.s);
     c->n++;
     return 0;
 }
@@ -3355,10 +3655,21 @@ static int KEXT coll_get(int id, const val_t *idx, val_t *out)
 
     if (id < 0 || id >= COLL_MAX || !s_coll[id].kind) return vfail("bad expression");
     c = &s_coll[id];
-    if (c->kind == V_ARR) {
+    if (c->kind == V_BYTES) {
         if (!type_wide(idx->type)) return vfail("not an integer");
-        if (idx->i < 0 || idx->i >= (int32_t)c->n) return vfail("out of range");
-        cell_to_val(&c->a[idx->i], out);
+        if (idx->i < 0 || (uint32_t)idx->i >= c->n) return vfail("out of range");
+        memset(out, 0, sizeof *out);
+        out->type = V_BYTE;
+        out->i = c->bytes[idx->i];
+        return 0;
+    }
+    if (c->kind == V_ARR) {
+        cell_t elem;
+
+        if (!type_wide(idx->type)) return vfail("not an integer");
+        if (idx->i < 0 || (uint32_t)idx->i >= c->n) return vfail("out of range");
+        array_load(c, (uint32_t)idx->i, &elem);
+        cell_to_val(&elem, out);
         return 0;
     }
     cell_from_val(&key, idx);
@@ -3374,7 +3685,8 @@ static int KEXT cell_text(const cell_t *c, char *out, int size)
     val_t v;
 
     if (c->type == V_BYTE) return ksnprintf(out, size, "%db", (int)c->u.i) >= size;
-    if (c->type == V_STR) return ksnprintf(out, size, "\"%s\"", c->u.s) >= size;
+    if (c->type == V_STR)
+        return ksnprintf(out, size, "\"%s\"", str_text(c->u.s)) >= size;
     cell_to_val(c, &v);
     val_text(&v, out, size);
     return 0;
@@ -3387,9 +3699,13 @@ static int KEXT coll_text(int id, char *out, int size)
 
     if (size < 3 || id < 0 || id >= COLL_MAX || !s_coll[id].kind) return -1;
     c = &s_coll[id];
+    if (c->kind == V_BYTES) {
+        int n = ksnprintf(out, size, "bytes[%u]", (unsigned)c->n);
+        return (n < 0 || n >= size) ? -1 : 0;
+    }
     out[o++] = (c->kind == V_ARR) ? '[' : '{';
     for (i = 0; i < (int)c->n; i++) {
-        char piece[VAR_STR + 4];
+        char piece[LINE_MAX];
         int n, k;
 
         if (i) {
@@ -3397,7 +3713,14 @@ static int KEXT coll_text(int id, char *out, int size)
             out[o++] = ',';
             out[o++] = ' ';
         }
-        if (cell_text(&c->a[i], piece, (int)sizeof piece) != 0) return -1;
+        cell_t elem;
+
+        if (c->kind == V_ARR) {
+            array_load(c, (uint32_t)i, &elem);
+            if (cell_text(&elem, piece, (int)sizeof piece) != 0) return -1;
+        } else if (cell_text(&c->a[i], piece, (int)sizeof piece) != 0) {
+            return -1;
+        }
         n = (int)strlen(piece);
         if (o + n >= size) return -1;
         for (k = 0; k < n; k++) out[o++] = piece[k];
@@ -3426,11 +3749,21 @@ static int KEXT same_cells(int ia, int ib)
     a = &s_coll[ia];
     b = &s_coll[ib];
     if (a->kind != b->kind || a->n != b->n) return 0;
+    if (a->kind == V_BYTES)
+        return a->n == 0 || memcmp(a->bytes, b->bytes, a->n) == 0;
     if (a->kind == V_ARR && a->n && a->et != b->et) return 0;
     if (a->kind == V_DICT && a->n && (a->kt != b->kt || a->vt != b->vt)) return 0;
     for (i = 0; i < (int)a->n; i++) {
-        if (a->a[i].type != b->a[i].type || cell_cmp(&a->a[i], &b->a[i]) != 0)
+        if (a->kind == V_ARR) {
+            cell_t av, bv;
+
+            array_load(a, (uint32_t)i, &av);
+            array_load(b, (uint32_t)i, &bv);
+            if (cell_cmp(&av, &bv) != 0) return 0;
+        } else if (a->a[i].type != b->a[i].type ||
+                   cell_cmp(&a->a[i], &b->a[i]) != 0) {
             return 0;
+        }
         if (a->kind == V_DICT &&
             (a->b[i].type != b->b[i].type || cell_cmp(&a->b[i], &b->b[i]) != 0))
             return 0;
@@ -3444,14 +3777,14 @@ static int KEXT var_copy(const char *name, int nlen, char *out, int size)
     val_t v;
 
     if (!slot) return -1;
-    if (is_coll(slot->type)) return coll_text(slot->u.i, out, size);
+    if (is_ref(slot->type)) return coll_text(slot->u.i, out, size);
     v.type = slot->type;
     v.i = 0;
     v.f = 0.f;
-    v.s[0] = '\0';
+    v.s = NULL;
     if (type_hold_i(slot->type)) v.i = slot->u.i;
     else if (slot->type == V_FLT) v.f = slot->u.f;
-    else if (slot->type == V_STR) memcpy(v.s, slot->u.s, VAR_STR);
+    else if (slot->type == V_STR) v.s = slot->u.s;
     val_text(&v, out, size);
     return 0;
 }
@@ -3479,14 +3812,15 @@ static void KEXT var_list(void)
         else if (s_var[i].type == V_FLT) {
             ftoa(buf, (int)sizeof buf, s_var[i].u.f);
             kprintf("%s = %s\r\n", s_var[i].name, buf);
-        } else if (is_coll(s_var[i].type)) {
+        } else if (is_ref(s_var[i].type)) {
             kprintf("%s = ", s_var[i].name);
             if (coll_text(s_var[i].u.i, buf, (int)sizeof buf) != 0)
                 kprintf("...\r\n");
             else
                 kprintf("%s\r\n", buf);
         } else
-            kprintf("%s = \"%s\"\r\n", s_var[i].name, s_var[i].u.s);
+            kprintf("%s = \"%s\"\r\n", s_var[i].name,
+                    str_text(s_var[i].u.s));
     }
     if (!any) kprintf("no variables\r\n");
 }
@@ -3505,8 +3839,8 @@ static int KEXT load_var(const char *name, int nlen, val_t *out)
     out->type = slot->type;
     out->i = 0;
     out->f = 0.f;
-    out->s[0] = '\0';
-    if (is_coll(slot->type)) {
+    out->s = NULL;
+    if (is_ref(slot->type)) {
         int id = coll_clone(slot->u.i);
         if (id < 0) return vfail("out of memory");
         out->i = id;
@@ -3514,7 +3848,10 @@ static int KEXT load_var(const char *name, int nlen, val_t *out)
     }
     if (type_hold_i(slot->type)) out->i = slot->u.i;
     else if (slot->type == V_FLT) out->f = slot->u.f;
-    else if (slot->type == V_STR) memcpy(out->s, slot->u.s, VAR_STR);
+    else if (slot->type == V_STR) {
+        out->s = slot->u.s;
+        str_retain(out->s);
+    }
     return 0;
 }
 
@@ -3575,7 +3912,7 @@ static int KEXT apply_num(int op, val_t *a, const val_t *b)
         a->type == V_EMPTY || b->type == V_EMPTY ||
         a->type == V_NIL || b->type == V_NIL ||
         a->type == V_BOOL || b->type == V_BOOL ||
-        is_coll(a->type) || is_coll(b->type))
+        is_ref(a->type) || is_ref(b->type))
         return vfail("bad expression");
 
     if (op == OP_MOD || op == OP_AND || op == OP_OR || op == OP_XOR ||
@@ -3640,20 +3977,37 @@ static int KEXT apply_num(int op, val_t *a, const val_t *b)
 
 static int KEXT apply_add(val_t *a, const val_t *b)
 {
-    char left[VAR_STR], right[VAR_STR];
-    int n, m;
+    char left_buf[LINE_MAX], right_buf[LINE_MAX];
+    const char *left, *right;
+    uint32_t n, m;
+    shell_str_t *s;
 
     if (a->type != V_STR && b->type != V_STR)
         return apply_num(OP_ADD, a, b);
-    val_text(a, left, (int)sizeof left);
-    val_text(b, right, (int)sizeof right);
-    n = (int)strlen(left);
-    m = (int)strlen(right);
-    if (n + m >= VAR_STR) return vfail("string too long");
+    if (a->type == V_STR) {
+        left = str_text(a->s);
+        n = str_len(a->s);
+    } else {
+        val_text(a, left_buf, (int)sizeof left_buf);
+        left = left_buf;
+        n = (uint32_t)strlen(left);
+    }
+    if (b->type == V_STR) {
+        right = str_text(b->s);
+        m = str_len(b->s);
+    } else {
+        val_text(b, right_buf, (int)sizeof right_buf);
+        right = right_buf;
+        m = (uint32_t)strlen(right);
+    }
+    if (n > UINT32_MAX - m) return vfail("out of memory");
+    s = str_alloc(n + m);
+    if (n + m && !s) return vfail("out of memory");
+    if (n) memcpy(s->text, left, n);
+    if (m) memcpy(s->text + n, right, m);
     val_drop(a);
-    memcpy(a->s, left, (size_t)n);
-    memcpy(a->s + n, right, (size_t)m + 1);
     a->type = V_STR;
+    a->s = s;
     return 0;
 }
 
@@ -3662,71 +4016,103 @@ static int KEXT apply_add(val_t *a, const val_t *b)
  * argument. */
 static int KEXT format_step(val_t *dst, const val_t *arg)
 {
-    char out[VAR_STR];
-    char piece[VAR_STR];
-    const char *f = dst->s;
-    int o = 0;
+    char piece_buf[LINE_MAX];
+    const char *piece = piece_buf;
+    const char *f = str_text(dst->s);
+    const char *conv;
+    uint32_t prefix = 0, piece_len, rest_len, o = 0;
+    shell_str_t *result;
 
     while (*f) {
         if (*f != '%') {
-            if (o >= VAR_STR - 1) return vfail("string too long");
-            out[o++] = *f++;
+            prefix++;
+            f++;
             continue;
         }
         f++;
+        conv = f - 1;
         if (*f == '%') {
-            if (o >= VAR_STR - 1) return vfail("string too long");
-            out[o++] = '%';
+            prefix++;
             f++;
             continue;
         }
         if (*f != 'd' && *f != 'i' && *f != 'u' && *f != 'x' && *f != 'X' &&
             *f != 's' && *f != 'f')
             return vfail("bad format");
-        if (*f == 's') val_text(arg, piece, (int)sizeof piece);
+        if (*f == 's') {
+            if (arg->type == V_STR) piece = str_text(arg->s);
+            else val_text(arg, piece_buf, (int)sizeof piece_buf);
+        }
         else if (*f == 'f') {
             float fv;
             if (arg->type == V_STR || arg->type == V_EMPTY ||
-                arg->type == V_NIL || arg->type == V_BOOL || is_coll(arg->type))
+                arg->type == V_NIL || arg->type == V_BOOL || is_ref(arg->type))
                 return vfail("bad format");
             fv = type_wide(arg->type) ? (float)arg->i : arg->f;
-            ftoa(piece, (int)sizeof piece, fv);
+            ftoa(piece_buf, (int)sizeof piece_buf, fv);
         } else if (*f == 'd' || *f == 'i') {
             int32_t n;
             if (arg->type == V_STR || arg->type == V_EMPTY ||
-                arg->type == V_NIL || arg->type == V_BOOL || is_coll(arg->type))
+                arg->type == V_NIL || arg->type == V_BOOL || is_ref(arg->type))
                 return vfail("bad format");
             if (arg->type == V_FLT) {
                 if (arg->f > 2147483647.f || arg->f < -2147483648.f)
                     return vfail("integer overflow");
                 n = (int32_t)arg->f;
             } else n = arg->i;
-            ksnprintf(piece, (int)sizeof piece, "%d", (int)n);
+            ksnprintf(piece_buf, (int)sizeof piece_buf, "%d", (int)n);
         } else {
             if (!type_wide(arg->type)) return vfail("not an integer");
-            ksnprintf(piece, (int)sizeof piece,
+            ksnprintf(piece_buf, (int)sizeof piece_buf,
                       (*f == 'u') ? "%u" : (*f == 'X') ? "%X" : "%x",
                       (unsigned)(uint32_t)arg->i);
         }
         f++;
+        piece_len = (uint32_t)strlen(piece);
+        rest_len = (uint32_t)strlen(f);
+        if (prefix > UINT32_MAX - piece_len ||
+            prefix + piece_len > UINT32_MAX - rest_len)
+            return vfail("out of memory");
+        result = str_alloc(prefix + piece_len + rest_len);
+        if (prefix + piece_len + rest_len && !result)
+            return vfail("out of memory");
         {
-            int pn = (int)strlen(piece);
-            int i;
-            if (o + pn >= VAR_STR) return vfail("string too long");
-            for (i = 0; i < pn; i++) out[o++] = piece[i];
+            const char *p = str_text(dst->s);
+            while (p < conv) {
+                if (*p == '%' && p[1] == '%') {
+                    result->text[o++] = '%';
+                    p += 2;
+                } else {
+                    result->text[o++] = *p++;
+                }
+            }
         }
-        while (*f) {
-            if (o >= VAR_STR - 1) return vfail("string too long");
-            out[o++] = *f++;
+        if (piece_len) {
+            memcpy(result->text + o, piece, piece_len);
+            o += piece_len;
         }
-        out[o] = '\0';
-        memcpy(dst->s, out, (size_t)o + 1);
+        if (rest_len) memcpy(result->text + o, f, rest_len);
+        str_release(dst->s);
+        dst->s = result;
         dst->type = V_STR;
         return 0;
     }
-    out[o] = '\0';
-    memcpy(dst->s, out, (size_t)o + 1);
-    dst->type = V_STR;
+    if (prefix != str_len(dst->s)) {
+        const char *p = str_text(dst->s);
+
+        result = str_alloc(prefix);
+        if (prefix && !result) return vfail("out of memory");
+        while (*p) {
+            if (p[0] == '%' && p[1] == '%') {
+                result->text[o++] = '%';
+                p += 2;
+            } else {
+                result->text[o++] = *p++;
+            }
+        }
+        str_release(dst->s);
+        dst->s = result;
+    }
     {
         val_t extra = *arg;
         return apply_add(dst, &extra);
@@ -3757,7 +4143,7 @@ typedef struct {
     union {
         int32_t i;
         float f;
-        char s[VAR_STR];
+        shell_str_t *s;
     } u;
 } fn_arg_t;
 
@@ -3851,7 +4237,9 @@ static void KEXT rets_drop(void)
     int i;
 
     for (i = 0; i < s_fn_nret; i++) {
-        if (is_coll(s_fn_retv[i].type)) coll_free(s_fn_retv[i].u.i);
+        if (is_ref(s_fn_retv[i].type)) coll_free(s_fn_retv[i].u.i);
+        else if (s_fn_retv[i].type == V_STR)
+            str_release(s_fn_retv[i].u.s);
         s_fn_retv[i].type = V_NONE;
     }
     s_fn_nret = 0;
@@ -3869,8 +4257,9 @@ static void KEXT args_drop(fn_arg_t *args, int n)
     int i;
 
     for (i = 0; i < n; i++) {
-        if (!is_coll(args[i].type)) continue;
-        coll_free(args[i].u.i);
+        if (is_ref(args[i].type)) coll_free(args[i].u.i);
+        else if (args[i].type == V_STR) str_release(args[i].u.s);
+        else continue;
         args[i].type = V_NONE;
     }
 }
@@ -3882,7 +4271,7 @@ static int KEXT fn_reserved(const char *s, int n)
     static const char *const w[] __attribute__((section(".rodata.kext_script"))) = {
         "if", "else", "end", "loop", "break", "fn", "return",
         "get", "set", "adc", "pwm", "int", "float", "byte", "bool", "str", "hex",
-        "true", "false", "empty", "none", "array", "dict", "len", "min", "max", "sort",
+        "true", "false", "empty", "none", "array", "bytes", "dict", "len", "min", "max", "sort",
         "rand", "srand", "sin", "cos", "pi",
         "now", "date", "time", "year", "month", "day",
         "hour", "minute", "second",
@@ -3890,6 +4279,9 @@ static int KEXT fn_reserved(const char *s, int n)
         "irq", "wait",
         "spawn", "yield", "join",
         "open", "read", "write", "close", "seek", "flush",
+        "file_checksum", "file_read", "file_write",
+        "flash_read", "flash_write",
+        "ram_read", "ram_write", "ram_checksum",
         "match", "find", "gsub"
     };
     int i;
@@ -4003,7 +4395,7 @@ static int KEXT arg_get(int idx, val_t *out)
     out->type = V_INT;
     out->i = 0;
     out->f = 0.f;
-    out->s[0] = '\0';
+    out->s = NULL;
     if (s_fn_depth <= 0 || idx < 0 || idx > s_fn_argc) return -1;
     if (idx == 0) {
         out->i = s_fn_argc;
@@ -4011,20 +4403,22 @@ static int KEXT arg_get(int idx, val_t *out)
     }
     a = &s_fn_args[idx - 1];
     out->type = a->type;
-    if (is_coll(a->type)) out->i = a->u.i;
+    if (is_ref(a->type)) out->i = a->u.i;
     else if (type_hold_i(a->type)) out->i = a->u.i;
     else if (a->type == V_FLT) out->f = a->u.f;
-    else if (a->type == V_STR) memcpy(out->s, a->u.s, VAR_STR);
+    else if (a->type == V_STR) out->s = a->u.s;
     return 0;
 }
 
 static int KEXT arg_load(int idx, val_t *out)
 {
     if (arg_get(idx, out) != 0) return vfail("no such argument");
-    if (is_coll(out->type)) {
+    if (is_ref(out->type)) {
         int id = coll_clone(out->i);
         if (id < 0) return vfail("out of memory");
         out->i = id;
+    } else if (out->type == V_STR) {
+        str_retain(out->s);
     }
     return 0;
 }
@@ -4041,9 +4435,9 @@ static int KEXT arg_copy(int idx, char *out, int size)
 static void KEXT val_arg(fn_arg_t *a, const val_t *v)
 {
     a->type = v->type;
-    if (is_coll(v->type) || type_hold_i(v->type)) a->u.i = v->i;
+    if (is_ref(v->type) || type_hold_i(v->type)) a->u.i = v->i;
     else if (v->type == V_FLT) a->u.f = v->f;
-    else if (v->type == V_STR) memcpy(a->u.s, v->s, VAR_STR);
+    else if (v->type == V_STR) a->u.s = v->s;
 }
 
 static int KEXT ret_one(val_t *out, const fn_arg_t *a)
@@ -4051,8 +4445,8 @@ static int KEXT ret_one(val_t *out, const fn_arg_t *a)
     out->type = a->type;
     out->i = 0;
     out->f = 0.f;
-    out->s[0] = '\0';
-    if (is_coll(a->type)) {
+    out->s = NULL;
+    if (is_ref(a->type)) {
         int id = coll_clone(a->u.i);
         if (id < 0) return vfail("out of memory");
         out->i = id;
@@ -4060,7 +4454,10 @@ static int KEXT ret_one(val_t *out, const fn_arg_t *a)
     }
     if (type_hold_i(a->type)) out->i = a->u.i;
     else if (a->type == V_FLT) out->f = a->u.f;
-    else if (a->type == V_STR) memcpy(out->s, a->u.s, VAR_STR);
+    else if (a->type == V_STR) {
+        out->s = a->u.s;
+        str_retain(out->s);
+    }
     return 0;
 }
 
@@ -4201,7 +4598,7 @@ static int KEXT conv_int(const fn_arg_t *a, val_t *out)
         out->i = a->type == V_BOOL ? (a->u.i ? 1 : 0) : a->u.i;
         return 1;
     }
-    if (a->type == V_EMPTY || a->type == V_NIL || is_coll(a->type))
+    if (a->type == V_EMPTY || a->type == V_NIL || is_ref(a->type))
         return vfail("not a number");
     if (a->type == V_FLT) {
         rc = flt_to_i32(a->u.f, &n);
@@ -4209,12 +4606,12 @@ static int KEXT conv_int(const fn_arg_t *a, val_t *out)
         out->i = n;
         return 1;
     }
-    if (hex_prefix(a->u.s)) rc = parse_i32(a->u.s, 16, &n);
-    else if (strchr(a->u.s, '.') != NULL) {
+    if (hex_prefix(str_text(a->u.s))) rc = parse_i32(str_text(a->u.s), 16, &n);
+    else if (strchr(str_text(a->u.s), '.') != NULL) {
         float f;
-        rc = parse_f32(a->u.s, &f);
+        rc = parse_f32(str_text(a->u.s), &f);
         if (rc == 0) rc = flt_to_i32(f, &n);
-    } else rc = parse_i32(a->u.s, 10, &n);
+    } else rc = parse_i32(str_text(a->u.s), 10, &n);
     if (i32_fail(rc) != 0) return -1;
     out->i = n;
     return 1;
@@ -4231,34 +4628,40 @@ static int KEXT conv_float(const fn_arg_t *a, val_t *out)
         out->f = (float)(a->type == V_BOOL ? (a->u.i ? 1 : 0) : a->u.i);
         return 1;
     }
-    if (a->type == V_EMPTY || a->type == V_NIL || is_coll(a->type))
+    if (a->type == V_EMPTY || a->type == V_NIL || is_ref(a->type))
         return vfail("not a number");
-    if (hex_prefix(a->u.s)) {
+    if (hex_prefix(str_text(a->u.s))) {
         int32_t n;
-        int rc = parse_i32(a->u.s, 16, &n);
+        int rc = parse_i32(str_text(a->u.s), 16, &n);
         if (i32_fail(rc) != 0) return -1;
         out->f = (float)n;
         return 1;
     }
-    if (parse_f32(a->u.s, &out->f) != 0) return vfail("not a number");
+    if (parse_f32(str_text(a->u.s), &out->f) != 0) return vfail("not a number");
     return 1;
 }
 
 static int KEXT conv_str(const fn_arg_t *a, val_t *out)
 {
     val_t v;
+    char buf[LINE_MAX];
 
     v.type = a->type;
     v.i = 0;
     v.f = 0.f;
-    v.s[0] = '\0';
-    if (is_coll(a->type)) v.i = a->u.i;
+    v.s = NULL;
+    if (is_ref(a->type)) v.i = a->u.i;
     else if (a->type == V_INT || a->type == V_BYTE || a->type == V_BOOL)
         v.i = a->u.i;
     else if (a->type == V_FLT) v.f = a->u.f;
-    else if (a->type == V_STR) memcpy(v.s, a->u.s, VAR_STR);
-    val_text(&v, out->s, VAR_STR);
-    out->type = V_STR;
+    else if (a->type == V_STR) {
+        out->type = V_STR;
+        out->s = a->u.s;
+        str_retain(out->s);
+        return 1;
+    }
+    val_text(&v, buf, (int)sizeof buf);
+    if (val_string(out, buf, (uint32_t)strlen(buf)) != 0) return -1;
     return 1;
 }
 
@@ -4267,15 +4670,16 @@ static int KEXT conv_hex(const fn_arg_t *a, val_t *out)
     int32_t n;
     int rc;
 
-    if (a->type == V_EMPTY || a->type == V_NIL || is_coll(a->type))
+    if (a->type == V_EMPTY || a->type == V_NIL || is_ref(a->type))
         return vfail("not a number");
     if (a->type == V_BOOL) {
-        ksnprintf(out->s, VAR_STR, "%x", a->u.i ? 1u : 0u);
-        out->type = V_STR;
+        char buf[2];
+        int len = ksnprintf(buf, (int)sizeof buf, "%x", a->u.i ? 1u : 0u);
+        if (val_string(out, buf, (uint32_t)len) != 0) return -1;
         return 1;
     }
     if (a->type == V_STR) {
-        rc = parse_i32(a->u.s, 16, &n);
+        rc = parse_i32(str_text(a->u.s), 16, &n);
         if (i32_fail(rc) != 0) return -1;
         out->i = n;
         return 1;
@@ -4284,8 +4688,11 @@ static int KEXT conv_hex(const fn_arg_t *a, val_t *out)
         rc = flt_to_i32(a->u.f, &n);
         if (i32_fail(rc) != 0) return -1;
     } else n = a->u.i;
-    ksnprintf(out->s, VAR_STR, "%x", (unsigned)(uint32_t)n);
-    out->type = V_STR;
+    {
+        char buf[VAR_STR];
+        int len = ksnprintf(buf, (int)sizeof buf, "%x", (unsigned)(uint32_t)n);
+        if (val_string(out, buf, (uint32_t)len) != 0) return -1;
+    }
     return 1;
 }
 
@@ -4323,8 +4730,8 @@ static int KEXT conv_bool(const fn_arg_t *a, val_t *out)
         return 1;
     }
     if (a->type == V_STR) {
-        if (strcmp(a->u.s, "true") == 0) { out->i = 1; return 1; }
-        if (strcmp(a->u.s, "false") == 0) { out->i = 0; return 1; }
+        if (strcmp(str_text(a->u.s), "true") == 0) { out->i = 1; return 1; }
+        if (strcmp(str_text(a->u.s), "false") == 0) { out->i = 0; return 1; }
         return vfail("not a number");
     }
     return vfail("not a number");
@@ -4485,10 +4892,12 @@ static void KEXT dt_clock(int *y, int *mo, int *d, int *h, int *mi, int *s)
 
 static int KEXT dt_format(int y, int mo, int d, int h, int mi, int s, val_t *out)
 {
-    ksnprintf(out->s, VAR_STR, "%04u-%02u-%02u %02u:%02u:%02u",
-              (unsigned)y, (unsigned)mo, (unsigned)d,
-              (unsigned)h, (unsigned)mi, (unsigned)s);
-    out->type = V_STR;
+    char buf[VAR_STR];
+    int len = ksnprintf(buf, (int)sizeof buf,
+                        "%04u-%02u-%02u %02u:%02u:%02u",
+                        (unsigned)y, (unsigned)mo, (unsigned)d,
+                        (unsigned)h, (unsigned)mi, (unsigned)s);
+    if (val_string(out, buf, (uint32_t)len) != 0) return -1;
     return 1;
 }
 
@@ -4725,8 +5134,8 @@ static int KEXT timer_builtin(fn_arg_t *args, int argc, val_t *out)
     }
     if (argc == 3) {
         if (args[2].type != V_STR) return vfail("bad expression");
-        if (named_fn(args[2].u.s) != 0) return -1;
-        b = bind_take(BIND_TIMER, -1, args[2].u.s);
+        if (named_fn(str_text(args[2].u.s)) != 0) return -1;
+        b = bind_take(BIND_TIMER, -1, str_text(args[2].u.s));
         if (!b) return vfail("too many interrupts");
     }
     handle = timer_open(us, flags, b ? shell_irq_kick : NULL, b);
@@ -4787,7 +5196,7 @@ static int KEXT irq_builtin(fn_arg_t *args, int argc, val_t *out)
     int pin, edge, rc;
 
     if (argc < 1 || argc > 3 || args[0].type != V_STR) return vfail("bad expression");
-    pin = parse_pin(args[0].u.s);
+    pin = parse_pin(str_text(args[0].u.s));
     if (pin < 0) return pin_fail("irq", FREYA_ERR_PIN);
     if (argc == 1) {
         uint32_t n = gpio_irq_count(pin);
@@ -4805,8 +5214,8 @@ static int KEXT irq_builtin(fn_arg_t *args, int argc, val_t *out)
     }
     if (argc == 3) {
         if (args[2].type != V_STR) return vfail("bad expression");
-        if (named_fn(args[2].u.s) != 0) return -1;
-        b = bind_take(BIND_PIN, pin, args[2].u.s);
+        if (named_fn(str_text(args[2].u.s)) != 0) return -1;
+        b = bind_take(BIND_PIN, pin, str_text(args[2].u.s));
         if (!b) return vfail("too many interrupts");
     } else {
         bind_drop(BIND_PIN, pin);
@@ -4837,24 +5246,29 @@ static void KEXT cell_from_arg(cell_t *c, const fn_arg_t *a)
     c->type = a->type;
     if (type_hold_i(a->type)) c->u.i = a->u.i;
     else if (a->type == V_FLT) c->u.f = a->u.f;
-    else if (a->type == V_STR) memcpy(c->u.s, a->u.s, VAR_STR);
+    else if (a->type == V_STR) c->u.s = a->u.s;
 }
 
 /* Least or greatest element.  The order is the one dict keys use. */
 static int KEXT array_extreme(fn_arg_t *args, int argc, int want_max, val_t *out)
 {
     coll_t *c;
-    int best, i;
+    cell_t best_value;
+    int i;
 
     if (argc != 1 || args[0].type != V_ARR) return vfail("bad expression");
     c = &s_coll[args[0].u.i];
     if (!c->n) return vfail("empty array");
-    best = 0;
+    array_load(c, 0, &best_value);
     for (i = 1; i < (int)c->n; i++) {
-        int cmp = cell_cmp(&c->a[i], &c->a[best]);
-        if (want_max ? cmp > 0 : cmp < 0) best = i;
+        cell_t value;
+        int cmp;
+
+        array_load(c, (uint32_t)i, &value);
+        cmp = cell_cmp(&value, &best_value);
+        if (want_max ? cmp > 0 : cmp < 0) best_value = value;
     }
-    cell_to_val(&c->a[best], out);
+    cell_to_val(&best_value, out);
     return 1;
 }
 
@@ -4868,14 +5282,21 @@ static int KEXT array_sort(fn_arg_t *args, int argc, val_t *out)
     id = (int)args[0].u.i;
     c = &s_coll[id];
     for (i = 1; i < (int)c->n; i++) {
-        cell_t key = c->a[i];
+        cell_t key;
         int j = i;
 
-        while (j > 0 && cell_cmp(&c->a[j - 1], &key) > 0) {
-            c->a[j] = c->a[j - 1];
+        array_load(c, (uint32_t)i, &key);
+        if (key.type == V_STR) str_retain(key.u.s);
+        while (j > 0) {
+            cell_t prev;
+
+            array_load(c, (uint32_t)(j - 1), &prev);
+            if (cell_cmp(&prev, &key) <= 0) break;
+            array_store(c, (uint32_t)j, &prev);
             j--;
         }
-        c->a[j] = key;
+        array_store(c, (uint32_t)j, &key);
+        if (key.type == V_STR) str_release(key.u.s);
     }
     args[0].type = V_NONE;
     out->type = V_ARR;
@@ -4889,13 +5310,36 @@ static int KEXT coll_builtin(const char *name, int nlen, fn_arg_t *args,
     int id, i;
 
     if (nlen == 3 && strncmp(name, "len", 3) == 0) {
-        if (argc != 1 || !is_coll(args[0].type)) return vfail("bad expression");
+        if (argc != 1 || !is_ref(args[0].type)) return vfail("bad expression");
         out->type = V_INT;
-        out->i = s_coll[args[0].u.i].n;
+        if (s_coll[args[0].u.i].n > 2147483647U)
+            return vfail("integer overflow");
+        out->i = (int32_t)s_coll[args[0].u.i].n;
+        return 1;
+    }
+    if (nlen == 5 && strncmp(name, "bytes", 5) == 0) {
+        id = coll_new(V_BYTES);
+        if (id < 0) return vfail("out of memory");
+        if (argc) {
+            s_coll[id].bytes = kmalloc((uint32_t)argc);
+            if (!s_coll[id].bytes) {
+                coll_free(id);
+                return vfail("out of memory");
+            }
+        }
+        for (i = 0; i < argc; i++) {
+            if (args[i].type != V_BYTE) {
+                coll_free(id);
+                return vfail("type mismatch");
+            }
+            s_coll[id].bytes[i] = (uint8_t)args[i].u.i;
+        }
+        s_coll[id].n = (uint32_t)argc;
+        out->type = V_BYTES;
+        out->i = id;
         return 1;
     }
     if (nlen == 5 && strncmp(name, "array", 5) == 0) {
-        if (argc > ARR_MAX) return vfail("array too long");
         id = coll_new(V_ARR);
         if (id < 0) return vfail("out of memory");
         for (i = 0; i < argc; i++) {
@@ -4938,7 +5382,7 @@ static int KEXT coll_builtin(const char *name, int nlen, fn_arg_t *args,
 
 /* Lua's io library, as functions.  A handle is the integer open()
  * returned.  read() at the end of a file returns empty, which is this
- * language's nil.  A string result is at most 31 characters. */
+ * language's nil.  String results are limited by the heap. */
 static int KEXT file_fd(const fn_arg_t *a, int *fd)
 {
     if (!a || a->type != V_INT || a->u.i < 0) return vfail("bad expression");
@@ -4997,12 +5441,15 @@ static int KEXT file_unget(int fd)
 static int KEXT file_line(int fd, int keep, val_t *out)
 {
     int32_t start = fs_fd_tell(fd);
-    char buf[VAR_STR];
-    int n = 0, ch, saw = 0;
+    str_buf_t buf = { 0 };
+    int ch, saw = 0;
 
     if (start < 0) return fs_fail("read", NULL, start);
     for (;;) {
-        if (file_byte(fd, &ch) != 0) return -1;
+        if (file_byte(fd, &ch) != 0) {
+            kfree(buf.p);
+            return -1;
+        }
         if (ch < 0) break;
         saw = 1;
         if (ch == '\r') {
@@ -5015,50 +5462,50 @@ static int KEXT file_line(int fd, int keep, val_t *out)
             else if (n2 >= 0 && file_back(fd, at) != 0) return -1;
         }
         if (ch == '\n') {
-            if (keep) {
-                if (n >= VAR_STR - 1) {
-                    if (file_back(fd, start) != 0) return -1;
-                    return vfail("string too long");
-                }
-                buf[n++] = '\n';
-            }
+            if (keep && str_buf_add(&buf, "\n", 1) != 0) goto nomem;
             break;
         }
-        if (n >= VAR_STR - 1) {
-            if (file_back(fd, start) != 0) return -1;
-            return vfail("string too long");
+        {
+            char c = (char)ch;
+            if (str_buf_add(&buf, &c, 1) != 0) goto nomem;
         }
-        buf[n++] = (char)ch;
     }
     if (!saw) {
+        kfree(buf.p);
         out->type = V_EMPTY;
         return 1;
     }
-    buf[n] = '\0';
-    out->type = V_STR;
-    memcpy(out->s, buf, (size_t)n + 1U);
+    if (str_buf_value(&buf, out) != 0) return -1;
     return 1;
+
+nomem:
+    kfree(buf.p);
+    if (file_back(fd, start) != 0) return -1;
+    return vfail("out of memory");
 }
 
 static int KEXT file_all(int fd, val_t *out)
 {
     int32_t start = fs_fd_tell(fd);
-    char buf[VAR_STR];
-    int n = 0, ch;
+    str_buf_t buf = { 0 };
+    char piece[64];
+    int n;
 
     if (start < 0) return fs_fail("read", NULL, start);
     for (;;) {
-        if (file_byte(fd, &ch) != 0) return -1;
-        if (ch < 0) break;
-        if (n >= VAR_STR - 1) {
-            if (file_back(fd, start) != 0) return -1;
-            return vfail("string too long");
+        n = fs_fd_read(fd, piece, (int)sizeof piece);
+        if (n < 0) {
+            kfree(buf.p);
+            return fs_fail("read", NULL, n);
         }
-        buf[n++] = (char)ch;
+        if (!n) break;
+        if (str_buf_add(&buf, piece, (uint32_t)n) != 0) {
+            kfree(buf.p);
+            if (file_back(fd, start) != 0) return -1;
+            return vfail("out of memory");
+        }
     }
-    buf[n] = '\0';
-    out->type = V_STR;
-    memcpy(out->s, buf, (size_t)n + 1U);
+    if (str_buf_value(&buf, out) != 0) return -1;
     return 1;
 }
 
@@ -5174,7 +5621,7 @@ static int KEXT file_read_num(int fd, val_t *out)
 
 static int KEXT file_read_n(int fd, int n, val_t *out)
 {
-    char buf[VAR_STR];
+    shell_str_t *s;
     int got;
 
     if (n == 0) {
@@ -5187,18 +5634,25 @@ static int KEXT file_read_n(int fd, int n, val_t *out)
             return 1;
         }
         out->type = V_STR;
-        out->s[0] = '\0';
+        out->s = NULL;
         return 1;
     }
-    got = fs_fd_read(fd, buf, n);
-    if (got < 0) return fs_fail("read", NULL, got);
+    s = str_alloc((uint32_t)n);
+    if (!s) return vfail("out of memory");
+    got = fs_fd_read(fd, s->text, n);
+    if (got < 0) {
+        str_release(s);
+        return fs_fail("read", NULL, got);
+    }
     if (got == 0) {
+        str_release(s);
         out->type = V_EMPTY;
         return 1;
     }
-    buf[got] = '\0';
+    s->len = (uint32_t)got;
+    s->text[got] = '\0';
     out->type = V_STR;
-    memcpy(out->s, buf, (size_t)got + 1U);
+    out->s = s;
     return 1;
 }
 
@@ -5207,14 +5661,16 @@ static int KEXT file_open(fn_arg_t *args, int argc, val_t *out)
     int flags = FREYA_O_RDONLY, fd;
 
     if (!need_fs()) return -1;
-    if (argc < 1 || argc > 2 || args[0].type != V_STR || args[0].u.s[0] == '\0')
+    if (argc < 1 || argc > 2 || args[0].type != V_STR ||
+        !str_len(args[0].u.s))
         return vfail("bad expression");
     if (argc == 2) {
-        if (args[1].type != V_STR || file_mode(args[1].u.s, &flags) != 0)
+        if (args[1].type != V_STR ||
+            file_mode(str_text(args[1].u.s), &flags) != 0)
             return vfail("bad expression");
     }
-    fd = fs_fd_open(args[0].u.s, flags);
-    if (fd < 0) return fs_fail("open", args[0].u.s, fd);
+    fd = fs_fd_open(str_text(args[0].u.s), flags);
+    if (fd < 0) return fs_fail("open", str_text(args[0].u.s), fd);
     out->type = V_INT;
     out->i = fd;
     return 1;
@@ -5231,7 +5687,7 @@ static int KEXT file_read(fn_arg_t *args, int argc, val_t *out)
     }
     if (argc == 1) return file_line(fd, 0, out);
     if (args[1].type == V_STR) {
-        const char *f = args[1].u.s;
+        const char *f = str_text(args[1].u.s);
         if (strcmp(f, "*l") == 0) return file_line(fd, 0, out);
         if (strcmp(f, "*L") == 0) return file_line(fd, 1, out);
         if (strcmp(f, "*a") == 0) return file_all(fd, out);
@@ -5240,7 +5696,7 @@ static int KEXT file_read(fn_arg_t *args, int argc, val_t *out)
     }
     if (type_wide(args[1].type)) {
         int32_t n = args[1].u.i;
-        if (n < 0 || n >= VAR_STR) return vfail("bad expression");
+        if (n < 0) return vfail("bad expression");
         return file_read_n(fd, (int)n, out);
     }
     return vfail("bad expression");
@@ -5264,8 +5720,10 @@ static int KEXT file_write(fn_arg_t *args, int argc, val_t *out)
             p = (const char *)&b;
             len = 1;
         } else if (args[i].type == V_STR) {
-            p = args[i].u.s;
-            len = (int)strlen(p);
+            p = str_text(args[i].u.s);
+            if (str_len(args[i].u.s) > 2147483647U)
+                return vfail("integer overflow");
+            len = (int)str_len(args[i].u.s);
         } else if (args[i].type == V_INT || args[i].type == V_FLT ||
                    args[i].type == V_BOOL) {
             val_t v;
@@ -5319,9 +5777,9 @@ static int KEXT file_seek(fn_arg_t *args, int argc, val_t *out)
         return 1;
     }
     if (args[1].type != V_STR) return vfail("bad expression");
-    if (strcmp(args[1].u.s, "set") == 0) whence = FREYA_SEEK_SET;
-    else if (strcmp(args[1].u.s, "cur") == 0) whence = FREYA_SEEK_CUR;
-    else if (strcmp(args[1].u.s, "end") == 0) whence = FREYA_SEEK_END;
+    if (strcmp(str_text(args[1].u.s), "set") == 0) whence = FREYA_SEEK_SET;
+    else if (strcmp(str_text(args[1].u.s), "cur") == 0) whence = FREYA_SEEK_CUR;
+    else if (strcmp(str_text(args[1].u.s), "end") == 0) whence = FREYA_SEEK_END;
     else return vfail("bad expression");
     if (argc == 3) {
         if (!type_wide(args[2].type)) return vfail("bad expression");
@@ -5368,9 +5826,284 @@ static int KEXT file_builtin(const char *name, int nlen, fn_arg_t *args,
     return 0;
 }
 
+/* Binary files and bounded physical memory. */
+#define MEM_FLASH_BASE 0x08000000UL
+#ifdef FREYA_HOST
+#define MEM_RAM_BASE   0x20000000UL
+#define MEM_RAM_SIZE   2048U
+extern uint8_t freya_test_flash_mem[];
+extern uint8_t freya_test_ram_mem[];
+#endif
+
+static int arg_nonneg(const fn_arg_t *a, uint32_t *out)
+{
+    if (!a || !type_wide(a->type) || a->u.i < 0) return -1;
+    *out = (uint32_t)a->u.i;
+    return 0;
+}
+
+static int range_inside(uint32_t addr, uint32_t len,
+                        uint32_t base, uint32_t size)
+{
+    if (addr < base || addr > base + size) return 0;
+    return len <= base + size - addr;
+}
+
+static const uint8_t *flash_bytes_at(uint32_t addr)
+{
+#ifdef FREYA_HOST
+    return freya_test_flash_mem + (addr - MEM_FLASH_BASE);
+#else
+    return (const uint8_t *)(uintptr_t)addr;
+#endif
+}
+
+static uint8_t *ram_bytes_at(uint32_t addr)
+{
+#ifdef FREYA_HOST
+    return freya_test_ram_mem + (addr - MEM_RAM_BASE);
+#else
+    return (uint8_t *)(uintptr_t)addr;
+#endif
+}
+
+static void ram_bounds(uint32_t *base, uint32_t *size)
+{
+#ifdef FREYA_HOST
+    *base = MEM_RAM_BASE;
+    *size = MEM_RAM_SIZE;
+#else
+    *base = (uint32_t)(uintptr_t)__ram_start;
+    *size = (uint32_t)((uintptr_t)__ram_end - (uintptr_t)__ram_start);
+#endif
+}
+
+static int binary_file_checksum(fn_arg_t *args, int argc, val_t *out)
+{
+    uint8_t buf[64];
+    uint32_t sum = 0;
+    int fd, n, rc = 1;
+
+    if (!need_fs()) return -1;
+    if (argc != 1 || args[0].type != V_STR || !str_len(args[0].u.s))
+        return vfail("bad expression");
+    fd = fs_fd_open(str_text(args[0].u.s), FREYA_O_RDONLY);
+    if (fd < 0) return fs_fail("file_checksum", str_text(args[0].u.s), fd);
+    for (;;) {
+        n = fs_fd_read(fd, buf, (int)sizeof buf);
+        if (n < 0) {
+            fs_fail("file_checksum", str_text(args[0].u.s), n);
+            rc = -1;
+            break;
+        }
+        if (!n) break;
+        sum += fw_sum_bytes(buf, 0, (uint32_t)n, 0, 0);
+    }
+    if (fs_fd_close(fd) != FAT_OK && rc > 0)
+        rc = fs_fail("file_checksum", str_text(args[0].u.s), FAT_ERR_IO);
+    if (rc < 0) return -1;
+    out->type = V_INT;
+    out->i = (int32_t)sum;
+    return 1;
+}
+
+static int binary_file_read(fn_arg_t *args, int argc, val_t *out)
+{
+    uint32_t off, count, got = 0;
+    int fd, n, id;
+
+    if (!need_fs()) return -1;
+    if (argc != 3 || args[0].type != V_STR || !str_len(args[0].u.s) ||
+        arg_nonneg(&args[1], &off) != 0 || arg_nonneg(&args[2], &count) != 0)
+        return vfail("bad expression");
+    if (off > 2147483647U || count > 2147483647U)
+        return vfail("bad expression");
+    id = bytes_new(count, out);
+    if (id < 0) return -1;
+    fd = fs_fd_open(str_text(args[0].u.s), FREYA_O_RDONLY);
+    if (fd < 0) {
+        val_drop(out);
+        return fs_fail("file_read", str_text(args[0].u.s), fd);
+    }
+    if (fs_fd_seek(fd, (int32_t)off, FREYA_SEEK_SET) != FAT_OK) {
+        fs_fd_close(fd);
+        val_drop(out);
+        return fs_fail("file_read", str_text(args[0].u.s), FAT_ERR_INVAL);
+    }
+    while (got < count) {
+        n = fs_fd_read(fd, s_coll[id].bytes + got, (int)(count - got));
+        if (n < 0) {
+            fs_fd_close(fd);
+            val_drop(out);
+            return fs_fail("file_read", str_text(args[0].u.s), n);
+        }
+        if (!n) break;
+        got += (uint32_t)n;
+    }
+    if (fs_fd_close(fd) != FAT_OK) {
+        val_drop(out);
+        return fs_fail("file_read", str_text(args[0].u.s), FAT_ERR_IO);
+    }
+    s_coll[id].n = got;
+    return 1;
+}
+
+static int binary_file_write(fn_arg_t *args, int argc, val_t *out)
+{
+    coll_t *b;
+    uint32_t off, count, done = 0;
+    int fd, n;
+
+    if (!need_fs()) return -1;
+    if (argc != 4 || args[0].type != V_STR || !str_len(args[0].u.s) ||
+        arg_nonneg(&args[1], &off) != 0 || arg_nonneg(&args[2], &count) != 0 ||
+        !(b = bytes_arg(args[3].type, (int)args[3].u.i)) || count > b->n ||
+        off > 2147483647U || count > 2147483647U)
+        return vfail("bad expression");
+    fd = fs_fd_open(str_text(args[0].u.s), FREYA_O_RDWR | FREYA_O_CREATE);
+    if (fd < 0) return fs_fail("file_write", str_text(args[0].u.s), fd);
+    if (fs_fd_seek(fd, (int32_t)off, FREYA_SEEK_SET) != FAT_OK) {
+        fs_fd_close(fd);
+        return fs_fail("file_write", str_text(args[0].u.s), FAT_ERR_INVAL);
+    }
+    while (done < count) {
+        n = fs_fd_write(fd, b->bytes + done, (int)(count - done));
+        if (n <= 0) {
+            fs_fd_close(fd);
+            return fs_fail("file_write", str_text(args[0].u.s), FAT_ERR_IO);
+        }
+        done += (uint32_t)n;
+    }
+    if (fs_fd_close(fd) != FAT_OK)
+        return fs_fail("file_write", str_text(args[0].u.s), FAT_ERR_IO);
+    out->type = V_INT;
+    out->i = (int32_t)done;
+    return 1;
+}
+
+static int binary_flash_read(fn_arg_t *args, int argc, val_t *out)
+{
+    uint32_t addr, count, size = mcu_flash_kib() << 10;
+    int id;
+
+    if (argc != 2 || arg_nonneg(&args[0], &addr) != 0 ||
+        arg_nonneg(&args[1], &count) != 0 ||
+        !range_inside(addr, count, MEM_FLASH_BASE, size))
+        return vfail("out of range");
+    id = bytes_new(count, out);
+    if (id < 0) return -1;
+    if (count) memcpy(s_coll[id].bytes, flash_bytes_at(addr), count);
+    return 1;
+}
+
+static int binary_flash_write(fn_arg_t *args, int argc, val_t *out)
+{
+    coll_t *b;
+    uint32_t block, page, blocks, addr;
+    int rc;
+
+    if (argc != 2 || arg_nonneg(&args[0], &block) != 0 ||
+        !(b = bytes_arg(args[1].type, (int)args[1].u.i)))
+        return vfail("bad expression");
+    page = flash_page_size();
+    blocks = FREYA_APP_FLASH_SIZE / page;
+    if (!page || block >= blocks || b->n > page) return vfail("out of range");
+    if (!b->n) {
+        out->type = V_INT;
+        out->i = 0;
+        return 1;
+    }
+    addr = FREYA_APP_FLASH_ADDR + block * page;
+    rc = flash_begin();
+    if (rc == FLASH_OK) {
+        rc = flash_erase(addr, page);
+        if (rc == FLASH_OK) rc = flash_program(addr, b->bytes, b->n);
+        flash_end();
+    }
+    if (rc != FLASH_OK) {
+        kprintf("flash_write: %s\r\n", flash_err_str(rc));
+        return -1;
+    }
+    if (memcmp(flash_bytes_at(addr), b->bytes, b->n) != 0) {
+        kprintf("flash_write: verify failed\r\n");
+        return -1;
+    }
+    out->type = V_INT;
+    out->i = (int32_t)b->n;
+    return 1;
+}
+
+static int binary_ram_read(fn_arg_t *args, int argc, val_t *out)
+{
+    uint32_t addr, count, base, size;
+    int id;
+
+    ram_bounds(&base, &size);
+    if (argc != 2 || arg_nonneg(&args[0], &addr) != 0 ||
+        arg_nonneg(&args[1], &count) != 0 ||
+        !range_inside(addr, count, base, size))
+        return vfail("out of range");
+    id = bytes_new(count, out);
+    if (id < 0) return -1;
+    if (count) memcpy(s_coll[id].bytes, ram_bytes_at(addr), count);
+    return 1;
+}
+
+static int binary_ram_write(fn_arg_t *args, int argc, val_t *out)
+{
+    coll_t *b;
+    uint32_t addr, count, base, size;
+
+    ram_bounds(&base, &size);
+    if (argc != 3 || arg_nonneg(&args[0], &addr) != 0 ||
+        arg_nonneg(&args[1], &count) != 0 ||
+        !(b = bytes_arg(args[2].type, (int)args[2].u.i)) || count > b->n ||
+        !range_inside(addr, count, base, size))
+        return vfail("out of range");
+    if (count) memcpy(ram_bytes_at(addr), b->bytes, count);
+    out->type = V_INT;
+    out->i = (int32_t)count;
+    return 1;
+}
+
+static int binary_ram_checksum(fn_arg_t *args, int argc, val_t *out)
+{
+    uint32_t addr, count, base, size;
+
+    ram_bounds(&base, &size);
+    if (argc != 2 || arg_nonneg(&args[0], &addr) != 0 ||
+        arg_nonneg(&args[1], &count) != 0 ||
+        !range_inside(addr, count, base, size))
+        return vfail("out of range");
+    out->type = V_INT;
+    out->i = (int32_t)fw_sum_bytes(ram_bytes_at(addr), addr, count, 0, 0);
+    return 1;
+}
+
+static int binary_builtin(const char *name, int nlen, fn_arg_t *args,
+                          int argc, val_t *out)
+{
+    if (nlen == 13 && strncmp(name, "file_checksum", 13) == 0)
+        return binary_file_checksum(args, argc, out);
+    if (nlen == 9 && strncmp(name, "file_read", 9) == 0)
+        return binary_file_read(args, argc, out);
+    if (nlen == 10 && strncmp(name, "file_write", 10) == 0)
+        return binary_file_write(args, argc, out);
+    if (nlen == 10 && strncmp(name, "flash_read", 10) == 0)
+        return binary_flash_read(args, argc, out);
+    if (nlen == 11 && strncmp(name, "flash_write", 11) == 0)
+        return binary_flash_write(args, argc, out);
+    if (nlen == 8 && strncmp(name, "ram_read", 8) == 0)
+        return binary_ram_read(args, argc, out);
+    if (nlen == 9 && strncmp(name, "ram_write", 9) == 0)
+        return binary_ram_write(args, argc, out);
+    if (nlen == 12 && strncmp(name, "ram_checksum", 12) == 0)
+        return binary_ram_checksum(args, argc, out);
+    return 0;
+}
+
 /*
- * Lua patterns.  A subject is a string of at most 31 characters, so the
- * matcher stays small: classes, sets, * + - ?, ^ $, captures and %b.
+ * Lua patterns: classes, sets, * + - ?, ^ $, captures and %b.
  * There is no alternation.  The search does not call back into the
  * shell, so the match state can sit in one place.
  */
@@ -5695,12 +6428,12 @@ static void KEXT pat_ret_int(fn_arg_t *a, int v)
     a->u.i = v;
 }
 
-static void KEXT pat_ret_str(fn_arg_t *a, const char *s, int n)
+static int KEXT pat_ret_str(fn_arg_t *a, const char *s, int n)
 {
     memset(a, 0, sizeof *a);
     a->type = V_STR;
-    memcpy(a->u.s, s, (size_t)n);
-    a->u.s[n] = '\0';
+    a->u.s = str_new(s, (uint32_t)n);
+    return (n && !a->u.s) ? -1 : 0;
 }
 
 static int KEXT pat_none(val_t *out)
@@ -5711,10 +6444,7 @@ static int KEXT pat_none(val_t *out)
 
 static int KEXT pat_one_str(val_t *out, const char *s, int n)
 {
-    if (n >= VAR_STR) return vfail("string too long");
-    out->type = V_STR;
-    memcpy(out->s, s, (size_t)n);
-    out->s[n] = '\0';
+    if (val_string(out, s, (uint32_t)n) != 0) return -1;
     return 1;
 }
 
@@ -5738,9 +6468,10 @@ static int KEXT pat_results(pat_t *ms, const char *m0, const char *m1,
         if (n >= FN_ARGS) return vfail("too many values");
         if (len == CAP_POS)
             pat_ret_int(&s_fn_retv[n], (int)(ms->cap[i].init - ms->src_init) + 1);
-        else {
-            if (len >= VAR_STR) return vfail("string too long");
-            pat_ret_str(&s_fn_retv[n], ms->cap[i].init, len);
+        else if (pat_ret_str(&s_fn_retv[n], ms->cap[i].init, len) != 0) {
+            s_fn_nret = n;
+            rets_drop();
+            return vfail("out of memory");
         }
         n++;
     }
@@ -5748,7 +6479,11 @@ static int KEXT pat_results(pat_t *ms, const char *m0, const char *m1,
         if (s_fn_retv[0].type == V_INT) {
             out->type = V_INT;
             out->i = s_fn_retv[0].u.i;
-        } else return pat_one_str(out, s_fn_retv[0].u.s, (int)strlen(s_fn_retv[0].u.s));
+        } else {
+            out->type = V_STR;
+            out->s = s_fn_retv[0].u.s;
+            s_fn_retv[0].type = V_NONE;
+        }
         return 1;
     }
     s_fn_nret = n;
@@ -5769,30 +6504,27 @@ static int KEXT pat_where(const fn_arg_t *a, int len, int *ip)
     return 0;
 }
 
-static int KEXT pat_app(char *buf, int *o, const char *s, int n)
+static int KEXT pat_app(str_buf_t *buf, const char *s, int n)
 {
-    if (n < 0 || *o + n >= VAR_STR) return -1;
-    if (n) memcpy(buf + *o, s, (size_t)n);
-    *o += n;
-    buf[*o] = '\0';
-    return 0;
+    if (n < 0) return -1;
+    return str_buf_add(buf, s, (uint32_t)n);
 }
 
-static int KEXT pat_subst(pat_t *ms, char *buf, int *o, const char *repl,
+static int KEXT pat_subst(pat_t *ms, str_buf_t *buf, const char *repl,
                           const char *m0, const char *m1)
 {
     while (*repl) {
         if (*repl != '%') {
-            if (pat_app(buf, o, repl, 1) != 0) return -1;
+            if (pat_app(buf, repl, 1) != 0) return -1;
             repl++;
             continue;
         }
         repl++;
         if (*repl == '%') {
-            if (pat_app(buf, o, repl, 1) != 0) return -1;
+            if (pat_app(buf, repl, 1) != 0) return -1;
             repl++;
         } else if (*repl == '0') {
-            if (pat_app(buf, o, m0, (int)(m1 - m0)) != 0) return -1;
+            if (pat_app(buf, m0, (int)(m1 - m0)) != 0) return -1;
             repl++;
         } else if (*repl >= '1' && *repl <= '9') {
             int idx = *repl - '1';
@@ -5808,10 +6540,10 @@ static int KEXT pat_subst(pat_t *ms, char *buf, int *o, const char *repl,
                 int k, pos = (int)(ms->cap[idx].init - ms->src_init) + 1;
 
                 k = ksnprintf(num, (int)sizeof num, "%d", pos);
-                if (k < 0 || pat_app(buf, o, num, k) != 0) return -1;
+                if (k < 0 || pat_app(buf, num, k) != 0) return -1;
             } else {
                 len = ms->cap[idx].len;
-                if (pat_app(buf, o, ms->cap[idx].init, len) != 0) return -1;
+                if (pat_app(buf, ms->cap[idx].init, len) != 0) return -1;
             }
         } else {
             ms->err = "bad pattern";
@@ -5824,16 +6556,15 @@ static int KEXT pat_subst(pat_t *ms, char *buf, int *o, const char *repl,
 static int KEXT pat_gsub(pat_t *ms, const char *src, const char *p,
                          const char *repl, int maxn, val_t *out)
 {
-    char buf[VAR_STR];
+    str_buf_t buf = { 0 };
     const char *sp = src;
-    int anchor = 0, n = 0, o = 0;
+    int anchor = 0, n = 0;
 
     memset(ms, 0, sizeof *ms);
     ms->src_init = src;
     ms->src_end = src + strlen(src);
     if (*p == '^') { anchor = 1; p++; }
     ms->p_end = p + strlen(p);
-    buf[0] = '\0';
     while (n < maxn) {
         const char *e;
 
@@ -5841,27 +6572,43 @@ static int KEXT pat_gsub(pat_t *ms, const char *src, const char *p,
         ms->depth = PAT_DEPTH;
         ms->steps = 0;
         e = pat_match(ms, sp, p);
-        if (ms->err) return vfail(ms->err);
+        if (ms->err) {
+            kfree(buf.p);
+            return vfail(ms->err);
+        }
         if (e) {
             int i;
             for (i = 0; i < ms->level; i++)
-                if (ms->cap[i].len == CAP_OPEN) return vfail("bad pattern");
+                if (ms->cap[i].len == CAP_OPEN) {
+                    kfree(buf.p);
+                    return vfail("bad pattern");
+                }
             n++;
-            if (pat_subst(ms, buf, &o, repl, sp, e) != 0) {
-                if (ms->err) return vfail(ms->err);
-                return vfail("string too long");
+            if (pat_subst(ms, &buf, repl, sp, e) != 0) {
+                const char *err = ms->err;
+                kfree(buf.p);
+                return vfail(err ? err : "out of memory");
             }
         }
         if (e && e > sp) sp = e;
         else if (sp < ms->src_end) {
-            if (pat_app(buf, &o, sp, 1) != 0) return vfail("string too long");
+            if (pat_app(&buf, sp, 1) != 0) {
+                kfree(buf.p);
+                return vfail("out of memory");
+            }
             sp++;
         } else break;
         if (anchor) break;
     }
-    if (pat_app(buf, &o, sp, (int)(ms->src_end - sp)) != 0)
-        return vfail("string too long");
-    pat_ret_str(&s_fn_retv[0], buf, o);
+    if (pat_app(&buf, sp, (int)(ms->src_end - sp)) != 0) {
+        kfree(buf.p);
+        return vfail("out of memory");
+    }
+    if (pat_ret_str(&s_fn_retv[0], buf.p, (int)buf.n) != 0) {
+        kfree(buf.p);
+        return vfail("out of memory");
+    }
+    kfree(buf.p);
     pat_ret_int(&s_fn_retv[1], n);
     s_fn_nret = 2;
     return 2;
@@ -5890,13 +6637,14 @@ static int KEXT pat_builtin(const char *name, int nlen, fn_arg_t *args,
                 return vfail("bad expression");
             maxn = args[3].u.i;
         }
-        return pat_gsub(&ms, args[0].u.s, args[1].u.s, args[2].u.s, maxn, out);
+        return pat_gsub(&ms, str_text(args[0].u.s), str_text(args[1].u.s),
+                        str_text(args[2].u.s), maxn, out);
     }
     if (argc < 2 || argc > (kind == 2 ? 4 : 3) ||
         args[0].type != V_STR || args[1].type != V_STR)
         return vfail("bad expression");
-    src = args[0].u.s;
-    pat = args[1].u.s;
+    src = str_text(args[0].u.s);
+    pat = str_text(args[1].u.s);
     if (argc >= 3 && pat_where(&args[2], (int)strlen(src), &init) != 0)
         return vfail("bad expression");
     if (kind == 2 && argc == 4) {
@@ -5945,7 +6693,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
     out->type = V_INT;
     out->i = 0;
     out->f = 0.f;
-    out->s[0] = '\0';
+    out->s = NULL;
 
     if ((rc = coll_builtin(name, nlen, args, argc, out)) != 0) return rc;
     if ((rc = dt_builtin(name, nlen, args, argc, out)) != 0) return rc;
@@ -6013,7 +6761,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
 
     if (nlen == 3 && strncmp(name, "get", 3) == 0) {
         if (argc != 1 || args[0].type != V_STR) return vfail("bad expression");
-        pin = parse_pin(args[0].u.s);
+        pin = parse_pin(str_text(args[0].u.s));
         if (pin < 0) return pin_fail("get", FREYA_ERR_PIN);
         rc = gpio_pin_read(pin);
         if (rc < 0) return pin_fail("get", rc);
@@ -6024,7 +6772,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         if (argc != 2 || args[0].type != V_STR || args[1].type != V_INT ||
             (args[1].u.i != 0 && args[1].u.i != 1))
             return vfail("bad expression");
-        pin = parse_pin(args[0].u.s);
+        pin = parse_pin(str_text(args[0].u.s));
         if (pin < 0) return pin_fail("set", FREYA_ERR_PIN);
         rc = gpio_pin_mode(pin, FREYA_PIN_OUT);
         if (rc != 0) return pin_fail("set", rc);
@@ -6039,7 +6787,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         int source;
 
         if (argc != 1 || args[0].type != V_STR) return vfail("bad expression");
-        ps = args[0].u.s;
+        ps = str_text(args[0].u.s);
         if (strcmp(ps, "temp") == 0) source = FREYA_ADC_TEMP;
         else if (strcmp(ps, "vref") == 0) source = FREYA_ADC_VREF;
         else source = parse_pin(ps);
@@ -6055,7 +6803,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
 
         if ((argc != 1 && argc != 3) || args[0].type != V_STR)
             return vfail("bad expression");
-        pin = parse_pin(args[0].u.s);
+        pin = parse_pin(str_text(args[0].u.s));
         ch = (pin < 0) ? FREYA_ERR_PIN : pwm_lookup(pin);
         if (ch < 0) return pin_fail("pwm", ch);
         if (argc == 1) {
@@ -6124,6 +6872,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
     if (nlen == 5 && strncmp(name, "yield", 5) == 0)
         return sh_yield_fn(args, argc, out);
     if ((rc = file_builtin(name, nlen, args, argc, out)) != 0) return rc;
+    if ((rc = binary_builtin(name, nlen, args, argc, out)) != 0) return rc;
     if ((rc = pat_builtin(name, nlen, args, argc, out)) != 0) return rc;
     return 0;
 }
@@ -6149,11 +6898,14 @@ static int KEXT cmd_as_fn(const char *name, fn_arg_t *args, int argc, val_t *out
         val_t v;
         int n;
 
+        if (args[i].type == V_STR) {
+            argv[i + 1] = (char *)str_text(args[i].u.s);
+            continue;
+        }
         memset(&v, 0, sizeof v);
         v.type = args[i].type;
-        if (type_hold_i(v.type) || is_coll(v.type)) v.i = args[i].u.i;
+        if (type_hold_i(v.type) || is_ref(v.type)) v.i = args[i].u.i;
         else if (v.type == V_FLT) v.f = args[i].u.f;
-        else if (v.type == V_STR) memcpy(v.s, args[i].u.s, VAR_STR);
         val_text(&v, text, (int)sizeof text);
         n = (int)strlen(text) + 1;
         if (used + n > LINE_MAX) return vfail("string too long");
@@ -6282,7 +7034,11 @@ static int KEXT parse_call(const char *name, int nlen, const char **pp, val_t *o
                 args_drop(args, argc);
                 val_arg(&s_fn_retv[0], out);
                 s_fn_nret = 1;
-                if (is_coll(out->type)) {
+                if (out->type == V_STR) {
+                    str_retain(out->s);
+                } else if (out->type == V_BYTES) {
+                    s_coll[out->i].refs++;
+                } else if (is_ref(out->type)) {
                     int id = coll_clone(out->i);
                     if (id < 0) {
                         rets_drop();
@@ -6320,7 +7076,7 @@ static int KEXT var_elem_copy(const char *name, int nlen, const char **pp,
     const char *p = *pp;
 
     if (!slot) return -2;
-    if (!is_coll(slot->type) || *p != '[') return vfail("bad expression");
+    if (!is_ref(slot->type) || *p != '[') return vfail("bad expression");
     p++;
     memset(&idx, 0, sizeof idx);
     if (parse_expr(&p, &idx) != 0) {
@@ -6349,7 +7105,7 @@ static int KEXT apply_index(const char **pp, val_t *box)
     val_t idx, elem;
 
     if (**pp != '[') return 0;
-    if (!is_coll(box->type)) return vfail("bad expression");
+    if (!is_ref(box->type)) return vfail("bad expression");
     (*pp)++;
     memset(&idx, 0, sizeof idx);
     if (parse_expr(pp, &idx) != 0) {
@@ -6395,14 +7151,12 @@ static int KEXT parse_primary(const char **pp, val_t *out)
 
     if (*s == '"') {
         int n = 0;
+        const char *text;
         s++;
-        while (*s && *s != '"') {
-            if (n >= VAR_STR - 1) return vfail("string too long");
-            out->s[n++] = *s++;
-        }
+        text = s;
+        while (*s && *s != '"') { n++; s++; }
         if (*s != '"') return vfail("bad expression");
-        out->s[n] = '\0';
-        out->type = V_STR;
+        if (val_string(out, text, (uint32_t)n) != 0) return -1;
         *pp = s + 1;
         for (;;) {
             val_t arg;
@@ -6631,7 +7385,7 @@ static int KEXT parse_mul(const char **pp, val_t *out)
             out->type == V_EMPTY || rhs.type == V_EMPTY ||
             out->type == V_NIL || rhs.type == V_NIL ||
             out->type == V_BOOL || rhs.type == V_BOOL ||
-            is_coll(out->type) || is_coll(rhs.type)) {
+            is_ref(out->type) || is_ref(rhs.type)) {
             val_drop(&rhs);
             return vfail("bad expression");
         }
@@ -6665,7 +7419,7 @@ static int KEXT parse_add(const char **pp, val_t *out)
                 out->type == V_EMPTY || rhs.type == V_EMPTY ||
                 out->type == V_NIL || rhs.type == V_NIL ||
                 out->type == V_BOOL || rhs.type == V_BOOL ||
-                is_coll(out->type) || is_coll(rhs.type)) {
+                is_ref(out->type) || is_ref(rhs.type)) {
                 val_drop(&rhs);
                 return vfail("bad expression");
             }
@@ -6749,7 +7503,7 @@ static int KEXT parse_or(const char **pp, val_t *out)
 
 static int KEXT values_equal(const val_t *a, const val_t *b)
 {
-    if (is_coll(a->type) || is_coll(b->type)) {
+    if (is_ref(a->type) || is_ref(b->type)) {
         if (a->type != b->type) return 0;
         return same_cells(a->i, b->i);
     }
@@ -6761,7 +7515,7 @@ static int KEXT values_equal(const val_t *a, const val_t *b)
         return a->type == V_BOOL && b->type == V_BOOL && a->i == b->i;
     if (a->type == V_STR || b->type == V_STR) {
         if (a->type != b->type) return 0;
-        return strcmp(a->s, b->s) == 0;
+        return strcmp(str_text(a->s), str_text(b->s)) == 0;
     }
     if (type_wide(a->type) && type_wide(b->type)) return a->i == b->i;
     {
@@ -6778,7 +7532,7 @@ static int KEXT values_order(const val_t *a, const val_t *b, int *cmp)
         a->type == V_EMPTY || b->type == V_EMPTY ||
         a->type == V_NIL || b->type == V_NIL ||
         a->type == V_BOOL || b->type == V_BOOL ||
-        is_coll(a->type) || is_coll(b->type))
+        is_ref(a->type) || is_ref(b->type))
         return -1;
     if (type_wide(a->type) && type_wide(b->type)) {
         *cmp = (a->i > b->i) - (a->i < b->i);
@@ -6841,11 +7595,12 @@ static int KEXT parse_expr(const char **pp, val_t *out)
 
 static void KEXT var_store(shell_var_t *slot, const fn_arg_t *a)
 {
-    if (is_coll(slot->type)) coll_free(slot->u.i);
+    if (is_ref(slot->type)) coll_free(slot->u.i);
+    else if (slot->type == V_STR) str_release(slot->u.s);
     slot->type = a->type;
-    if (is_coll(a->type) || type_hold_i(a->type)) slot->u.i = a->u.i;
+    if (is_ref(a->type) || type_hold_i(a->type)) slot->u.i = a->u.i;
     else if (a->type == V_FLT) slot->u.f = a->u.f;
-    else if (a->type == V_STR) memcpy(slot->u.s, a->u.s, VAR_STR);
+    else if (a->type == V_STR) slot->u.s = a->u.s;
 }
 
 /* 1..32 expressions.  The last one, when it is only a call, contributes
@@ -6961,8 +7716,32 @@ static int KEXT set_at(const char *name, int nlen, const char **pp)
         val_drop(&val);
         return vfail("bad expression");
     }
-    cell_from_val(&elem, &val);
     slot = var_find(name, nlen, 0);
+    if (slot && slot->type == V_BYTES) {
+        coll_t *c = &s_coll[slot->u.i];
+
+        if (!type_wide(idx.type)) {
+            val_drop(&idx);
+            val_drop(&val);
+            return vfail("not an integer");
+        }
+        if (idx.i < 0 || (uint32_t)idx.i >= c->n) {
+            val_drop(&idx);
+            val_drop(&val);
+            return vfail("out of range");
+        }
+        if (val.type != V_BYTE) {
+            val_drop(&idx);
+            val_drop(&val);
+            return vfail("type mismatch");
+        }
+        c->bytes[idx.i] = (uint8_t)val.i;
+        val_drop(&idx);
+        val_drop(&val);
+        rets_drop();
+        return 0;
+    }
+    cell_from_val(&elem, &val);
     if (slot && !is_coll(slot->type)) {
         val_drop(&idx);
         val_drop(&val);
@@ -7116,7 +7895,7 @@ static int KEXT set_exec(const char *line)
         if (nnames == 1) val_arg(&one, &v);
         else one = s_fn_retv[i];
         var_store(slot, &one);
-        if (is_coll(one.type)) {
+        if (is_ref(one.type) || one.type == V_STR) {
             if (nnames == 1) v.type = V_NONE;
             else s_fn_retv[i].type = V_NONE;
         }
@@ -7145,7 +7924,8 @@ static int KEXT cmd_unset(int argc, char **argv)
         kprintf("unset: no such variable: %s\r\n", n);
         return -1;
     }
-    if (is_coll(slot->type)) coll_free(slot->u.i);
+    if (is_ref(slot->type)) coll_free(slot->u.i);
+    else if (slot->type == V_STR) str_release(slot->u.s);
     slot->type = V_NONE;
     slot->name[0] = '\0';
     return 0;
@@ -7276,10 +8056,10 @@ static void KEXT val_show(const val_t *v)
         return;
     }
     if (v->type == V_STR) {
-        kprintf("\"%s\"\r\n", v->s);
+        kprintf("\"%s\"\r\n", str_text(v->s));
         return;
     }
-    if (is_coll(v->type)) {
+    if (is_ref(v->type)) {
         if (coll_text(v->i, buf, (int)sizeof buf) != 0)
             kprintf("...\r\n");
         else
@@ -7817,7 +8597,7 @@ static int KEXT sh_spawn(fn_arg_t *args, int argc, val_t *out)
     if (s_script_stop) return vfail("bad expression");
     if (argc != 2 || args[0].type != V_STR || args[1].type != V_INT)
         return vfail("bad expression");
-    name = args[0].u.s;
+    name = str_text(args[0].u.s);
     pri = (int)args[1].u.i;
     if (pri < FREYA_PRIO_MIN || pri > FREYA_PRIO_MAX)
         return vfail("bad expression");

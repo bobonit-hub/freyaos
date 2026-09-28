@@ -6,8 +6,8 @@ read or drive a pin. The same rules apply to a line typed at `freya:`
 and to a script run with `source`. The commands themselves are listed in
 [console-commands.md](console-commands.md).
 
-A value is an integer, a float, a byte, a bool, empty, none, a string
-of at most 31 characters, an auto array, or a dict.
+A value is an integer, a float, a byte, a bool, empty, none, an immutable
+heap-backed string, an auto array, or a dict.
 An expression produces one value. Typed on its own, it is printed:
 `3 + 2` prints `5`, `"Sun"` prints `"Sun"`, and `(2 + 2) % 10` prints
 `4`. Console commands use function syntax: `help()`, `sysinfo()`,
@@ -131,8 +131,14 @@ An integer is a decimal literal, from -2147483648 to 2147483647, or a
 (`0b`, `255b`) and is only 0 to 255. `b` is a hex digit, so a hex byte
 is `byte(0xFF)`, not a `b` after the digits. A float has a decimal point
 (`7.5`, `.5`, `1.`). There is no exponent. A string is written in double quotes. There are no
-backslash escapes; a quote ends the string. A string in an expression is
-at most 31 characters. `true` and `false` are the bool values.
+backslash escapes; a quote ends the string. Strings are immutable and
+share their heap storage when copied. Concatenation, formatting, file
+reads and pattern captures create new strings, limited by available heap.
+Function calls pass the complete string without copying it into the
+command-line buffer. Textual `$name` expansion is still bounded by the
+159-character command limit; use call syntax such as `echo($name)` when
+passing a longer string to a console function.
+`true` and `false` are the bool values.
 `empty` is the only value of the empty type. `none` is the only
 value of the none type. `empty` and `none` are not the same value.
 
@@ -291,12 +297,13 @@ These names are built in. `fn` refuses each of them with `bad name`.
 | Blocks | `if`, `else`, `end`, `loop`, `break`, `fn`, `return` |
 | Pins | `get`, `set`, `adc`, `pwm` |
 | Values | `int`, `float`, `byte`, `bool`, `str`, `hex`, `true`, `false`, `empty`, `none` |
-| Arrays and dicts | `array`, `dict`, `len`, `min`, `max`, `sort` |
+| Arrays, byte arrays and dicts | `array`, `bytes`, `dict`, `len`, `min`, `max`, `sort` |
 | Numbers | `rand`, `srand`, `sin`, `cos`, `pi` |
 | Clock | `now`, `date`, `time`, `year`, `month`, `day`, `hour`, `minute`, `second` |
 | Timers | `ticks`, `timer`, `tstart`, `tstop`, `tcount`, `tclose`, `tperiod`, `irq`, `wait` |
 | Threads | `spawn`, `yield`, `join` |
-| Files | `open`, `read`, `write`, `close`, `seek`, `flush` |
+| Files | `open`, `read`, `write`, `close`, `seek`, `flush`, `file_checksum`, `file_read`, `file_write` |
+| Memory | `flash_read`, `flash_write`, `ram_read`, `ram_write`, `ram_checksum` |
 | Patterns | `match`, `find`, `gsub` |
 
 ## Arrays and dicts
@@ -312,8 +319,10 @@ same type.
 byte. `set a[i] <expr>` writes it. An index past the end grows the
 array and fills the gap with the zero of the element type: `0`, `0b`,
 `0.0`, `false`, `""`, `empty`, or `none`. The first write on a new name, `set a[0] 4`,
-creates the array. There are at most 8 elements. An index past that is
-`out of range`, and `array` with more than 8 values is `array too long`.
+creates the array. Array elements are packed in a byte block on the
+system heap: integers and floats use 4 bytes, bytes and bools use 1 byte,
+and strings use one immutable string reference. An array grows until the heap cannot provide
+its next block, which is `out of memory`.
 
 A dict maps keys to values. `dict()` is empty. `dict("b", 2, "a", 1)`
 holds those pairs. Every key is one type and every value is one type,
@@ -322,8 +331,9 @@ lookup is a binary search. `$d["a"]` reads a value. A missing key is
 `no such key`. `set d["c"] 3` inserts or replaces, still in order. A
 string, float, bool, `empty`, or `none` index on a new name creates a dict;
 `set d["x"] 7` is that. An integer index on a new name creates an
-array instead, so an integer-keyed dict starts with `dict()`. There
-are at most 8 pairs. One past that is `dict too long`.
+array instead, so an integer-keyed dict starts with `dict()`. Key and
+value blocks grow together until the system heap cannot provide the next
+pair, which is `out of memory`.
 
 `len` is the number of elements, or of pairs. `min` is the least
 element of an array and `max` is the greatest. Numbers compare by
@@ -334,10 +344,20 @@ array or the dict. The copy does not follow later writes to the
 original. `==` and `/=` compare the elements, or the pairs in order.
 `<` and `>` do not order an array or a dict.
 
-Four arrays and dicts may exist at once, counting a copy and a value
-that a call is still holding. The cells live on the heap. `unset`, or
+Four collection values may exist at once. Arrays, byte arrays, dicts,
+temporary copies and values that calls still hold all count. The data
+lives on the heap. `unset`, or
 `set` of a different value over the same name, frees them. A fifth is
 `out of memory`.
+
+A byte array is contiguous binary data. `bytes()` is empty and
+`bytes(0b, 1b, 255b)` constructs one from byte values. `len`, indexing,
+indexed assignment, copying, `==` and `/=` work as they do for arrays,
+but a byte array cannot grow through indexed assignment. Its short
+display is `bytes[n]`; inspect individual values with an index. Byte
+arrays share the four collection slots with arrays and dicts. Their
+data is allocated from the system heap, so the largest free heap block
+limits a binary read.
 
 ```
 freya: set a array(30, 10, 20)
@@ -472,7 +492,7 @@ and does not read the pattern.
 the whole match, `%1` through `%9` are the captures, and `%%` is one
 `%`. The result is the new string, and the second value is how many
 replacements were made. `gsub(text, pattern, repl, n)` stops after `n`.
-A result longer than 31 characters is `string too long`.
+The result is limited by available heap.
 
 ```
 freya: set s match("abc-12", "%a+")
@@ -730,11 +750,11 @@ absolute or from the working directory.
 `read(file)` reads the next line and drops the newline. A `\r` just
 before that newline is dropped too. `read(file, "*l")` is the same.
 `read(file, "*L")` keeps the newline. `read(file, "*a")` reads what
-remains. `read(file, n)` reads up to `n` characters, `n` from 0 to 31.
+remains. `read(file, n)` reads up to `n` characters.
 `read(file, "*n")` skips spaces and reads a number, an integer when it
 has no decimal point and a float when it does. The end of the file is
-`empty`. An empty line is `""`. A result longer than 31 characters is
-`string too long`, and the position is left where the read started.
+`empty`. An empty line is `""`. String results are limited by available
+heap; an allocation failure leaves the position where the read started.
 
 `write(file, value, ...)` writes each value and returns how many bytes
 were written. A string is those characters. An integer or a float is
@@ -759,6 +779,48 @@ freya: set s read($f)
 freya: echo $s
 empty
 freya: set n close($f)
+```
+
+## Binary files, flash and RAM
+
+These calls transfer byte arrays without converting through strings:
+
+- `file_checksum(path)` returns the sum of every file byte in a wrapping
+  32-bit accumulator, the same algorithm as the firmware control sum.
+  Shell integers are signed; use `hex(file_checksum(path))` to display
+  the 32-bit bit pattern.
+- `file_read(path, offset, count)` opens a file, seeks to the byte
+  offset, and returns up to `count` bytes. A read at EOF returns
+  `bytes[0]`.
+- `file_write(path, offset, count, data)` creates or opens a file without
+  truncating it, writes the first `count` bytes of `data`, and returns
+  `count`. `count` must not exceed `len(data)`.
+- `flash_read(address, count)` returns bytes from the physical internal
+  flash range reported by the MCU.
+- `flash_write(block, data)` writes at the start of one application-flash
+  erase block and returns `len(data)`. Block 0 starts at
+  `FREYA_APP_FLASH_ADDR`; the block size is board-dependent
+  (`flash_page_size()`). The data must fit in one block. The whole block
+  is erased first, so bytes after the data read as `0xff`. An empty data
+  array is a no-op. A loaded or running program makes the call fail.
+- `ram_read(address, count)` returns bytes from physical SRAM.
+  `ram_write(address, count, data)` writes the first `count` bytes and
+  returns `count`. `ram_checksum(address, count)` returns the same
+  wrapping 32-bit byte sum used by `file_checksum`.
+
+Offsets, addresses and counts are non-negative byte quantities. Every
+range is checked for overflow. Flash writes are restricted to the
+application flash region, but flash reads cover physical internal
+flash. RAM calls are restricted to the linker-defined physical SRAM
+range. That range includes the running kernel, heap and stacks:
+`ram_write` can corrupt Freya or immediately fault even when its range
+is valid.
+
+```
+freya: set b file_read("/image.bin", 128, 16)
+freya: set n len($b)
+freya: set n file_write("/copy.bin", 0, len($b), $b)
+freya: set s hex(file_checksum("/copy.bin"))
 ```
 
 ## Scripts on the card and in flash
@@ -804,10 +866,11 @@ the password. `password()` says whether it is set.
 | Open block being typed | 159 characters |
 | Nested `if` / `loop` / `fn` | 8 |
 | Variables | 8, names of at most 7 characters |
-| String value | 31 characters |
-| Array | 8 elements, one type, grows to the index |
-| Dict | 8 pairs, one key type, one value type, keys sorted |
-| Arrays and dicts alive at once | 4, freed by `unset` or by replacing the name |
+| String value | Available system heap |
+| Array | One type; packed storage limited by the system heap |
+| Dict | One key type and one value type; sorted, limited by system heap |
+| Byte array | Largest available system-heap block |
+| Collections | 4 total arrays, byte arrays and dicts |
 | Functions | 4, each body at most 127 characters |
 | Arguments | 32 |
 | Values from `return` | 1 .. 32 |
@@ -819,9 +882,9 @@ the password. `password()` says whether it is set.
 | `irq` edges | 1 rising, 2 falling, 3 both, plus 4 to debounce |
 | Interrupt functions | 8 armed at once |
 | Open files | 4, shared with programs; `mount` closes them |
-| `read` result | 31 characters |
+| `read` result | Available system heap |
 | Pattern captures | 9 |
-| `gsub` result | 31 characters |
+| `gsub` result | Available system heap |
 | Script file | 1024 bytes |
 | Nested `source` | 3, including the outermost |
 | `rand()` | 0 .. 32767 |

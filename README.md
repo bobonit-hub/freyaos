@@ -6,7 +6,7 @@ metal on the STM32F411CEU6 "Black Pill", the STM32F103C8T6 "Blue Pill",
 and the STM32F405xx.
 No HAL and no CMSIS: Freya brings the chip up itself. LittleFS, on the SPI flash, is the one vendored library. Freya
 talks to the hardware through its own register definitions, and lives
-entirely in internal flash. This is release 3.0, "Poltergeist". The notes
+entirely in internal flash. This is release 3.1, "Poltergeist". The notes
 are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 Freya gives you a serial console, a real FAT filesystem on an SD card, and the
@@ -25,7 +25,7 @@ cycle and needs no card at all.
  |_|  |_|  \___|\__, |\__,_|
                  __/ |
                 |___/
-Freya 3.0 "Poltergeist" for STM32F411CEU6
+Freya 3.1 "Poltergeist" for STM32F411CEU6
 96 MHz, power-on reset. Type 'help()'.
 
 [boot] clocks     : HSE 25 MHz crystal + PLL, sysclk 96 MHz, flash 3 WS
@@ -58,7 +58,7 @@ The Blue Pill boots the same way, on three quarters of the clock and a fifth of
 the RAM:
 
 ```
-Freya 3.0 "Poltergeist" for STM32F103C8T6
+Freya 3.1 "Poltergeist" for STM32F103C8T6
 72 MHz, power-on reset. Type 'help'.
 
 [boot] clocks     : HSE 8 MHz crystal + PLL, sysclk 72 MHz, flash 2 WS
@@ -223,7 +223,7 @@ make                   # Black Pill kernel image + example programs
 make BOARD=bluepill    # the same for the Blue Pill
 make BOARD=stm32f405   # the same for the STM32F405xx
 make RTC=ds3231        # also build the DS3231 driver (PB6 SCL, PB7 SDA)
-make FIRMWARE_VERSION=3.0.1
+make FIRMWARE_VERSION=3.1.1
                        # override the hardcoded firmware version
 make size              # section sizes
 make test              # run the filesystem and XMODEM code on the host
@@ -700,9 +700,8 @@ built against this ABI can check before calling:
 ### Running from flash
 
 On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
-most of the 128 KiB of flash sits idle. So the board reserves 29568 bytes
-at the top of flash — the rest of page 48 after a 128-byte auto-start slot,
-then pages 49 to 76 — for one program image. The last 51 KiB holds the
+most of the 128 KiB of flash sits idle. So the board reserves 25600 bytes
+from page 48 through page 72 for one program image. The last 54 KiB holds the
 kernel extension (the thread scheduler, the shell's script interpreter,
 its variables and functions, XMODEM, the SPI master, the cipher and the
 virtual machine), which is flashed as its own image. The size register on

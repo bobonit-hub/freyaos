@@ -1,4 +1,4 @@
-# Freya 3.0 "Poltergeist"
+# Freya 3.1 "Poltergeist"
 
 26 September 2026
 
@@ -6,7 +6,7 @@ Poltergeist follows Reptiloid. The console banner and `sysinfo` print the
 version and this name:
 
 ```
-Freya 3.0 "Poltergeist" for STM32F411CEU6
+Freya 3.1 "Poltergeist" for STM32F411CEU6
 ```
 
 The program ABI is still version 3.
