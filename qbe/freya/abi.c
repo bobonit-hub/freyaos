@@ -175,18 +175,23 @@ selcall(Fn *fn, Ins *i0, Ins *i1, Insl **ilp)
 			err("freya: only integer arguments are supported");
 		stk += 4;
 	}
-	cty = 0;
 	if (stk)
 		emit(Osalloc, Kl, R, getcon(-(int64_t)stk, fn), R);
 
+	/* The spiller and the register allocator expect every call to
+	 * be followed by a copy from a register: that copy is where the
+	 * temporaries live across the call are spilled.  A call with no
+	 * result, or one that writes its result through a pointer, gets
+	 * a copy to nowhere. */
+	cty = 1;
 	if (retptr) {
 		t = &typ[i1->arg[1].val];
 		stkblob(i1->to, t, fn, ilp);
-	} else if (!req(i1->to, R)) {
-		if (i1->cls != Kw && i1->cls != Kl)
+		emit(Ocopy, Kw, R, TMP(R0), R);
+	} else {
+		if (!req(i1->to, R) && i1->cls != Kw && i1->cls != Kl)
 			err("freya: only integer results are supported");
 		emit(Ocopy, Kw, i1->to, TMP(R0), R);
-		cty = 1;
 	}
 
 	emit(Ocall, 0, R, i1->arg[0], CALL(cty));
@@ -212,10 +217,10 @@ selcall(Fn *fn, Ins *i0, Ins *i1, Insl **ilp)
 		}
 		off += 4;
 	}
+	/* With no arguments nothing was stored through sp, and copying
+	 * SP into a temporary would upset the register allocator. */
 	if (stk)
 		emit(Osalloc, Kl, sp, getcon(stk, fn), R);
-	else
-		emit(Ocopy, Kw, sp, TMP(SP), R);
 }
 
 void

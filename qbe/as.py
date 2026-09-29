@@ -76,7 +76,8 @@ def parse_number(s):
 def split_sym(s):
     """NAME, NAME+n or NAME-n. NAME may itself contain $ and ."""
     m = re.fullmatch(r"(.+?)([+-]\d+)$", s.strip())
-    if m and not m.group(1).endswith("e") and not m.group(1).endswith("E"):
+    # 1e+5 is a number with an exponent, but fp_one+4 is a symbol.
+    if m and not re.fullmatch(r"[0-9.]+[eE]", m.group(1)):
         return m.group(1), parse_number(m.group(2))
     return s.strip(), 0
 
@@ -171,15 +172,22 @@ class Asm:
         self.syms[name] = self.here()
 
 
-def strip_comments(line):
+def strip_comments(line, state):
+    """Remove /* */ comments; state[0] says whether one is still open
+    from an earlier line, so a comment may span several lines."""
     out = []
     i = 0
     while i < len(line):
-        if line.startswith("/*", i):
-            j = line.find("*/", i + 2)
+        if state[0]:
+            j = line.find("*/", i)
             if j < 0:
-                break
+                return "".join(out).strip()
+            state[0] = False
             i = j + 2
+            continue
+        if line.startswith("/*", i):
+            state[0] = True
+            i += 2
             continue
         out.append(line[i])
         i += 1
@@ -196,8 +204,9 @@ def parse_lines(text):
     counters = {}
     seen = {}
     raw = []
+    in_comment = [False]
     for line in text.splitlines():
-        line = strip_comments(line)
+        line = strip_comments(line, in_comment)
         if not line:
             continue
         raw.append(line)
@@ -452,8 +461,16 @@ def parse_ascii(rest):
         i += 1
         esc = s[i]
         i += 1
-        mapping = {"n": 10, "t": 9, "r": 13, "0": 0, "\\": 92, '"': 34, "a": 7}
-        if esc in mapping:
+        mapping = {"n": 10, "t": 9, "r": 13, "\\": 92, '"': 34, "a": 7,
+                   "b": 8, "f": 12, "v": 11}
+        if esc in "01234567":
+            # up to three octal digits, as QBE and gas write them
+            j = i
+            while j < len(s) and j - i < 2 and s[j] in "01234567":
+                j += 1
+            out.append(int(s[i - 1:j], 8) & 0xff)
+            i = j
+        elif esc in mapping:
             out.append(mapping[esc])
         elif esc == "x":
             out.append(int(s[i:i + 2], 16))
@@ -523,6 +540,12 @@ def encode_insn(mnem, args, syms):
         return [0o000241]
     if mnem == "ccc":
         return [0o000257]
+    if mnem in ("trap", "emt"):
+        # The low byte is the trap number; the VM hands it to the host.
+        n = parse_number(ops[0]) if ops else 0
+        if not 0 <= n <= 255:
+            raise SystemExit(f"{mnem} number out of range: {n}")
+        return [(0o104400 if mnem == "trap" else 0o104000) | n]
     if mnem == "rts":
         return [0o000200 | REGS[ops[0].strip()]]
     if mnem == "jsr":
@@ -688,38 +711,45 @@ def item_size(it):
     raise SystemExit(f"bad item {it}")
 
 
+def long_size(mnem):
+    """A relaxed branch: jmp @#dest, or an inverted branch over one."""
+    return 8 if mnem == "br" else 12
+
+
 def link(secs, syms_in):
-    # Rebuild text symbol offsets by replaying is not possible: labels are
-    # only in syms_in. Record (name -> offset) at the time of short branches
-    # and then adjust.
-    #
-    # Because a label's offset was computed with item_size, and branches
-    # start short, syms_in text offsets match the short layout. Growing a
-    # branch by 8 adds 8 to every later text symbol and every later item.
+    # Labels were recorded against the all-short layout, in which every
+    # branch is one word.  A branch that cannot reach its target grows
+    # into a jmp (and a skip over it), moving everything after it, so
+    # the relaxed offset of every item is recomputed until nothing else
+    # has to grow.
     long_at = set()
     text = secs["text"]
+
+    short_offs = []
+    acc = 0
+    for it in text:
+        short_offs.append(acc)
+        acc += 4 if it[0] == "br" else item_size(it)
+    short_offs.append(acc)
+    index_at_short = {off: i for i, off in enumerate(short_offs)}
 
     def offsets():
         off = 0
         out = []
         for i, it in enumerate(text):
             out.append(off)
-            if it[0] == "br" and i in long_at:
-                off += 12
+            if it[0] == "br":
+                off += long_size(it[1]) if i in long_at else 4
             else:
-                off += item_size(it) if not (it[0] == "br") else 4
-        return out, off
+                off += item_size(it)
+        out.append(off)
+        return out
 
-    def text_base_of_labels(item_offs):
-        # syms_in text offsets correspond to the all-short layout. Map an
-        # all-short offset to a relaxed offset by counting grown branches
-        # before that point.
-        short = []
-        off = 0
-        for it in text:
-            short.append(off)
-            off += 4 if it[0] == "br" else item_size(it)
-        return short
+    def relax_off(short_off):
+        i = index_at_short.get(short_off)
+        if i is None:
+            raise SystemExit(f"label offset {short_off} is not on an instruction")
+        return item_offs[i]
 
     changed = True
     guard = 0
@@ -728,26 +758,7 @@ def link(secs, syms_in):
         if guard > 100:
             raise SystemExit("branch relaxation did not converge")
         changed = False
-        item_offs, _ = offsets()
-        short_offs = text_base_of_labels(item_offs)
-        # map short offset -> relaxed offset
-        def relax_off(short_off):
-            # find the item that starts at short_off, or the nearest preceding
-            acc_s = 0
-            acc_r = 0
-            for i, it in enumerate(text):
-                sz_s = 4 if it[0] == "br" else item_size(it)
-                sz_r = 12 if (it[0] == "br" and i in long_at) else sz_s
-                if acc_s == short_off:
-                    return acc_r
-                if acc_s > short_off:
-                    break
-                acc_s += sz_s
-                acc_r += sz_r
-            if acc_s == short_off:
-                return acc_r
-            raise SystemExit(f"label offset {short_off} is not on an instruction")
-
+        item_offs = offsets()
         for i, it in enumerate(text):
             if it[0] != "br" or i in long_at:
                 continue
@@ -756,39 +767,16 @@ def link(secs, syms_in):
                 raise SystemExit(f"undefined label {target}")
             sec, off = syms_in[target]
             if sec != "text":
-                dest = None
-            else:
-                dest = relax_off(off)
-            src = item_offs[i] + 4  # PC after the branch word
-            if dest is None:
                 fits = False
             else:
+                dest = relax_off(off)
+                src = item_offs[i] + 4  # PC after the branch word
                 delta = (dest - src) // 4
                 fits = -128 <= delta <= 127
             if not fits:
                 long_at.add(i)
                 changed = True
-
-    item_offs, _ = offsets()
-    short_offs_list = []
-    acc = 0
-    for it in text:
-        short_offs_list.append(acc)
-        acc += 4 if it[0] == "br" else item_size(it)
-
-    def relax_off(short_off):
-        acc_s = 0
-        acc_r = 0
-        for i, it in enumerate(text):
-            sz_s = 4 if it[0] == "br" else item_size(it)
-            sz_r = 12 if (it[0] == "br" and i in long_at) else sz_s
-            if acc_s == short_off:
-                return acc_r
-            acc_s += sz_s
-            acc_r += sz_r
-        if acc_s == short_off:
-            return acc_r
-        raise SystemExit(f"bad label offset {short_off}")
+    item_offs = offsets()
 
     # Section bases: text, rodata, data, bss, each 4-aligned.
     blobs = {}
@@ -814,12 +802,8 @@ def link(secs, syms_in):
                     else:
                         raw += struct.pack("<I", w & 0xffffffff)
             elif it[0] == "br":
-                mnem, target, _ = it[1], it[2], it[3]
                 if i in long_at:
-                    if mnem == "br":
-                        raw += b"\0" * 8  # jmp @#target
-                    else:
-                        raw += b"\0" * 12
+                    raw += b"\0" * long_size(it[1])
                 else:
                     raw += b"\0\0\0\0"
             else:
@@ -897,6 +881,7 @@ def main():
     ap.add_argument("src", nargs="?", default="-")
     ap.add_argument("-o")
     ap.add_argument("--entry")
+    ap.add_argument("--map", help="write a symbol map (address name per line)")
     args = ap.parse_args()
     if args.src == "-":
         text = sys.stdin.read()
@@ -909,6 +894,10 @@ def main():
     else:
         sys.stdout.buffer.write(image)
         entry_out = sys.stderr
+    if args.map:
+        with open(args.map, "w") as m:
+            for name, addr in sorted(syms.items(), key=lambda kv: kv[1]):
+                print(f"{addr:08x} {name}", file=m)
     if args.entry:
         if args.entry not in syms:
             raise SystemExit(f"no symbol {args.entry}")

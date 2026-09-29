@@ -1,0 +1,79 @@
+BASIC-11 for the Freya VM
+
+READY
+
+10 PRINT "A"
+15 PRINT "MID"
+20 X=1.5: PRINT X; "B$"; 100000
+30 REM keep
+
+READY
+
+A
+MID
+ 1.5 B$ 100000 
+
+READY
+
+
+READY
+
+10 PRINT "A"
+20 X=1.5: PRINT X; "B$"; 100000
+30 REM keep
+
+READY
+
+ 5 
+
+READY
+
+
+READY
+
+ 14 
+
+READY
+
+
+READY
+
+
+READY
+
+
+READY
+
+
+READY
+
+20 X=1.5: PRINT X; "B$"; 100000
+
+READY
+
+A
+ 1.5 B$ 100000 
+
+READY
+
+STOP at line 5
+
+READY
+
+A
+ 1.5 B$ 100000 
+
+READY
+
+
+READY
+
+?Division by zero
+
+READY
+
+A
+ 1.5 B$ 100000 
+
+READY
+

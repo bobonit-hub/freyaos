@@ -9,11 +9,19 @@ int freya_rclob[] = { -1 };
 
 #define RGLOB (BIT(R4) | BIT(FP) | BIT(SP))
 
+/* How many operands may stay in a stack slot instead of a register.
+ * The PDP-11 reads memory operands everywhere, but a slot in the
+ * address of a load or store means the slot itself (the ABI and the
+ * spiller use them so), and the emitter wants registers for swaps and
+ * address-taking. */
 static int
 freya_memargs(int op)
 {
-	(void)op;
-	return 0;
+	if (isload(op) || isstore(op) || op == Ocall || op == Oswap || op == Oaddr)
+		return 0;
+	if (op == Oxcmp || INRANGE(op, Ocmpw, Ocmpw1))
+		return 2;
+	return 1;
 }
 
 Target T_freya = {

@@ -45,6 +45,11 @@ val(char *buf, size_t n, Ref r, Fn *fn)
 			return;
 		}
 		break;
+	case RSlot:
+		/* A spilled temporary; every instruction that takes a source
+		 * operand can read it from its stack slot. */
+		snprintf(buf, n, "%"PRId64"(r5)", slot(r, fn));
+		return;
 	}
 	die("bad operand");
 }
@@ -53,6 +58,7 @@ static void
 memstr(char *buf, size_t n, Ref r, Fn *fn, int add)
 {
 	Con *c;
+	Mem *m;
 	int64_t o;
 
 	switch (rtype(r)) {
@@ -75,16 +81,31 @@ memstr(char *buf, size_t n, Ref r, Fn *fn, int add)
 		else
 			snprintf(buf, n, "@#%s", str(c->sym.id));
 		return;
+	case RMem:
+		/* base + constant, folded by isel */
+		m = &fn->mem[r.val];
+		o = m->offset.bits.i + add;
+		if (rtype(m->base) == RSlot) {
+			snprintf(buf, n, "%"PRId64"(r5)", o + slot(m->base, fn));
+			return;
+		}
+		assert(isreg(m->base));
+		if (o)
+			snprintf(buf, n, "%"PRId64"(%s)", o, rname[m->base.val]);
+		else
+			snprintf(buf, n, "(%s)", rname[m->base.val]);
+		return;
 	}
 	die("bad address");
 }
 
 static int
-isr4(Ref r)
+isreg_(Ref r, int reg)
 {
-	return rtype(r) == RTmp && r.val == R4;
+	return rtype(r) == RTmp && r.val == reg;
 }
 
+/* A result computed in r4 (saved on the stack first) goes to dst. */
 static void
 deliver(FILE *f, int dst)
 {
@@ -95,23 +116,36 @@ deliver(FILE *f, int dst)
 		fprintf(f, "\tadd #4, sp\n");
 }
 
-/* dst = a <op> b, with <op> a two-operand instruction (dst = dst <op> src). */
+/* dst = a <op> b, with <op> a two-operand instruction (dst = dst <op>
+ * src).  The operands may be registers, constants or stack slots; dst
+ * is a register that may be one of them. */
 static void
-binop(FILE *f, char *op, int dst, Ref a, Ref b, Fn *fn)
+binop(FILE *f, char *op, int dst, Ref a, Ref b, Fn *fn, int commutes)
 {
 	char as[80], bs[80];
 
 	val(as, sizeof as, a, fn);
 	val(bs, sizeof bs, b, fn);
-	fprintf(f, "\tmov r4, -(sp)\n");
-	fprintf(f, "\tmov %s, r4\n", as);
-	if (isr4(b))
-		fprintf(f, "\t%s (sp), r4\n", op);
-	else
-		fprintf(f, "\t%s %s, r4\n", op, bs);
-	deliver(f, dst);
+	if (isreg_(a, dst)) {
+		fprintf(f, "\t%s %s, %s\n", op, bs, rname[dst]);
+		return;
+	}
+	if (isreg_(b, dst)) {
+		if (commutes) {
+			fprintf(f, "\t%s %s, %s\n", op, as, rname[dst]);
+			return;
+		}
+		/* dst = a - dst */
+		fprintf(f, "\tneg %s\n", rname[dst]);
+		fprintf(f, "\tadd %s, %s\n", as, rname[dst]);
+		return;
+	}
+	fprintf(f, "\tmov %s, %s\n", as, rname[dst]);
+	fprintf(f, "\t%s %s, %s\n", op, bs, rname[dst]);
 }
 
+/* dst = a & b: bic clears the bits of its source, so the complement
+ * of b is made on the stack first, before dst may be written. */
 static void
 emitand(FILE *f, int dst, Ref a, Ref b, Fn *fn)
 {
@@ -119,17 +153,14 @@ emitand(FILE *f, int dst, Ref a, Ref b, Fn *fn)
 
 	val(as, sizeof as, a, fn);
 	val(bs, sizeof bs, b, fn);
-	fprintf(f, "\tmov r4, -(sp)\n");
-	fprintf(f, "\tmov %s, r4\n", as);
-	if (isr4(b))
-		fprintf(f, "\tmov (sp), -(sp)\n");
-	else
-		fprintf(f, "\tmov %s, -(sp)\n", bs);
+	fprintf(f, "\tmov %s, -(sp)\n", bs);
 	fprintf(f, "\tcom (sp)\n");
-	fprintf(f, "\tbic (sp)+, r4\n");
-	deliver(f, dst);
+	if (!isreg_(a, dst))
+		fprintf(f, "\tmov %s, %s\n", as, rname[dst]);
+	fprintf(f, "\tbic (sp)+, %s\n", rname[dst]);
 }
 
+/* xor wants a register source. */
 static void
 emitxor(FILE *f, int dst, Ref a, Ref b, Fn *fn)
 {
@@ -137,14 +168,28 @@ emitxor(FILE *f, int dst, Ref a, Ref b, Fn *fn)
 
 	val(as, sizeof as, a, fn);
 	val(bs, sizeof bs, b, fn);
+	if (rtype(a) == RTmp && !isreg_(a, dst)) {
+		if (!isreg_(b, dst))
+			fprintf(f, "\tmov %s, %s\n", bs, rname[dst]);
+		fprintf(f, "\txor %s, %s\n", rname[a.val], rname[dst]);
+		return;
+	}
+	if (rtype(b) == RTmp && !isreg_(b, dst)) {
+		if (!isreg_(a, dst))
+			fprintf(f, "\tmov %s, %s\n", as, rname[dst]);
+		fprintf(f, "\txor %s, %s\n", rname[b.val], rname[dst]);
+		return;
+	}
 	fprintf(f, "\tmov r4, -(sp)\n");
-	fprintf(f, "\tmov %s, -(sp)\n", as);
-	fprintf(f, "\tmov %s, r4\n", bs);
-	fprintf(f, "\txor r4, (sp)\n");
+	fprintf(f, "\tmov %s, r4\n", as);
+	if (!isreg_(b, dst))
+		fprintf(f, "\tmov %s, %s\n", bs, rname[dst]);
+	fprintf(f, "\txor r4, %s\n", rname[dst]);
 	fprintf(f, "\tmov (sp)+, r4\n");
-	deliver(f, dst);
 }
 
+/* mul into an odd register leaves the low 32 bits there; into an
+ * even one it would also write the register after it. */
 static void
 emitmul(FILE *f, int dst, Ref a, Ref b, Fn *fn)
 {
@@ -152,16 +197,27 @@ emitmul(FILE *f, int dst, Ref a, Ref b, Fn *fn)
 
 	val(as, sizeof as, a, fn);
 	val(bs, sizeof bs, b, fn);
-	fprintf(f, "\tmov r4, -(sp)\n");
-	fprintf(f, "\tmov %s, -(sp)\n", bs);
-	fprintf(f, "\tmov %s, r4\n", as);
+	if ((dst - R0) & 1) {
+		if (isreg_(a, dst))
+			fprintf(f, "\tmul %s, %s\n", bs, rname[dst]);
+		else if (isreg_(b, dst))
+			fprintf(f, "\tmul %s, %s\n", as, rname[dst]);
+		else {
+			fprintf(f, "\tmov %s, %s\n", as, rname[dst]);
+			fprintf(f, "\tmul %s, %s\n", bs, rname[dst]);
+		}
+		return;
+	}
 	fprintf(f, "\tmov r3, -(sp)\n");
-	fprintf(f, "\tmov r4, r3\n");
-	fprintf(f, "\tmul 4(sp), r3\n");
-	fprintf(f, "\tmov r3, r4\n");
+	if (isreg_(b, R3)) {
+		fprintf(f, "\tmov %s, r3\n", as);
+		fprintf(f, "\tmul (sp), r3\n");
+	} else {
+		fprintf(f, "\tmov %s, r3\n", as);
+		fprintf(f, "\tmul %s, r3\n", bs);
+	}
+	fprintf(f, "\tmov r3, %s\n", rname[dst]);
 	fprintf(f, "\tmov (sp)+, r3\n");
-	fprintf(f, "\tadd #4, sp\n");
-	deliver(f, dst);
 }
 
 /* Helpers take (r0, r1) and return in r0, with a remainder in r1. */
@@ -202,19 +258,18 @@ emitshift(FILE *f, int dst, Ref a, Ref b, Fn *fn, int kind)
 	if (isconbits(fn, b, &n)) {
 		n &= 31;
 		val(as, sizeof as, a, fn);
-		fprintf(f, "\tmov r4, -(sp)\n");
-		fprintf(f, "\tmov %s, r4\n", as);
+		if (!isreg_(a, dst))
+			fprintf(f, "\tmov %s, %s\n", as, rname[dst]);
 		if (n) {
 			if (kind == 0)
-				fprintf(f, "\tash #%"PRId64", r4\n", n);
+				fprintf(f, "\tash #%"PRId64", %s\n", n, rname[dst]);
 			else
-				fprintf(f, "\tash #-%"PRId64", r4\n", n);
+				fprintf(f, "\tash #-%"PRId64", %s\n", n, rname[dst]);
 			if (kind == 1) {
 				mask = 0xffffffffu << (32 - (int)n);
-				fprintf(f, "\tbic #%"PRId32", r4\n", (int32_t)mask);
+				fprintf(f, "\tbic #%"PRId32", %s\n", (int32_t)mask, rname[dst]);
 			}
 		}
-		deliver(f, dst);
 		return;
 	}
 	if (kind == 0) {
@@ -334,7 +389,7 @@ emitstore(FILE *f, Ins *i, Fn *fn, int width)
 static void
 emitins(Ins *i, Fn *fn, FILE *f)
 {
-	char buf[80];
+	char buf[80], buf2[80];
 	Con *c;
 	int64_t s;
 
@@ -344,9 +399,9 @@ emitins(Ins *i, Fn *fn, FILE *f)
 	case Odbgloc:
 		emitdbgloc(i->arg[0].val, i->arg[1].val, f);
 		break;
-	case Oadd: binop(f, "add", i->to.val, i->arg[0], i->arg[1], fn); break;
-	case Osub: binop(f, "sub", i->to.val, i->arg[0], i->arg[1], fn); break;
-	case Oor:  binop(f, "bis", i->to.val, i->arg[0], i->arg[1], fn); break;
+	case Oadd: binop(f, "add", i->to.val, i->arg[0], i->arg[1], fn, 1); break;
+	case Osub: binop(f, "sub", i->to.val, i->arg[0], i->arg[1], fn, 0); break;
+	case Oor:  binop(f, "bis", i->to.val, i->arg[0], i->arg[1], fn, 1); break;
 	case Oand: emitand(f, i->to.val, i->arg[0], i->arg[1], fn); break;
 	case Oxor: emitxor(f, i->to.val, i->arg[0], i->arg[1], fn); break;
 	case Omul: emitmul(f, i->to.val, i->arg[0], i->arg[1], fn); break;
@@ -372,18 +427,22 @@ emitins(Ins *i, Fn *fn, FILE *f)
 	case Osar: emitshift(f, i->to.val, i->arg[0], i->arg[1], fn, 2); break;
 	case Oneg:
 		val(buf, sizeof buf, i->arg[0], fn);
-		fprintf(f, "\tmov r4, -(sp)\n");
-		fprintf(f, "\tmov %s, r4\n", buf);
-		fprintf(f, "\tneg r4\n");
-		deliver(f, i->to.val);
+		if (!isreg_(i->arg[0], i->to.val))
+			fprintf(f, "\tmov %s, %s\n", buf, rname[i->to.val]);
+		fprintf(f, "\tneg %s\n", rname[i->to.val]);
 		break;
 	case Oextsb:
 	case Oextub:
 	case Oextsh:
 	case Oextuh:
+	case Oextsw:
+	case Oextuw:
+		/* A word widened to an address is the same 32 bits. */
 		val(buf, sizeof buf, i->arg[0], fn);
 		if (!(rtype(i->arg[0]) == RTmp && i->arg[0].val == i->to.val))
 			fprintf(f, "\tmov %s, %s\n", buf, rname[i->to.val]);
+		if (i->op == Oextsw || i->op == Oextuw)
+			break;
 		if (i->op == Oextub)
 			fprintf(f, "\tbic #-256, %s\n", rname[i->to.val]);
 		else if (i->op == Oextuh)
@@ -401,6 +460,12 @@ emitins(Ins *i, Fn *fn, FILE *f)
 	case Oculew: case Ocultw:
 		emitcmp(f, i, fn);
 		break;
+	case Oxcmp:
+		/* only the condition codes; the branch follows */
+		val(buf, sizeof buf, i->arg[0], fn);
+		val(buf2, sizeof buf2, i->arg[1], fn);
+		fprintf(f, "\tcmp %s, %s\n", buf, buf2);
+		break;
 	case Oloadsb: emitload(f, i, fn, 0); break;
 	case Oloadub: emitload(f, i, fn, 1); break;
 	case Oloadsh: emitload(f, i, fn, 2); break;
@@ -411,6 +476,7 @@ emitins(Ins *i, Fn *fn, FILE *f)
 	case Ostoreb: emitstore(f, i, fn, 1); break;
 	case Ostoreh: emitstore(f, i, fn, 2); break;
 	case Ostorew: emitstore(f, i, fn, 4); break;
+	case Ostorel: emitstore(f, i, fn, 4); break; /* a spilled address */
 	case Ocopy:
 		if (req(i->to, i->arg[0]))
 			break;
@@ -487,13 +553,63 @@ helper(FILE *f, char *name, char *body)
 	fprintf(f, ".text\n.globl %s\n%s:\n%s", name, name, body);
 }
 
+static char *
+condname(int c)
+{
+	switch (c) {
+	case Cieq: return "eq";
+	case Cine: return "ne";
+	case Cisge: return "ge";
+	case Cisgt: return "gt";
+	case Cisle: return "le";
+	case Cislt: return "lt";
+	case Ciuge: return "his";
+	case Ciugt: return "hi";
+	case Ciule: return "los";
+	case Ciult: return "lo";
+	}
+	die("bad condition");
+	return 0;
+}
+
+/* Does instruction i write register r? */
+static int
+writesreg(Ins *i, int r)
+{
+	if (i->op == Ocall)
+		return 1;
+	if (i->op == Oswap)
+		return isreg_(i->arg[0], r) || isreg_(i->arg[1], r);
+	return isreg_(i->to, r);
+}
+
+/* Is it safe to move the compare xc past the instructions after it,
+ * to just before the branch?  Only if none of them writes one of its
+ * operands or the memory it reads. */
+static int
+canmove(Ins *xc, Ins *end)
+{
+	Ins *i;
+	int n;
+
+	for (i = xc + 1; i < end; i++) {
+		if (isstore(i->op) || i->op == Ocall)
+			return 0;
+		for (n = 0; n < 2; n++)
+			if (rtype(xc->arg[n]) == RTmp && writesreg(i, xc->arg[n].val))
+				return 0;
+	}
+	return 1;
+}
+
 void
 freya_emitfn(Fn *fn, FILE *f)
 {
 	static int id0;
-	int lbln, neg, frame;
+	int lbln, neg, frame, c, stackcond;
+	char sbuf[80], sbuf2[80];
 	Blk *b, *s;
-	Ins *i;
+	Ins *i, *xc;
 
 	emitfnlnk(fn->name, &fn->lnk, f);
 	fprintf(f, "\tmov r5, -(sp)\n");
@@ -505,8 +621,33 @@ freya_emitfn(Fn *fn, FILE *f)
 	for (lbln = 0, b = fn->start; b; b = b->link) {
 		if (lbln || b->npred > 1)
 			fprintf(f, ".L%d:\n", id0 + b->id);
-		for (i = b->ins; i != &b->ins[b->nins]; i++)
+		xc = 0;
+		stackcond = 0;
+		for (i = b->ins; i != &b->ins[b->nins]; i++) {
+			if (i->op == Oxcmp && b->jmp.type >= Jjf && b->jmp.type <= Jjf1) {
+				/* The spiller may have put reloads between
+				 * the compare and the branch, and mov sets
+				 * the condition codes.  Delay the compare
+				 * when that is safe; otherwise keep the
+				 * outcome on the stack until the branch. */
+				if (canmove(i, &b->ins[b->nins])) {
+					xc = i;
+					continue;
+				}
+				c = b->jmp.type - Jjf;
+				emitins(i, fn, f);
+				fprintf(f, "\tb%s .Lc%d\n", condname(c), lbl);
+				fprintf(f, "\tclr -(sp)\n");
+				fprintf(f, "\tbr .Lc%d\n", lbl + 1);
+				fprintf(f, ".Lc%d:\n", lbl);
+				fprintf(f, "\tmov #1, -(sp)\n");
+				fprintf(f, ".Lc%d:\n", lbl + 1);
+				lbl += 2;
+				stackcond = 1;
+				continue;
+			}
 			emitins(i, fn, f);
+		}
 		lbln = 1;
 		switch (b->jmp.type) {
 		case Jhlt:
@@ -532,13 +673,49 @@ freya_emitfn(Fn *fn, FILE *f)
 				b->s2 = s;
 				neg = 1;
 			}
-			assert(isreg(b->jmp.arg));
-			fprintf(f, "\ttst %s\n", rname[b->jmp.arg.val]);
+			/* The spiller may leave the condition in a stack
+			 * slot when four registers are not enough; tst
+			 * reads memory as happily as a register. */
+			if (rtype(b->jmp.arg) == RSlot) {
+				memstr(sbuf, sizeof sbuf, b->jmp.arg, fn, 0);
+				fprintf(f, "\ttst %s\n", sbuf);
+			} else {
+				assert(isreg(b->jmp.arg));
+				fprintf(f, "\ttst %s\n", rname[b->jmp.arg.val]);
+			}
 			fprintf(f, "\tb%s .L%d\n",
 				neg ? "ne" : "eq", id0 + b->s2->id);
 			goto Jmp;
 		default:
-			die("unhandled jump");
+			if (b->jmp.type < Jjf || b->jmp.type > Jjf1)
+				die("unhandled jump");
+			/* jump to s1 when the condition holds, else s2;
+			 * the branch goes to s2, so when s2 is the block
+			 * that follows the two are swapped and the branch
+			 * is taken on the condition itself. */
+			c = b->jmp.type - Jjf;
+			neg = 1;
+			if (b->link == b->s2) {
+				s = b->s1;
+				b->s1 = b->s2;
+				b->s2 = s;
+				neg = 0;
+			} else
+				c = cmpneg(c);
+			if (stackcond) {
+				/* the stack holds 1 when the condition held */
+				fprintf(f, "\ttst (sp)+\n");
+				fprintf(f, "\tb%s .L%d\n", neg ? "eq" : "ne",
+					id0 + b->s2->id);
+				goto Jmp;
+			}
+			if (xc) {
+				val(sbuf, sizeof sbuf, xc->arg[0], fn);
+				val(sbuf2, sizeof sbuf2, xc->arg[1], fn);
+				fprintf(f, "\tcmp %s, %s\n", sbuf, sbuf2);
+			}
+			fprintf(f, "\tb%s .L%d\n", condname(c), id0 + b->s2->id);
+			goto Jmp;
 		}
 	}
 	id0 += fn->nblk;

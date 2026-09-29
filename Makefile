@@ -145,7 +145,7 @@ APP_GC     :=
 endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 crypt flashprobe threads vm \
+SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 crypt flashprobe threads vm basic \
              altair altair16 httpd
 # A sample a board has no room for at all is not built there.  The 48 KiB
 # Altair keeps the 8080's RAM in the program region.  The Blue Pill's

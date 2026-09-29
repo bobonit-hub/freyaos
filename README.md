@@ -128,6 +128,12 @@ Freya 3.1.2 "Poltergeist" for STM32F103C8T6
   with `api->vm_step()` or runs a stretch of instructions with
   `api->vm_run()`. `samples/vm` adds two numbers and returns
   ([docs/vm.md](docs/vm.md)).
+* Has a C compiler for that machine, cproc and QBE with a target in
+  `qbe/`, and a BASIC written in C and compiled with it: a BASIC-11 style
+  interpreter with the FP11 floating point in software and a flat,
+  compacting string pool. `basic/runbasic` runs it on the PC with the
+  same `src/vm.c`; `samples/basic` is the host for a board with room for
+  the 100 KiB image ([basic/README.md](basic/README.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
   size from 8 KiB to 24 KiB; on the Black Pill the flash region is 64 KiB
@@ -907,7 +913,9 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic` |
+| `qbe/` | QBE target and cproc patch for the virtual machine, and `as.py`, the assembler that makes an image |
+| `basic/` | BASIC for the virtual machine: the interpreter, the FP11 arithmetic, the PC runner |
 | `tests/` | host side tests |
 | `docs/shell.md` | the shell language: values, expressions, control, variables, functions |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
@@ -1004,6 +1012,14 @@ the subtractions; a dividend whose high word is negative and the two ways a
 quotient can fail to exist; and every opcode the machine does not have,
 each of which has to leave R7 where a caller can read it.
 
+BASIC is checked in two layers. `basic/fp11.c` is compiled natively and
+290 000 results of its arithmetic, functions and number formatting are
+compared with libm, to a few units in the last place. Then the programs
+under `tests/basic` run on the interpreter compiled natively, each against
+its recorded output, and again on the virtual machine when `basic.bin` has
+been built, so that the compiler for that machine is tested by the largest
+program written for it.
+
 The flash programming itself cannot be reached from the host, which is the main
 argument for keeping that driver small and its bounds check absolute. What can
 be checked off the board is the part most likely to be quietly wrong: a last
@@ -1024,6 +1040,7 @@ the kernel compares them at boot, and this compares them at build time.
 168 checks, 0 failures    pins, timers, PWM, I2C, 1-Wire and SPI
 42 checks, 0 failures     XTEA
 136 checks, 0 failures    PDP-11 virtual machine
+290180 checks, 0 failures BASIC floating point; 9 programs, natively and on the VM
 39 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```

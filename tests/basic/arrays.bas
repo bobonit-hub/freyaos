@@ -1,0 +1,11 @@
+10 DIM A(3,3), B$(2)
+20 FOR I=0 TO 3: FOR J=0 TO 3: A(I,J)=I*10+J: NEXT J: NEXT I
+30 PRINT A(2,3); A(3,0)
+40 B$(0)="ZERO": B$(2)="TWO"
+50 PRINT B$(0); "|"; B$(1); "|"; B$(2)
+60 C(7)=99: PRINT C(7); C(0)
+70 D%=3.7: PRINT D%
+80 FOR I%=1 TO 3: PRINT I%;: NEXT I%: PRINT
+90 S$="HELLO WORLD"
+100 PRINT SEG$(S$,7,11); MID$(S$,1,5); LEFT$(S$,3); RIGHT$(S$,7); TRM$("AB   ")+"|"
+110 PRINT LEN(S$)

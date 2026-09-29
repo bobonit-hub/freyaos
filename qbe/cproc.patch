@@ -56,7 +56,7 @@ index 4fe2cca..e4763f9 100644
  		fatal("unsupported target '%s'", target);
  	}
 diff --git a/qbe.c b/qbe.c
-index 9fae0f0..e89a3c2 100644
+index 9fae0f0..43446c9 100644
 --- a/qbe.c
 +++ b/qbe.c
 @@ -196,13 +196,20 @@ qbetype(struct type *t)
@@ -81,7 +81,46 @@ index 9fae0f0..e89a3c2 100644
  	case 16: fatal("long double is not yet supported");
  	}
  	assert(0);
-@@ -1174,8 +1181,6 @@ emitvalue(struct value *v)
+@@ -288,6 +295,24 @@ convert(struct func *f, struct type *dst, struct type *src, struct value *l)
+ 
+ 	if (src == dst)
+ 		return l;
++	/* On freya a pointer is an l temporary of the same 32 bits as a
++	 * w integer, so a cast between them changes the class only.  The
++	 * compiler's own pointer arithmetic goes through typeulong, which
++	 * stays an l there and is left alone. */
++	if (targ && strcmp(targ->name, "freya") == 0 && src != &typeulong && dst != &typeulong) {
++		if (dst->kind == TYPEPOINTER && src->kind != TYPEPOINTER && (src->prop & PROPINT)) {
++			if (src->size < 4)
++				l = convert(f, src->u.arith.issigned ? &typeint : &typeuint, src, l);
++			if (l->kind != VALUE_TEMP)
++				return l;
++			return funcinst(f, IEXTUW, 'l', l, NULL);
++		}
++		if (src->kind == TYPEPOINTER && dst->kind != TYPEPOINTER && (dst->prop & PROPINT) && dst->kind != TYPEBOOL) {
++			if (l->kind == VALUE_TEMP)
++				l = funcinst(f, ICOPY, 'w', l, NULL);
++			return convert(f, dst, &typeuint, l);
++		}
++	}
+ 	if (src->kind == TYPEPOINTER)
+ 		src = &typeulong;
+ 	if (dst->kind == TYPEPOINTER)
+@@ -870,6 +895,13 @@ funcexpr(struct func *f, struct expr *e)
+ 		l = funcexpr(f, e->u.binary.l);
+ 		r = funcexpr(f, e->u.binary.r);
+ 		t = e->u.binary.l->type;
++		/* On freya an integer is a w temporary and a pointer an l
++		 * temporary. QBE wants both operands of an l add to be l, so
++		 * the integer side of pointer arithmetic is widened first. */
++		if (e->type->kind == TYPEPOINTER && t->kind == TYPEPOINTER &&
++		    e->u.binary.r->type->kind != TYPEPOINTER &&
++		    r->kind == VALUE_TEMP && targ && strcmp(targ->name, "freya") == 0)
++			r = funcinst(f, IEXTUW, 'l', r, NULL);
+ 		if (t->kind == TYPEPOINTER)
+ 			t = &typeulong;
+ 		switch (e->op) {
+@@ -1174,8 +1206,6 @@ emitvalue(struct value *v)
  		printf("d_%.17g", v->u.f);
  		break;
  	case VALUE_GLOBAL:
