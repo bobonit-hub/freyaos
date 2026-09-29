@@ -509,12 +509,16 @@ void term_pump(void)
     next_ms = sys_ticks() + (state >= 2 ? 20U : 500U);
 }
 
+/* Body bytes of the POST web_take() last reported that web_read() has
+ * not yet returned.  The C6 appends the Content-Length to the request. */
+static uint32_t s_web_left;
+
 int web_take(freya_web_req_t *req)
 {
     uint8_t cmd = 0;
     uint8_t resp[ESP_FRAME_PAYLOAD];
     uint16_t n = sizeof resp;
-    int rc, path_len, query_len;
+    int rc, path_len, query_len, tail;
 
     if (app_in_handler()) return FREYA_ERR_HANDLER;
     if (!req) return FREYA_ERR_ARG;
@@ -524,15 +528,47 @@ int web_take(freya_web_req_t *req)
     if (n < 3) return FREYA_ERR_IO;
     path_len = resp[1];
     query_len = resp[2];
-    if ((resp[0] != FREYA_WEB_GET && resp[0] != FREYA_WEB_HEAD) ||
+    tail = 3 + path_len + query_len;
+    if ((resp[0] != FREYA_WEB_GET && resp[0] != FREYA_WEB_HEAD &&
+         resp[0] != FREYA_WEB_POST) ||
         path_len > FREYA_WEB_PATH || query_len > FREYA_WEB_QUERY ||
-        (uint16_t)(3 + path_len + query_len) > n)
+        (uint16_t)tail > n)
         return FREYA_ERR_IO;
     memset(req, 0, sizeof *req);
     req->method = resp[0];
     memcpy(req->path, resp + 3, (size_t)path_len);
     memcpy(req->query, resp + 3 + path_len, (size_t)query_len);
+    s_web_left = 0;
+    if (resp[0] == FREYA_WEB_POST) {
+        if ((uint16_t)(tail + 4) > n) return FREYA_ERR_IO;
+        s_web_left = (uint32_t)resp[tail] | ((uint32_t)resp[tail + 1] << 8) |
+                     ((uint32_t)resp[tail + 2] << 16) |
+                     ((uint32_t)resp[tail + 3] << 24);
+        if (s_web_left > FREYA_WEB_BODY_MAX) return FREYA_ERR_IO;
+    }
     return 0;
+}
+
+int web_read(void *data, int max, uint32_t *left)
+{
+    uint8_t b[3];
+    uint8_t resp[ESP_FRAME_PAYLOAD];
+    uint16_t n = sizeof resp;
+    int rc;
+
+    if (app_in_handler()) return FREYA_ERR_HANDLER;
+    if (!esp_link_is_open()) return FREYA_ERR_UNSUPPORTED;
+    if (!data || max < 1) return FREYA_ERR_ARG;
+    if (max > FREYA_WEB_READ_MAX) max = FREYA_WEB_READ_MAX;
+    b[0] = 4;
+    put16(b + 1, (uint16_t)max);
+    rc = rpc(ESP_OP_WEB, b, 3, resp, &n);
+    if (rc != 0) return rc;
+    if (n > (uint16_t)max) return FREYA_ERR_IO;
+    if (n) memcpy(data, resp, n);
+    s_web_left = n <= s_web_left ? s_web_left - n : 0;
+    if (left) *left = s_web_left;
+    return n;
 }
 
 int web_begin(int status, const char *type, uint32_t length)
@@ -588,7 +624,7 @@ __asm__(
     ".global net_tls_connect, net_bind, net_listen, net_accept, net_send, net_recv\n"
     ".global net_sendto, net_recvfrom, net_poll, net_release\n"
     ".global net_http_start, net_http_info, net_http_read, net_http_close\n"
-    ".global web_take, web_begin, web_body, web_end\n"
+    ".global web_take, web_begin, web_body, web_end, web_read\n"
     ".thumb_set wifi_on, net_unsupported\n"
     ".thumb_set wifi_off, net_unsupported\n"
     ".thumb_set wifi_credentials, net_unsupported\n"
@@ -619,6 +655,7 @@ __asm__(
     ".thumb_set web_take, net_unsupported\n"
     ".thumb_set web_begin, net_unsupported\n"
     ".thumb_set web_body, net_unsupported\n"
-    ".thumb_set web_end, net_unsupported\n");
+    ".thumb_set web_end, net_unsupported\n"
+    ".thumb_set web_read, net_unsupported\n");
 
 #endif

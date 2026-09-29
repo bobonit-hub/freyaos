@@ -16,6 +16,8 @@ The program ABI is still version 3.
 
 * The OS version is 3.1.2 "Poltergeist". `make FIRMWARE_VERSION=` changes
   only the firmware version, and `sysinfo()` prints that version separately.
+* A shell script read with `source` may be 16 KiB. It still has to fit
+  in the heap, and a line is still at most 159 characters.
 
 # Freya 3.1.1 "Poltergeist"
 

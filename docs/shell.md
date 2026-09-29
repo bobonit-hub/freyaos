@@ -833,15 +833,16 @@ freya: set s hex(file_checksum("/copy.bin"))
 ## Scripts on the card and in flash
 
 `source("file")` reads a script from the card and runs it. The file is
-plain text, at most 1024 bytes, and each command is still one line of
-at most 159 characters. A file that is not text is refused. `source`
-inside a script is allowed, three deep including the line that started
-it.
+plain text, at most 16 KiB, and it has to fit in the heap. Each command
+is still one line of at most 159 characters. A file that is not text is
+refused. `source` inside a script is allowed, three deep including the
+line that started it.
 
 `source("@flash")` runs the script stored in the program flash region, and
-needs no card. A short flash script is copied into RAM first, so the
-script may `install` or `uninstall` without erasing the text it is still
-reading. A longer one is read from the flash as it runs.
+needs no card. A flash script of at most 16 KiB is copied into RAM first
+when the heap can hold it, so the script may `install` or `uninstall`
+without erasing the text it is still reading. A longer one, or one the
+heap cannot hold, is read from the flash as it runs.
 
 ```
 freya: source("/blink.sh")
@@ -922,7 +923,7 @@ a password is set
 | `read` result | Available system heap |
 | Pattern captures | 9 |
 | `gsub` result | Available system heap |
-| Script file | 1024 bytes |
+| Script file | 16 KiB, and room for it in the heap |
 | Nested `source` | 3, including the outermost |
 | `rand()` | 0 .. 32767 |
 | `sin` / `cos` argument | about -1000000 .. 1000000 radians |

@@ -389,6 +389,7 @@ int      web_take(freya_web_req_t *req);
 int      web_begin(int status, const char *type, uint32_t length);
 int      web_body(const void *data, int len);
 int      web_end(void);
+int      web_read(void *data, int max, uint32_t *left);
 int      cmd_curl(int argc, char **argv);
 
 /* ---------------------------------------------------------------- ADC */
@@ -679,9 +680,10 @@ int  shell_source_capture(const char *path, const char *method,
                           int *out_len);
 /* A shell script is ASCII, plus tab and newline.  'len' may be 0. */
 int  script_text_ok(const char *text, uint32_t len);
-/* A file passed to 'source' has to fit in the heap.  A script installed
- * in program flash may be larger; that one is read from the flash. */
-#define FREYA_SCRIPT_FILE_MAX  1024U
+/* A file passed to 'source' has to fit in the heap.  16 KiB is the cap.
+ * A script installed in program flash may be larger; that one is read
+ * from the flash when it is over the cap or the heap cannot hold it. */
+#define FREYA_SCRIPT_FILE_MAX  (16U * 1024U)
 void console_banner(void);
 
 /* ------------------------------------------------------------- xmodem */

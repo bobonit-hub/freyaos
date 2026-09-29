@@ -403,13 +403,16 @@ typedef struct {
 #define FREYA_NET_PAYLOAD_MAX   480
 #define FREYA_WEB_GET           1
 #define FREYA_WEB_HEAD          2
+#define FREYA_WEB_POST          3
 #define FREYA_WEB_PATH          96
 #define FREYA_WEB_QUERY         31
 #define FREYA_WEB_TYPE          40
 #define FREYA_WEB_CHUNK         400
+#define FREYA_WEB_READ_MAX      480         /* one web_read() at most     */
+#define FREYA_WEB_BODY_MAX      (1024UL * 1024UL) /* a POST body, bytes   */
 
 typedef struct {
-    int32_t method;                     /* FREYA_WEB_GET or FREYA_WEB_HEAD */
+    int32_t method;                     /* FREYA_WEB_GET, _HEAD or _POST   */
     char    path[FREYA_WEB_PATH + 1];   /* URL path, leading slash         */
     char    query[FREYA_WEB_QUERY + 1]; /* raw query, or empty             */
 } freya_web_req_t;
@@ -783,9 +786,9 @@ typedef struct freya_api {
 
     /* appended: HTTPS file service.  The ESP32-C6 accepts one TLS 1.3
      * connection on port 443 and parses the request.  web_take() returns
-     * 0 when a GET or HEAD is waiting, or FREYA_ERR_AGAIN when it is not.
-     * web_begin/web_body/web_end send the response the C6 writes back.
-     * There is no cleartext listener. */
+     * 0 when a GET, HEAD or POST is waiting, or FREYA_ERR_AGAIN when it
+     * is not.  web_begin/web_body/web_end send the response the C6
+     * writes back.  There is no cleartext listener. */
     int      (*web_take)(freya_web_req_t *req);
     int      (*web_begin)(int status, const char *type, uint32_t length);
     int      (*web_body)(const void *data, int len);
@@ -807,6 +810,18 @@ typedef struct freya_api {
      * at the end of internal flash for both copies. */
     int      (*settings_block)(void *buf, int len);
     uint32_t (*settings_area_size)(void);
+
+    /* appended: the body of a POST.  After web_take() has reported
+     * FREYA_WEB_POST, web_read() copies up to max bytes of the body,
+     * at most FREYA_WEB_READ_MAX at a time, and returns how many: 0 once
+     * the body has all been read, FREYA_ERR_AGAIN while the next piece
+     * is still crossing the link (poll and call again with the same
+     * arguments), or a FREYA_ERR_*.  *left, when not null, receives the
+     * bytes still to come after this call.  The C6 refuses a body over
+     * FREYA_WEB_BODY_MAX before the request reaches web_take().  The
+     * response is sent with web_begin() as for a GET; a body that was
+     * not read to the end is dropped by the C6. */
+    int      (*web_read)(void *data, int max, uint32_t *left);
 } freya_api_t;
 
 /*

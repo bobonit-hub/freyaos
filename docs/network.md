@@ -121,12 +121,28 @@ prompt instead of waiting indefinitely for the shell prompt.
 
 The same certificate serves HTTPS on port 443. TLS 1.3 is required, and
 nothing listens for cleartext HTTP. The C6 reads one request at a time
-and asks the STM32 for the resource. The file service is `samples/httpd`:
-it maps the URL onto `/www` on the card. A name ending in `.sh` is run as
-a shell script and the printed text is the body. Every other file is sent
-unchanged. GET and HEAD are the only methods.
+and asks the STM32 for the resource. GET, HEAD and POST are the methods.
+A POST carries a `Content-Length` of at most 1 MiB (`FREYA_WEB_BODY_MAX`);
+chunked bodies are refused with 411 and larger ones with 413. The C6 keeps
+8 KiB of the body at a time and reads more as the STM32 takes it, so a
+long upload runs at the pace of the file write on the STM32.
+
+A program takes a request with `api->web_take()`, which fills
+`freya_web_req_t` with the method, the path and the query. For a POST it
+then reads the body with `api->web_read(buf, max, &left)`, at most
+`FREYA_WEB_READ_MAX` (480) bytes a call, until the call returns 0; `left`
+is how much is still to come. The response is `web_begin`, `web_body`,
+`web_end` as for a GET. A body the program does not read to the end is
+dropped when the response begins. `FREYA_API_HAS(api, web_read)` tells a
+kernel that speaks POST from one that does not.
+
+The file service is `samples/httpd`: a password screen tested by a shell
+script with `password_check()`, then a system page from `sysinfo()` and a
+firmware upload that a shell script installs. A name ending in `.sh` under
+the docroot is run as a shell script and the printed text is the body.
+Every other file is sent unchanged.
 
 ```text
 curl --tlsv1.3 -k https://<c6-address>/
-curl --tlsv1.3 -k https://<c6-address>/status.sh
+curl --tlsv1.3 -k -d 'password=12345678' https://<c6-address>/login
 ```

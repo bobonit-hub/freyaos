@@ -494,11 +494,12 @@ command. Quotes hide the hash, so `echo "a # b"` prints the hash. A
 line that is only a comment is skipped.
 
 `source("file")` reads a script from the card and runs it. The file is
-plain text, at most 1024 bytes, and each command is still one line of
-at most 159 characters. `source("@flash")` runs the script stored in the
-program flash region, which needs no card. A short flash script is
-copied into RAM first, so the script may `install` or `uninstall`
-without erasing the text it is still reading; a longer one is read
+plain text, at most 16 KiB, and it has to fit in the heap. Each command
+is still one line of at most 159 characters. `source("@flash")` runs the
+script stored in the program flash region, which needs no card. A flash
+script of at most 16 KiB is copied into RAM first when the heap can hold
+it, so the script may `install` or `uninstall` without erasing the text
+it is still reading; a longer one, or one the heap cannot hold, is read
 from the flash as it runs. `source` inside a script is allowed, three
 deep including the line that started it. Ctrl-C stops the script the
 same way it stops a `loop`.

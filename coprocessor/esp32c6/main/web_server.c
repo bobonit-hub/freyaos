@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <string.h>
+#include <strings.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -23,10 +24,24 @@
 #define WEB_PATH 96
 #define WEB_QUERY 31
 #define WEB_TYPE 40
+#define WEB_REQ 2048                     /* request line and headers      */
+#define WEB_READ_MAX 480                 /* one body piece for the STM32  */
+#define WEB_BODY_MAX (1024U * 1024U)     /* a POST body                   */
 #define WEB_ARG (-3)
 #define WEB_IO (-7)
 #define WEB_AGAIN (-8)
 
+#define M_GET 1
+#define M_HEAD 2
+#define M_POST 3
+
+/*
+ * One request at a time.  PH_REQ: parsed, waiting for the STM32 to take
+ * it (cmd 0).  PH_TAKEN: the STM32 has it; for a POST the ring carries
+ * the request body from TLS to cmd 4 until web_req_fed reaches the
+ * Content-Length.  PH_BODY: cmd 1 started the response and the ring
+ * carries the response body from cmd 2 to TLS.  PH_DONE: cmd 3.
+ */
 enum {
     PH_IDLE = 0,
     PH_REQ,
@@ -44,11 +59,17 @@ static int web_method;
 static int web_status;
 static uint32_t web_length;
 static uint32_t web_sent;
+static uint32_t web_req_len;             /* Content-Length of a POST      */
+static uint32_t web_req_fed;             /* body bytes pushed into ring   */
+static uint32_t web_req_taken;           /* body bytes the STM32 took     */
 static char web_path[WEB_PATH + 1];
 static char web_query[WEB_QUERY + 1];
 static char web_type[WEB_TYPE + 1];
 static uint8_t web_ring[WEB_RING];
 static uint16_t web_head, web_tail;
+
+static char req_buf[WEB_REQ];
+static uint8_t carry_buf[WEB_REQ];       /* body bytes read with headers  */
 
 static bool lock(void)
 {
@@ -99,6 +120,7 @@ static void job_reset(void)
     web_phase = PH_IDLE;
     web_sent = 0;
     web_length = 0;
+    web_req_len = web_req_fed = web_req_taken = 0;
     ring_clear();
 }
 
@@ -191,15 +213,52 @@ static int path_ok(const char *s)
     return 1;
 }
 
-static int parse_request(char *buf, int *method, char *path, char *query)
+/* The value of one header, or NULL.  hdrs is the text after the request
+ * line, still terminated by the blank line. */
+static const char *header_value(const char *hdrs, const char *name,
+                                char *out, int max)
 {
-    char *line_end, *sp, *ver, *qmark;
+    size_t nlen = strlen(name);
 
+    while (*hdrs && !(hdrs[0] == '\r' && hdrs[1] == '\n')) {
+        const char *eol = strstr(hdrs, "\r\n");
+        const char *v;
+        int n;
+
+        if (!eol) eol = hdrs + strlen(hdrs);
+        if (strncasecmp(hdrs, name, nlen) == 0 && hdrs[nlen] == ':') {
+            v = hdrs + nlen + 1;
+            while (v < eol && (*v == ' ' || *v == '\t')) v++;
+            n = (int)(eol - v);
+            while (n > 0 && (v[n - 1] == ' ' || v[n - 1] == '\t')) n--;
+            if (n >= max) n = max - 1;
+            memcpy(out, v, (size_t)n);
+            out[n] = '\0';
+            return out;
+        }
+        if (!*eol) break;
+        hdrs = eol + 2;
+    }
+    return NULL;
+}
+
+/* 0, or -1 bad request, -2 method not allowed, -3 length required,
+ * -4 body too large. */
+static int parse_request(char *buf, int *method, char *path, char *query,
+                         uint32_t *body_len, int *expect100)
+{
+    char *line_end, *sp, *ver, *qmark, *hdrs;
+    char val[32];
+
+    *body_len = 0;
+    *expect100 = 0;
     line_end = strstr(buf, "\r\n");
     if (!line_end) return -1;
     *line_end = '\0';
-    if (strncmp(buf, "GET ", 4) == 0) *method = 1;
-    else if (strncmp(buf, "HEAD ", 5) == 0) *method = 2;
+    hdrs = line_end + 2;
+    if (strncmp(buf, "GET ", 4) == 0) *method = M_GET;
+    else if (strncmp(buf, "HEAD ", 5) == 0) *method = M_HEAD;
+    else if (strncmp(buf, "POST ", 5) == 0) *method = M_POST;
     else return -2;
     sp = strchr(buf, ' ');
     ver = strrchr(buf, ' ');
@@ -218,6 +277,26 @@ static int parse_request(char *buf, int *method, char *path, char *query)
     if (decode_path(sp + 1) != 0) return -1;
     if (strlen(sp + 1) > WEB_PATH || !path_ok(sp + 1)) return -1;
     memcpy(path, sp + 1, strlen(sp + 1) + 1);
+
+    if (*method == M_POST) {
+        uint32_t n = 0;
+        const char *p;
+
+        if (header_value(hdrs, "Transfer-Encoding", val, sizeof val))
+            return -3;
+        p = header_value(hdrs, "Content-Length", val, sizeof val);
+        if (!p || !*p) return -3;
+        for (; *p; p++) {
+            if (*p < '0' || *p > '9') return -1;
+            if (n > WEB_BODY_MAX) return -4;
+            n = n * 10 + (uint32_t)(*p - '0');
+        }
+        if (n > WEB_BODY_MAX) return -4;
+        *body_len = n;
+        if (header_value(hdrs, "Expect", val, sizeof val) &&
+            strcasecmp(val, "100-continue") == 0)
+            *expect100 = 1;
+    }
     return 0;
 }
 
@@ -232,7 +311,7 @@ int web_server_handle(const uint8_t *data, uint16_t length,
     if (!lock()) return WEB_AGAIN;
 
     if (cmd == 0) {
-        int plen, qlen;
+        int plen, qlen, n;
 
         if (web_phase != PH_REQ) {
             unlock();
@@ -245,7 +324,15 @@ int web_server_handle(const uint8_t *data, uint16_t length,
         reply[2] = (uint8_t)qlen;
         memcpy(reply + 3, web_path, (size_t)plen);
         memcpy(reply + 3 + plen, web_query, (size_t)qlen);
-        *reply_length = (uint16_t)(3 + plen + qlen);
+        n = 3 + plen + qlen;
+        if (web_method == M_POST) {
+            reply[n] = (uint8_t)web_req_len;
+            reply[n + 1] = (uint8_t)(web_req_len >> 8);
+            reply[n + 2] = (uint8_t)(web_req_len >> 16);
+            reply[n + 3] = (uint8_t)(web_req_len >> 24);
+            n += 4;
+        }
+        *reply_length = (uint16_t)n;
         web_phase = PH_TAKEN;
         unlock();
         return 0;
@@ -273,6 +360,7 @@ int web_server_handle(const uint8_t *data, uint16_t length,
         web_sent = 0;
         memcpy(web_type, data + 8, (size_t)tlen);
         web_type[tlen] = '\0';
+        /* Whatever of a request body was not read is dropped here. */
         ring_clear();
         web_phase = PH_BODY;
         unlock();
@@ -302,7 +390,7 @@ int web_server_handle(const uint8_t *data, uint16_t length,
     }
 
     if (cmd == 3) {
-        int head = web_method == 2;
+        int head = web_method == M_HEAD;
 
         /* HEAD carries the real length and no body. */
         if (web_phase != PH_BODY ||
@@ -312,6 +400,35 @@ int web_server_handle(const uint8_t *data, uint16_t length,
             return WEB_IO;
         }
         web_phase = PH_DONE;
+        unlock();
+        return 0;
+    }
+
+    if (cmd == 4) {
+        int want, n;
+
+        /* A piece of the POST body: [4, max lo, max hi].  The reply is
+         * the bytes; none once the whole body has been handed over. */
+        if (length < 3 || web_phase != PH_TAKEN) {
+            unlock();
+            return web_phase == PH_TAKEN ? WEB_ARG : WEB_IO;
+        }
+        want = (int)data[1] | ((int)data[2] << 8);
+        if (want < 1 || want > WEB_READ_MAX) {
+            unlock();
+            return WEB_ARG;
+        }
+        if (web_method != M_POST) {
+            unlock();
+            return 0;
+        }
+        n = ring_pop(reply, want);
+        if (n == 0 && web_req_fed < web_req_len) {
+            unlock();
+            return WEB_AGAIN;
+        }
+        web_req_taken += (uint32_t)n;
+        *reply_length = (uint16_t)n;
         unlock();
         return 0;
     }
@@ -374,9 +491,12 @@ static const char *reason_for(int status)
 {
     if (status == 200) return "OK";
     if (status == 400) return "Bad Request";
+    if (status == 401) return "Unauthorized";
     if (status == 403) return "Forbidden";
     if (status == 404) return "Not Found";
     if (status == 405) return "Method Not Allowed";
+    if (status == 411) return "Length Required";
+    if (status == 413) return "Payload Too Large";
     if (status == 500) return "Error";
     if (status == 503) return "Unavailable";
     return "Error";
@@ -402,13 +522,16 @@ static int reply_fixed(esp_tls_t *tls, int status, const char *type,
     return 0;
 }
 
-static int read_headers(esp_tls_t *tls, char *buf, int max)
+/* Read up to the blank line.  Returns the bytes read; *hdr_len is where
+ * the body starts, so buf[*hdr_len .. n) is body already received. */
+static int read_headers(esp_tls_t *tls, char *buf, int max, int *hdr_len)
 {
     int n = 0;
     TickType_t start = xTaskGetTickCount();
 
     while ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(10000)) {
         ssize_t r;
+        char *end;
 
         if (!web_net_up) return -1;
         r = esp_tls_conn_read(tls, buf + n, (size_t)(max - 1 - n));
@@ -419,7 +542,11 @@ static int read_headers(esp_tls_t *tls, char *buf, int max)
         if (r <= 0) return -1;
         n += (int)r;
         buf[n] = '\0';
-        if (strstr(buf, "\r\n\r\n")) return n;
+        end = strstr(buf, "\r\n\r\n");
+        if (end) {
+            *hdr_len = (int)(end + 4 - buf);
+            return n;
+        }
         if (n >= max - 1) return -1;
     }
     return -1;
@@ -441,10 +568,43 @@ static void drop_client(esp_tls_t **tls, int *client)
     }
 }
 
+/* Move POST body bytes from TLS into the ring while the STM32 is still
+ * reading them.  Returns bytes moved, 0 when nothing was ready, -1 when
+ * the client went away. */
+static int feed_body(esp_tls_t *tls, uint8_t *chunk, int chunk_max)
+{
+    int room, want, phase;
+    uint32_t fed, len;
+    ssize_t r;
+
+    if (!lock()) return 0;
+    phase = web_phase;
+    fed = web_req_fed;
+    len = web_req_len;
+    room = ring_free();
+    unlock();
+    if ((phase != PH_REQ && phase != PH_TAKEN) || fed >= len) return 0;
+    want = chunk_max;
+    if (want > room) want = room;
+    if ((uint32_t)want > len - fed) want = (int)(len - fed);
+    if (want <= 0) return 0;
+    r = esp_tls_conn_read(tls, chunk, (size_t)want);
+    if (r == ESP_TLS_ERR_SSL_WANT_READ || r == ESP_TLS_ERR_SSL_WANT_WRITE)
+        return 0;
+    if (r <= 0) return -1;
+    /* What was read is kept: wait for the lock rather than lose it. */
+    while (!lock()) vTaskDelay(1);
+    if ((web_phase == PH_REQ || web_phase == PH_TAKEN) &&
+        ring_push_all(chunk, (int)r) >= 0)
+        web_req_fed += (uint32_t)r;
+    unlock();
+    return (int)r;
+}
+
 static int serve(esp_tls_t *tls, int method)
 {
     int status, tlen, head_only;
-    uint32_t length, got;
+    uint32_t length, got, taken_seen = 0;
     char type[WEB_TYPE + 1];
     char hdr[240];
     TickType_t start;
@@ -455,14 +615,20 @@ static int serve(esp_tls_t *tls, int method)
     length = 0;
     type[0] = '\0';
     for (;;) {
-        int phase;
+        int phase, moved = 0;
+        uint32_t taken = 0;
 
         if (!web_net_up) return -1;
+        if (method == M_POST) {
+            moved = feed_body(tls, chunk, (int)sizeof chunk);
+            if (moved < 0) return -1;
+        }
         if (!lock()) {
             vTaskDelay(1);
             continue;
         }
         phase = web_phase;
+        taken = web_req_taken;
         if (phase == PH_BODY) {
             status = web_status;
             length = web_length;
@@ -472,6 +638,12 @@ static int serve(esp_tls_t *tls, int method)
         }
         unlock();
         if (phase == PH_IDLE) return -1;
+        /* Progress on the body restarts the clock: a long upload is
+         * bounded by the STM32's pace, not by one timeout. */
+        if (moved > 0 || taken != taken_seen) {
+            taken_seen = taken;
+            start = xTaskGetTickCount();
+        }
         if ((xTaskGetTickCount() - start) > pdMS_TO_TICKS(15000)) {
             if (lock()) {
                 if (web_phase == PH_BODY) {
@@ -487,7 +659,8 @@ static int serve(esp_tls_t *tls, int method)
             reply_fixed(tls, 503, "text/plain", "file service down\n");
             return -1;
         }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        if (moved <= 0)
+            vTaskDelay(method == M_POST ? 1 : pdMS_TO_TICKS(20));
     }
 
     tlen = snprintf(hdr, sizeof hdr,
@@ -502,7 +675,7 @@ static int serve(esp_tls_t *tls, int method)
         tls_write_all(tls, hdr, tlen) != 0)
         return -1;
 
-    head_only = method == 2;
+    head_only = method == M_HEAD;
     got = 0;
     start = xTaskGetTickCount();
     while (!head_only && got < length) {
@@ -542,13 +715,19 @@ static int serve(esp_tls_t *tls, int method)
     }
 }
 
+static const char *method_name(int method)
+{
+    if (method == M_HEAD) return "HEAD";
+    if (method == M_POST) return "POST";
+    return "GET";
+}
+
 static void web_task(void *arg)
 {
     int listen_fd = -1;
     int client = -1;
     esp_tls_t *tls = NULL;
     esp_tls_cfg_server_t cfg;
-    char req[1024];
 
     (void)arg;
     memset(&cfg, 0, sizeof cfg);
@@ -559,7 +738,8 @@ static void web_task(void *arg)
     cfg.tls_handshake_timeout_ms = 10000;
 
     for (;;) {
-        int method, parsed, n;
+        int method, parsed, n, hdr_len = 0, carry, expect100;
+        uint32_t body_len;
         char path[WEB_PATH + 1];
         char query[WEB_QUERY + 1];
         void *ssl;
@@ -612,14 +792,30 @@ static void web_task(void *arg)
             fcntl(client, F_SETFL, fcntl(client, F_GETFL, 0) | O_NONBLOCK);
         }
 
-        n = read_headers(tls, req, (int)sizeof req);
+        n = read_headers(tls, req_buf, (int)sizeof req_buf, &hdr_len);
         if (n < 0) {
             drop_client(&tls, &client);
             continue;
         }
-        parsed = parse_request(req, &method, path, query);
+        /* Body bytes that arrived with the headers are kept aside; the
+         * header text is then cut where the body starts. */
+        carry = n - hdr_len;
+        if (carry > 0) memcpy(carry_buf, req_buf + hdr_len, (size_t)carry);
+        req_buf[hdr_len] = '\0';
+        parsed = parse_request(req_buf, &method, path, query, &body_len,
+                               &expect100);
         if (parsed == -2) {
             reply_fixed(tls, 405, "text/plain", "method not allowed\n");
+            drop_client(&tls, &client);
+            continue;
+        }
+        if (parsed == -3) {
+            reply_fixed(tls, 411, "text/plain", "length required\n");
+            drop_client(&tls, &client);
+            continue;
+        }
+        if (parsed == -4) {
+            reply_fixed(tls, 413, "text/plain", "body too large\n");
             drop_client(&tls, &client);
             continue;
         }
@@ -628,6 +824,8 @@ static void web_task(void *arg)
             drop_client(&tls, &client);
             continue;
         }
+        if (method != M_POST) carry = 0;
+        if ((uint32_t)carry > body_len) carry = (int)body_len;
         if (!lock()) {
             drop_client(&tls, &client);
             continue;
@@ -636,10 +834,25 @@ static void web_task(void *arg)
         memcpy(web_query, query, sizeof web_query);
         web_method = method;
         web_sent = 0;
+        web_req_len = body_len;
+        web_req_fed = 0;
+        web_req_taken = 0;
         ring_clear();
+        if (carry > 0) {
+            ring_push_all(carry_buf, carry);
+            web_req_fed = (uint32_t)carry;
+        }
         web_phase = PH_REQ;
         unlock();
-        ESP_LOGI(TAG, "%s %s", method == 2 ? "HEAD" : "GET", path);
+        if (method == M_POST)
+            ESP_LOGI(TAG, "POST %s, %u bytes", path, (unsigned)body_len);
+        else
+            ESP_LOGI(TAG, "%s %s", method_name(method), path);
+        if (expect100 && web_req_fed < body_len &&
+            tls_write_all(tls, "HTTP/1.1 100 Continue\r\n\r\n", 25) != 0) {
+            drop_client(&tls, &client);
+            continue;
+        }
         if (serve(tls, method) != 0)
             ESP_LOGW(TAG, "response failed for %s", path);
         drop_client(&tls, &client);

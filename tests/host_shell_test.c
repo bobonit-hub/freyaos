@@ -437,8 +437,10 @@ int app_script_find(const char **text, uint32_t *length)
 }
 
 /* First fit, so the shell can free an array or a dict and use the
- * bytes again.  The kernel heap does the same on the board. */
-static char s_km[8192];
+ * bytes again.  The kernel heap does the same on the board.  The pool
+ * is large enough to source a script at FREYA_SCRIPT_FILE_MAX on top of
+ * whatever earlier checks still hold. */
+static char s_km[48 * 1024];
 static int s_km_ready;
 
 typedef struct {
@@ -1443,6 +1445,26 @@ int main(void)
         expect_exact("source refuses a long file", "source: script too long\r\n");
     }
 
+    if (FREYA_SCRIPT_FILE_MAX == 16U * 1024U)
+        pass("source accepts a script of 16 KiB");
+    else
+        fail("source accepts a script of 16 KiB");
+    {
+        static char full[FREYA_SCRIPT_FILE_MAX + 1];
+        int i;
+
+        for (i = 0; i < (int)FREYA_SCRIPT_FILE_MAX - 8; i += 2) {
+            full[i] = '#';
+            full[i + 1] = '\n';
+        }
+        memcpy(full + FREYA_SCRIPT_FILE_MAX - 8, "echo ok\n", 8);
+        full[FREYA_SCRIPT_FILE_MAX] = '\0';
+        plant_script("/t.sh", full);
+        rc = run("source /t.sh");
+        expect_rc("source of a 16 KiB script succeeds", rc, 0);
+        expect_exact("a 16 KiB script runs its last line", "ok\r\n");
+    }
+
     {
         static char line[200];
         memset(line, 'b', sizeof line - 1);
@@ -1693,7 +1715,9 @@ int main(void)
     rc = run("set a[8] \"z\"; set n len($a); echo $n; echo $a[8]");
     expect_rc("a string array grows past eight elements", rc, 0);
     expect_exact("heap-backed string elements are readable", "9\r\nz\r\n");
-    rc = run("set a[2000] \"too large\"");
+    /* The host heap also holds a 16 KiB script, so this index asks for
+     * more bytes than that pool has. */
+    rc = run("set a[8000] \"too large\"");
     expect_rc("an array cannot grow beyond the heap", rc, FREYA_EXIT_FAIL);
     expect_has("heap exhaustion is reported", "out of memory");
     rc = run("echo $a[0]");
@@ -2957,7 +2981,7 @@ int main(void)
     rc = run("set n tclose(0)");
     expect_rc("ownership test timer closes", rc, 0);
 
-    rc = run("set p[3000] 1");
+    rc = run("set p[16000] 1");
     expect_rc("heap-limited first indexed write fails", rc, FREYA_EXIT_FAIL);
     rc = run("unset p");
     expect_rc("failed first indexed write leaves no variable", rc, FREYA_EXIT_FAIL);

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>Freya</title>
+<style>
+body { font-family: sans-serif; margin: 2em auto; max-width: 48em; padding: 0 1em; }
+h1 { font-weight: normal; display: flex; justify-content: space-between; align-items: baseline; }
+h1 a { font-size: .5em; }
+nav button { font: inherit; padding: .5em 1.2em; border: 1px solid #888; background: #eee; cursor: pointer; }
+nav button.on { background: #fff; border-bottom-color: #fff; font-weight: bold; }
+section { border: 1px solid #888; margin-top: -1px; padding: 1em; }
+section:not(.on) { display: none; }
+pre { background: #f4f4f4; padding: .8em; overflow: auto; white-space: pre-wrap; }
+button.act { font: inherit; padding: .4em 1.2em; }
+input[type=file] { font: inherit; }
+.row { margin: .8em 0; }
+</style>
+</head>
+<body>
+<h1>Freya <a id="logout" href="/logout">log out</a></h1>
+<nav>
+<button id="tab-system" class="on">System</button>
+<button id="tab-firmware">Firmware</button>
+</nav>
+
+<section id="system" class="on">
+<div class="row"><button class="act" id="refresh">Refresh</button></div>
+<pre id="sysinfo">loading...</pre>
+</section>
+
+<section id="firmware">
+<p>A Freya program image (<code>.xip.bin</code>) or a shell script for the
+program flash region. The file goes to <code>/spi1/firmware.bin</code>;
+<code>update.sh</code> checks its checksum, installs it and then removes it.
+The server exits while that happens, so log in again afterwards.</p>
+<div class="row"><input type="file" id="file"></div>
+<div class="row"><button class="act" id="update">Update</button></div>
+<pre id="result">Last update:
+loading...</pre>
+</section>
+
+<script>
+(function () {
+  var token = new URLSearchParams(location.search).get('t') || '';
+  var q = '?t=' + encodeURIComponent(token);
+  document.getElementById('logout').href = '/logout' + q;
+
+  function show(name) {
+    ['system', 'firmware'].forEach(function (id) {
+      document.getElementById(id).classList.toggle('on', id === name);
+      document.getElementById('tab-' + id).classList.toggle('on', id === name);
+    });
+    if (name === 'system') loadSysinfo();
+    if (name === 'firmware') loadLog();
+  }
+  document.getElementById('tab-system').onclick = function () { show('system'); };
+  document.getElementById('tab-firmware').onclick = function () { show('firmware'); };
+
+  function get(url, into, prefix) {
+    var el = document.getElementById(into);
+    return fetch(url, { cache: 'no-store' }).then(function (r) {
+      if (r.status === 403) { location.href = '/'; return ''; }
+      return r.text();
+    }).then(function (text) {
+      el.textContent = (prefix || '') + text;
+    }).catch(function (e) {
+      el.textContent = 'request failed: ' + e;
+    });
+  }
+  function loadSysinfo() { return get('/sysinfo.sh' + q, 'sysinfo'); }
+  function loadLog() { return get('/firmware' + q, 'result', 'Last update:\n'); }
+  document.getElementById('refresh').onclick = loadSysinfo;
+
+  /* The firmware control sum: every byte added into 32 bits, the same
+   * number file_checksum() and cksum() print, as hex() writes it. */
+  function byteSum(bytes) {
+    var sum = 0;
+    for (var i = 0; i < bytes.length; i++) sum += bytes[i];
+    return (sum % 4294967296).toString(16);
+  }
+
+  function waitForServer(el) {
+    var tries = 0;
+    function poll() {
+      fetch('/', { cache: 'no-store' }).then(function (r) {
+        if (r.ok) {
+          el.textContent += '\nThe server is back: log in again to see the result.';
+          var a = document.createElement('a');
+          a.href = '/';
+          a.textContent = 'Log in';
+          el.parentNode.appendChild(a);
+        } else {
+          throw new Error('not yet');
+        }
+      }).catch(function () {
+        if (++tries < 60) setTimeout(poll, 3000);
+        else el.textContent += '\nThe server has not come back; check the console.';
+      });
+    }
+    setTimeout(poll, 3000);
+  }
+
+  document.getElementById('update').onclick = function () {
+    var file = document.getElementById('file').files[0];
+    var el = document.getElementById('result');
+    var button = this;
+
+    if (!file) { el.textContent = 'Choose a file first.'; return; }
+    button.disabled = true;
+    el.textContent = 'Reading ' + file.name + ' (' + file.size + ' bytes)...';
+    file.arrayBuffer().then(function (buf) {
+      var sum = byteSum(new Uint8Array(buf));
+      el.textContent = 'Uploading ' + file.size + ' bytes, checksum ' + sum + '...';
+      return fetch('/firmware' + q + '&sum=' + sum, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: buf
+      });
+    }).then(function (r) {
+      return r.text().then(function (text) {
+        el.textContent = (r.ok ? '' : 'Refused (' + r.status + '): ') + text;
+        if (r.ok) waitForServer(el);
+        else button.disabled = false;
+      });
+    }).catch(function (e) {
+      el.textContent = 'upload failed: ' + e;
+      button.disabled = false;
+    });
+  };
+
+  show('system');
+})();
+</script>
+</body>
+</html>

@@ -1824,8 +1824,9 @@ static int KEXT cmd_source(int argc, char **argv)
                 kprintf("source: no script in flash\r\n");
             return -1;
         }
-        /* A short script is copied so a later 'install' can erase the
-         * flash it was stored in.  A longer one is read from the flash. */
+        /* A script within FREYA_SCRIPT_FILE_MAX is copied so a later
+         * 'install' can erase the flash it was stored in.  A longer one,
+         * or one the heap cannot hold, is read from the flash. */
         if (n <= FREYA_SCRIPT_FILE_MAX && (buf = kmalloc(n + 1U)) != NULL) {
             memcpy(buf, text, n);
             buf[n] = '\0';

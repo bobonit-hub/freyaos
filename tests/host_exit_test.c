@@ -100,10 +100,16 @@ int main(void)
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
     api.size = sizeof(freya_api_t);
-    check("settings area size is the last call in the table",
+    check("web_read is the last call in the table",
           (int)sizeof(freya_api_t),
-          (int)(__builtin_offsetof(freya_api_t, settings_area_size) +
-                sizeof(api.settings_area_size)));
+          (int)(__builtin_offsetof(freya_api_t, web_read) +
+                sizeof(api.web_read)));
+    api.size = __builtin_offsetof(freya_api_t, web_read);
+    check("a kernel from before POST bodies does not offer web_read",
+          0, FREYA_API_HAS(&api, web_read) ? 1 : 0);
+    check("but still offers the settings area size",
+          1, FREYA_API_HAS(&api, settings_area_size) ? 1 : 0);
+    api.size = sizeof(freya_api_t);
     check("a full table includes the appended network API",
           1, FREYA_API_HAS(&api, net_poll) ? 1 : 0);
     check("a full table includes TLS 1.3 connect",

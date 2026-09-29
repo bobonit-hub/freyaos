@@ -10,6 +10,8 @@ static uint8_t last_data[ESP_FRAME_PAYLOAD];
 static int next_socket;
 static int tls_attempts;
 static int http_reads;
+static int web_reads;
+static int web_post;          /* the mock C6 holds a POST, not a GET */
 static uint32_t ticks;
 
 int app_in_handler(void) { return 0; }
@@ -68,6 +70,35 @@ int esp_link_response(uint16_t op, void *p, uint16_t *n)
         } else {
             *n = 0;
         }
+    } else if (op == ESP_OP_WEB && last_data[0] == 0) {
+        /* The request: method, path, query, and for a POST the length. */
+        uint8_t *r = p;
+        const char *path = web_post ? "/firmware" : "/index.html";
+        const char *query = web_post ? "t=0123456789ab&sum=1c2" : "";
+        int pl = (int)strlen(path), ql = (int)strlen(query);
+
+        r[0] = (uint8_t)(web_post ? FREYA_WEB_POST : FREYA_WEB_GET);
+        r[1] = (uint8_t)pl;
+        r[2] = (uint8_t)ql;
+        memcpy(r + 3, path, (size_t)pl);
+        memcpy(r + 3 + pl, query, (size_t)ql);
+        *n = (uint16_t)(3 + pl + ql);
+        if (web_post) {
+            r[*n] = 7; r[*n + 1] = 0; r[*n + 2] = 0; r[*n + 3] = 0;
+            *n = (uint16_t)(*n + 4);
+        }
+    } else if (op == ESP_OP_WEB && last_data[0] == 4) {
+        /* The body, 7 bytes, in two pieces and then the end. */
+        int want = last_data[1] | (last_data[2] << 8);
+        const char *body = "payload";
+        int off = web_reads == 0 ? 0 : 4;
+        int piece = web_reads == 0 ? 4 : 3;
+
+        if (!web_post || web_reads >= 2) piece = 0;
+        if (piece > want) piece = want;
+        memcpy(p, body + off, (size_t)piece);
+        *n = (uint16_t)piece;
+        if (web_post) web_reads++;
     } else if (n) {
         *n = 0;
     }
@@ -149,6 +180,40 @@ int main(void)
           "curl response body streams back to Freya");
     FINISH(net_http_close(), rc);
     check(rc == 0, "curl response resources close");
+
+    {
+        freya_web_req_t req;
+        uint32_t left = 99;
+        char body[8];
+
+        FINISH(web_take(&req), rc);
+        check(rc == 0 && req.method == FREYA_WEB_GET &&
+              strcmp(req.path, "/index.html") == 0 && req.query[0] == '\0',
+              "a GET request decodes without a body length");
+        FINISH(web_read(body, sizeof body, &left), rc);
+        check(rc == 0 && left == 0, "a GET has no body to read");
+
+        web_post = 1;
+        FINISH(web_take(&req), rc);
+        check(rc == 0 && req.method == FREYA_WEB_POST &&
+              strcmp(req.path, "/firmware") == 0 &&
+              strcmp(req.query, "t=0123456789ab&sum=1c2") == 0,
+              "a POST request decodes with its path and query");
+        check(web_read(body, 0, &left) == FREYA_ERR_ARG,
+              "web_read needs room for at least one byte");
+        memset(body, 0, sizeof body);
+        FINISH(web_read(body, sizeof body, &left), rc);
+        check(rc == 4 && memcmp(body, "payl", 4) == 0 && left == 3 &&
+              last_data[0] == 4 && last_len == 3 &&
+              (last_data[1] | (last_data[2] << 8)) == (int)sizeof body,
+              "web_read asks the C6 for a bounded piece and counts down");
+        FINISH(web_read(body, sizeof body, &left), rc);
+        check(rc == 3 && memcmp(body, "oad", 3) == 0 && left == 0,
+              "the rest of the body follows");
+        FINISH(web_read(body, sizeof body, NULL), rc);
+        check(rc == 0, "the end of the body is a zero-length read");
+        web_post = 0;
+    }
 
     g_app.running = 1;
     FINISH(net_socket(FREYA_AF_INET, FREYA_SOCK_DGRAM, FREYA_IPPROTO_UDP), rc);

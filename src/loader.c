@@ -477,6 +477,7 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .shell_source_capture = shell_source_capture,
     .settings_block  = settings_block,
     .settings_area_size = settings_area_size,
+    .web_read        = web_read,
 };
 
 const freya_api_t *app_api(void)

@@ -1,1 +1,0 @@
-Hello from the STM32 filesystem.

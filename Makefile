@@ -151,8 +151,10 @@ SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 crypt flashprobe
 # Altair keeps the 8080's RAM in the program region.  The Blue Pill's
 # window is 8 KiB of a 20 KiB SRAM, which cannot hold that.  basic11 is
 # the BASIC interpreter compiled for the board with the FPU's floats for
-# its numbers; the Blue Pill's Cortex-M3 has no FPU.
-SKIP_bluepill := altair basic11
+# its numbers; the Blue Pill's Cortex-M3 has no FPU.  httpd keeps a 4 KiB
+# page beside its upload buffers and needs the ESP32-C6, which the Blue
+# Pill has no link for.
+SKIP_bluepill := altair basic11 httpd
 SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the

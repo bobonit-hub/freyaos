@@ -55,8 +55,11 @@ P-256 certificate in `certs/freya.crt` (the matching key is `certs/freya.key`,
 compiled into the image). The terminal login is the username `admin` and
 the eight-byte password stored by Freya's `password` command. The web
 server is TLS 1.3 only. It parses the request and asks the STM32 file
-service (`samples/httpd`) for a static file or a shell-script page.
-Console bytes then cross SPI in the clear, as with every other C6 payload.
+service (`samples/httpd`) for a static file or a shell-script page. A
+POST body of up to 1 MiB is passed on in pieces of at most 480 bytes as
+the STM32 asks for them, through an 8 KiB ring; `Expect: 100-continue`
+is answered, chunked bodies are refused with 411. Console bytes then
+cross SPI in the clear, as with every other C6 payload.
 
 The ESP-IDF pin assignment is in `main/freya_coprocessor.c`; the MicroPython
 assignment is in `freya_link.c`. Keep both files and the wiring lists above
