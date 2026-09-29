@@ -20,7 +20,7 @@
  *     GET  /app.html?t=         the tabs; every other file or .sh page
  *                               under the docroot needs the token too
  *     POST /firmware?t=&sum=    stores the body in /spi1/firmware.bin
- *     GET  /firmware?t=         the log update.sh wrote, /spi1/update.log
+ *     GET  /firmware?t=         the file log update.sh writes, /freya.log
  *
  * A session is one token, t= in the query of every request after the
  * login. The page keeps it. It lasts SESSION_MS from the last request,
@@ -32,7 +32,7 @@
  * answers the request, writes the sum to /spi1/firmware.sum and exits
  * with status 3. httpd.sh then sources update.sh, which checks the
  * stored file's checksum again, install()s it, removes the file, logs
- * the result to /spi1/update.log, and starts httpd again.
+ * the result with log(), and starts httpd again.
  */
 #include "freya_api.h"
 
@@ -48,7 +48,7 @@ _Static_assert(2 + TOKEN_LEN + 5 + 8 <= FREYA_WEB_QUERY,
 
 #define FW_FILE     "/spi1/firmware.bin"
 #define FW_SUM      "/spi1/firmware.sum"
-#define FW_LOG      "/spi1/update.log"
+#define FW_LOG      FREYA_LOG_PATH
 #ifdef FREYA_APP_FLASH_SIZE
 #define FW_MAX      FREYA_APP_FLASH_SIZE
 #else
@@ -698,7 +698,7 @@ static void serve(const freya_api_t *api, const freya_web_req_t *req)
         int fd = api->open(FW_LOG, FREYA_O_RDONLY);
 
         if (fd < 0) {
-            rc = send_text(api, req->method, 200, "no firmware update yet\n");
+            rc = send_text(api, req->method, 200, "no log yet\n");
         } else {
             api->close(fd);
             rc = send_file(api, req->method, FW_LOG, "text/plain; charset=utf-8");

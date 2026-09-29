@@ -307,6 +307,7 @@ These names are built in. `fn` refuses each of them with `bad name`.
 | Memory | `flash_read`, `flash_write`, `ram_read`, `ram_write`, `ram_checksum` |
 | Patterns | `match`, `find`, `gsub` |
 | Terminal | `password_check` |
+| Log | `log` |
 
 ## Arrays and dicts
 
@@ -597,6 +598,22 @@ freya: echo($n)
 freya: set n now()
 freya: echo($n)
 1767225600
+```
+
+## Log
+
+`log(level, message)` writes one line to the file log, the same line a
+program's `log` writes. The level is `error`, `warn`, `info` or `debug`,
+or the integers 1 to 4. The message is a string. A `%` in it is stored
+as itself. The stored line is `YYYY-MM-DD HH:MM:SS LEVEL message` in
+`/freya.log`. A level quieter than the current one writes nothing, and
+so does `loglevel` off; the call still succeeds. A long message is cut
+so the line fits the file log. The call returns 0. `off` and 0 are not
+levels a line can have.
+
+```
+freya: log("info", "ready")
+freya: set n log("error", "failed " + $code)
 ```
 
 ## Pins

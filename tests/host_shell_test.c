@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <sys/mman.h>
 
 #include "freya.h"
@@ -383,6 +384,21 @@ void fs_close_all(void)
 int  log_get_level(void)               { return 3; }
 int  log_set_level(int level)          { (void)level; return 0; }
 const char *log_level_str(int level)   { (void)level; return "info"; }
+
+static int  s_klog_n;
+static int  s_klog_level;
+static char s_klog_msg[128];
+
+void klog(int level, const char *fmt, ...)
+{
+    va_list ap;
+
+    s_klog_n++;
+    s_klog_level = level;
+    va_start(ap, fmt);
+    vsnprintf(s_klog_msg, sizeof s_klog_msg, fmt, ap);
+    va_end(ap);
+}
 
 int  app_autostart_enabled(void)       { return 0; }
 int  app_autostart_set(int enable)     { (void)enable; return 0; }
@@ -3343,6 +3359,57 @@ int main(void)
     rc = run("echo $b");
     expect_exact("the old password no longer matches", "false\r\n");
     rc = run("unset b");
+
+    printf("log\n");
+    s_klog_n = 0;
+    rc = run("log(\"info\", \"ready\")");
+    expect_rc("log writes a line", rc, 0);
+    expect_exact("log prints nothing of its own", "");
+    if (s_klog_n == 1 && s_klog_level == FREYA_LOG_INFO &&
+        strcmp(s_klog_msg, "ready") == 0)
+        pass("log info reaches the file log");
+    else
+        fail("log info reaches the file log");
+    rc = run("set n log(1, \"failed\")");
+    expect_rc("log of an integer level succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("log returns 0", "0\r\n");
+    if (s_klog_level == FREYA_LOG_ERROR && strcmp(s_klog_msg, "failed") == 0)
+        pass("an integer level is the error line");
+    else
+        fail("an integer level is the error line");
+    rc = run("set n log(\"debug\", \"100%\")");
+    expect_rc("log of a percent succeeds", rc, 0);
+    if (strcmp(s_klog_msg, "100%") == 0)
+        pass("a percent in the message is kept");
+    else
+        fail("a percent in the message is kept");
+    rc = run("set n log(1b, \"byte\")");
+    expect_rc("log of a byte level succeeds", rc, 0);
+    if (s_klog_level == FREYA_LOG_ERROR && strcmp(s_klog_msg, "byte") == 0)
+        pass("a byte level is the error line");
+    else
+        fail("a byte level is the error line");
+    rc = run("log(\"off\", \"x\")");
+    expect_rc("off is not a message level", rc, FREYA_EXIT_FAIL);
+    expect_has("off is refused", "usage:");
+    rc = run("set n log(0, \"x\")");
+    expect_rc("level 0 is refused", rc, FREYA_EXIT_FAIL);
+    expect_has("level 0 is a bad expression", "bad expression");
+    rc = run("set n log(\"info\", 1)");
+    expect_rc("the message is a string", rc, FREYA_EXIT_FAIL);
+    expect_has("a number is not a message", "bad expression");
+    rc = run("set n log(\"nope\", \"x\")");
+    expect_rc("an unknown level fails", rc, FREYA_EXIT_FAIL);
+    rc = run("set n log(\"info\")");
+    expect_rc("log wants a message", rc, FREYA_EXIT_FAIL);
+    rc = run("fn log; return 1; end");
+    expect_rc("log cannot be defined", rc, FREYA_EXIT_FAIL);
+    expect_has("fn refuses log", "bad name");
+    rc = run("help(\"log\")");
+    expect_exact("help log shows the call",
+                 "log(\"error\"|\"warn\"|\"info\"|\"debug\"|1..4, message)\r\n");
+    rc = run("unset n");
 
     printf("%d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;

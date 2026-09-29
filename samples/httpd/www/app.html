@@ -37,7 +37,7 @@ program flash region. The file goes to <code>/spi1/firmware.bin</code>;
 The server exits while that happens, so log in again afterwards.</p>
 <div class="row"><input type="file" id="file"></div>
 <div class="row"><button class="act" id="update">Update</button></div>
-<pre id="result">Last update:
+<pre id="result">Log:
 loading...</pre>
 </section>
 
@@ -70,7 +70,7 @@ loading...</pre>
     });
   }
   function loadSysinfo() { return get('/sysinfo.sh' + q, 'sysinfo'); }
-  function loadLog() { return get('/firmware' + q, 'result', 'Last update:\n'); }
+  function loadLog() { return get('/firmware' + q, 'result', 'Log:\n'); }
   document.getElementById('refresh').onclick = loadSysinfo;
 
   /* The firmware control sum: every byte added into 32 bits, the same

@@ -38,6 +38,8 @@ The program ABI is still version 3.
   `FREYA_ERR_UNSUPPORTED` and the command says so. The reference
   implementation is `third_party/ascon`, CC0. See
   [docs/aead.md](docs/aead.md).
+* `log(level, message)` appends one line to the file log from a shell
+  script. The level is `error`, `warn`, `info`, `debug`, or 1 to 4.
 
 # Freya 3.1.1 "Poltergeist"
 

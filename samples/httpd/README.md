@@ -37,13 +37,14 @@ The second screen, `app.html`, has two tabs:
 `install()` cannot run from a page: it needs the program region the
 serving program occupies, so the flash step is a shell script that runs
 once httpd has exited. `update.sh` checks the stored file against the
-sum, `install()`s it and appends one line to `/spi1/update.log`.
+sum, `install()`s it and writes one `log("info", ...)` line.
 The file and the sum are removed after a successful install, and when
 the checksum does not match. An install that fails leaves them, so
 `source("/spi1/update.sh")` can try again. `httpd.sh` starts httpd,
 sources `update.sh` after an exit with status 3, and starts httpd
-again. The Firmware tab shows that log on its next visit, after a new
-login.
+again. The Firmware tab shows `/freya.log` on its next visit, after a
+new login. With no card the same line goes to the console, and the tab
+says there is no log yet.
 
 ## Files
 
@@ -58,8 +59,8 @@ login.
 | `www/sysinfo.sh` | `/spi1/www/sysinfo.sh` | `sysinfo()` |
 
 `update.sh` and `httpd.sh` live outside the docroot, so a browser cannot
-run them as pages. The upload, its sum and the log are always under
-`/spi1`; the docroot is the argument:
+run them as pages. The upload and its sum are always under `/spi1`.
+The log line is the file log, `/freya.log`. The docroot is the argument:
 
 ```
 freya: mount()
@@ -99,7 +100,7 @@ or `hex(file_checksum("/spi1/blink.xip.bin"))` at the console.
 | `GET /logout?t=…` | forgets the token |
 | `GET /app.html?t=…` | the tabs; every other file or `.sh` page under the docroot needs the token too |
 | `POST /firmware?t=…&sum=…` | stores the body in `/spi1/firmware.bin` and exits with status 3 |
-| `GET /firmware?t=…` | `/spi1/update.log` |
+| `GET /firmware?t=…` | `/freya.log` |
 
 A `.sh` page is run with `source`, and what it prints is the page.
 `$method` is `GET` or `HEAD` and `$query` is the query string, at most 31

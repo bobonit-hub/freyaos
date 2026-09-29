@@ -2,7 +2,7 @@
 # /spi1/firmware.bin and the checksum the browser sent in
 # /spi1/firmware.sum, then exits with status 3. This script checks the
 # stored file against that sum, install()s it into the program flash
-# region and logs one line to /spi1/update.log. The file and the sum are
+# region and logs one line with log(). The file and the sum are
 # removed after a successful install, and when the checksum does not
 # match. An install that fails leaves them, so the script can be run again.
 # install() is refused from a page, so httpd.sh sources this after
@@ -28,5 +28,5 @@ set msg "checksum mismatch: file " + $have + ", sent " + $want
 rm($fw, "/spi1/firmware.sum")
 end
 end
-write("/spi1/update.log", date() + " " + $msg)
+log("info", $msg)
 echo($msg)

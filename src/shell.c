@@ -1501,6 +1501,18 @@ static int cmd_loglevel(int argc, char **argv)
     return 0;
 }
 
+/* One file-log line.  "%s" keeps a percent sign in the message literal. */
+static int cmd_log(int argc, char **argv)
+{
+    int level;
+
+    if (argc != 3 || parse_log_level(argv[1], &level) != 0 ||
+        level < FREYA_LOG_ERROR || level > FREYA_LOG_DEBUG)
+        return usage("log \"error\"|\"warn\"|\"info\"|\"debug\"|1..4 <message>");
+    klog(level, "%s", argv[2]);
+    return 0;
+}
+
 static int cmd_threads(int argc, char **argv)
 {
     if (argc > 1) return usage("threads");
@@ -3078,6 +3090,7 @@ static const command_t s_cmds[] = {
 #endif
     { "date",     cmd_date,     "date([\"YYYY-MM-DD HH:MM:SS\"])" },
     { "loglevel", cmd_loglevel, "loglevel([\"off\"|\"error\"|\"warn\"|\"info\"|\"debug\"|0..4])" },
+    { "log",      cmd_log,      "log(\"error\"|\"warn\"|\"info\"|\"debug\"|1..4, message)" },
     { "uptime",   cmd_uptime,   "uptime()" },
     { "led",      cmd_led,      "led(\"on\"|\"off\"|\"blink\")" },
     { "pin",      cmd_pin,      "pin(\"pin\" [, \"in\"|\"up\"|\"down\"|\"out\"|\"od\"|\"analog\"|0|1|\"toggle\" [, 0|1|\"toggle\"]])" },
@@ -4675,7 +4688,8 @@ static int KEXT fn_reserved(const char *s, int n)
         "flash_read", "flash_write",
         "ram_read", "ram_write", "ram_checksum",
         "match", "find", "gsub",
-        "password_check"
+        "password_check",
+        "log"
     };
     int i;
 
@@ -7100,6 +7114,28 @@ static int password_match(const uint8_t *stored, const char *got, int n)
  * The compare is the one the boot prompt uses: every byte, whatever the
  * length of the text.
  */
+/* log(level, message) is one file-log line.  The level is a name or 1..4.
+ * off writes nothing, so it is refused.  The message is a string; a % in
+ * it is stored as itself. */
+static int KEXT log_builtin(fn_arg_t *args, int argc, val_t *out)
+{
+    int level;
+
+    if (argc != 2) return vfail("bad expression");
+    if (args[0].type == V_INT || args[0].type == V_BYTE)
+        level = (int)args[0].u.i;
+    else if (args[0].type != V_STR ||
+             parse_log_level(str_text(args[0].u.s), &level) != 0)
+        return vfail("bad expression");
+    if (level < FREYA_LOG_ERROR || level > FREYA_LOG_DEBUG)
+        return vfail("bad expression");
+    if (args[1].type != V_STR) return vfail("bad expression");
+    klog(level, "%s", str_text(args[1].u.s));
+    out->type = V_INT;
+    out->i = 0;
+    return 1;
+}
+
 static int KEXT password_builtin(fn_arg_t *args, int argc, val_t *out)
 {
     out->type = V_BOOL;
@@ -7315,6 +7351,8 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         return sh_yield_fn(args, argc, out);
     if (nlen == 14 && strncmp(name, "password_check", 14) == 0)
         return password_builtin(args, argc, out);
+    if (nlen == 3 && strncmp(name, "log", 3) == 0)
+        return log_builtin(args, argc, out);
     if ((rc = file_builtin(name, nlen, args, argc, out)) != 0) return rc;
     if ((rc = binary_builtin(name, nlen, args, argc, out)) != 0) return rc;
     if ((rc = pat_builtin(name, nlen, args, argc, out)) != 0) return rc;

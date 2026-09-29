@@ -84,7 +84,7 @@ Freya 3.1.2 "Poltergeist" for STM32F103C8T6
 * Uses an optional ESP32-C6 for Wi-Fi, DHCP, DNS, ping, bounded nonblocking
   IPv4 TCP/UDP sockets and verified TLS 1.3 client connections on the F4 boards
   ([docs/network.md](docs/network.md)).
-* Logs dated messages from programs and the kernel to `/freya.log` on the card,
+* Logs dated messages from programs, the shell and the kernel to `/freya.log` on the card,
   keeping one previous file when the log reaches 1 MiB.
 * Loads a program from the card into a RAM region and executes it as machine
   code, with a service table for console, memory, timing and file access.
@@ -377,6 +377,7 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `password(["xxxxxxxx"\|"off"])` | set or clear the 8-byte terminal password |
 | `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps; with `RTC=ds3231`, also the chip on PB6/PB7 |
 | `loglevel(["off"\|"error"\|"warn"\|"info"\|"debug"\|0..4])` | show or set the file log level |
+| `log("error"\|"warn"\|"info"\|"debug"\|1..4, message)` | append one line to the file log |
 | `pin("pin" [, "in"\|"up"\|"down"\|"out"\|"od"\|"analog"\|0\|1\|"toggle" [, 0\|1\|"toggle"]])` | read or drive one pin: `pin("PB5", "out", 1)`, `pin("PB0", "up")` |
 | `pwm([["pin", hz, duty] \| ["pin", "off"]])` | list the PWM channels, or start or stop one |
 | `adc("pin"\|"temp"\|"vref")` | take one raw 12-bit ADC sample |
@@ -550,7 +551,8 @@ interrupts, XTEA in CTR mode (`crypt`), Ascon-AEAD128 (`aead_encrypt`,
 `decompress`), a raw console (`console_raw`,
 which hands Ctrl-C to the program as an ordinary key, as an emulator needs;
 Freya takes it back when the run ends), and a file log: `log`, `get_log_level`,
-`set_log_level`. Log lines are `YYYY-MM-DD HH:MM:SS LEVEL message` in
+`set_log_level`. A script writes the same line with `log(level, message)`.
+Log lines are `YYYY-MM-DD HH:MM:SS LEVEL message` in
 `/freya.log` at the root of the card. The file is capped at 1 MiB; when it
 fills, it is renamed to `/freya.log.old` (replacing any previous copy) and a
 new `/freya.log` is started. With no card mounted the same line goes to the

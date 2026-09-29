@@ -44,6 +44,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `password(["xxxxxxxx"\|"off"])` | set or clear the 8-byte terminal password in the auto-start slot |
 | `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps; with `RTC=ds3231`, also the chip on PB6/PB7 |
 | `loglevel(["off"\|"error"\|"warn"\|"info"\|"debug"\|0..4])` | show or set the file log level |
+| `log("error"\|"warn"\|"info"\|"debug"\|1..4, message)` | append one line to the file log |
 | `pin("pin" [, "in"\|"up"\|"down"\|"out"\|"od"\|"analog"\|0\|1\|"toggle" [, 0\|1\|"toggle"]])` | read a pin, set its mode, or drive it |
 | `pwm([["pin", hz, duty] \| ["pin", "off"]])` | list the PWM channels, or start or stop one |
 | `adc("pin"\|"temp"\|"vref")` | take one raw 12-bit ADC sample; the source is required |
