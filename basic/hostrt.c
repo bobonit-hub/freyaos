@@ -1,11 +1,12 @@
 /* hostrt.c - run the interpreter natively, for testing.
  *
- *   cc -DBAS_HOST -I basic basic/basic.c basic/hostrt.c -o basic-host
+ *   cc -DBAS_HOST -DBAS_FP11 basic/basic.c basic/hostrt.c -o basic-host
+ *   cc -DBAS_HOST basic/basic.c basic/hostrt.c -lm -o basic-float
  *   basic-host [-m kbytes] [-r program.bas]
  *
- * Supplies the system calls of rt.s with stdio, so the same basic.c
- * that goes into the VM image runs on the PC, where a debugger and
- * the sanitizers can reach it.
+ * Supplies the system calls of bas.h with stdio, so the same basic.c
+ * that goes into the VM image, or into the program for the board, runs
+ * on the PC, where a debugger and the sanitizers can reach it.
  */
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>

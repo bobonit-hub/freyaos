@@ -146,11 +146,13 @@ endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
 SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 crypt flashprobe threads vm basic \
-             altair altair16 httpd
+             basic11 altair altair16 httpd
 # A sample a board has no room for at all is not built there.  The 48 KiB
 # Altair keeps the 8080's RAM in the program region.  The Blue Pill's
-# window is 8 KiB of a 20 KiB SRAM, which cannot hold that.
-SKIP_bluepill := altair
+# window is 8 KiB of a 20 KiB SRAM, which cannot hold that.  basic11 is
+# the BASIC interpreter compiled for the board with the FPU's floats for
+# its numbers; the Blue Pill's Cortex-M3 has no FPU.
+SKIP_bluepill := altair basic11
 SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
@@ -348,6 +350,11 @@ $(BUILD)/samples/altair.elf $(BUILD)/samples/altair.xip.elf: \
 $(BUILD)/samples/altair16.elf $(BUILD)/samples/altair16.xip.elf: \
 	$(SMPL_DIR)/altair16/main.c \
 	$(wildcard $(SMPL_DIR)/altair/*.c $(SMPL_DIR)/altair/*.h)
+
+# basic11 is the interpreter under basic/ with the float arithmetic;
+# its main.c includes basic.c, which includes the rest.
+$(BUILD)/samples/basic11.elf $(BUILD)/samples/basic11.xip.elf: \
+	basic/basic.c basic/bas.h basic/fpnat.c basic/fpnat.h
 
 # ----------------------------------------------------------------- misc
 size: $(BUILD)/$(TARGET).elf

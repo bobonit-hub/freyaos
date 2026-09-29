@@ -1,10 +1,13 @@
-# BASIC for the Freya virtual machine
+# BASIC for Freya
 
-A BASIC in the manner of DEC's BASIC-11, written in C and compiled with
-cproc and QBE for the PDP-11 that `src/vm.c` runs: eight 32-bit
-registers, 32-bit words, the PDP-11 opcodes. The same source compiles
-natively for testing. Nothing here needs a C library; the interpreter
-talks to whatever runs the machine through ten TRAP instructions.
+A BASIC in the manner of DEC's BASIC-11, written in C, that builds two
+ways. Compiled with cproc and QBE it is an image for the PDP-11 that
+`src/vm.c` runs — eight 32-bit registers, 32-bit words, the PDP-11
+opcodes — with the FP11 floating point done in software. Compiled with
+GCC for the Cortex-M4F boards it is the native program `basic11`, whose
+numbers are the C `float` on the FPU. The same source compiles for the
+PC both ways for testing. Nothing here needs a C library; the
+interpreter talks to whatever runs it through ten system calls.
 
 ```
 $ build/basic/runbasic build/basic/basic.bin
@@ -28,44 +31,67 @@ BYE
 
 ## Files
 
-| file         | what it is                                                    |
-|--------------|---------------------------------------------------------------|
-| `basic.c`    | the interpreter, one translation unit that includes `fp11.c`  |
-| `fp11.c/.h`  | the PDP-11 FP11 in software, from simh's `pdp11_fp.c`         |
-| `bas.h`      | the fixed-width types and the system call prototypes          |
-| `rt.s`       | `_start` and the ten system calls, assembled in front of the C |
-| `runbasic.c` | runs the image on a PC with `src/vm.c`; serves the traps      |
-| `hostrt.c`   | the same ten calls with stdio, for the native build           |
-| `Makefile`   | builds the image, the native interpreter and `runbasic`       |
+| file         | what it is                                                     |
+|--------------|----------------------------------------------------------------|
+| `basic.c`    | the interpreter, one translation unit that includes its arithmetic |
+| `fp11.c/.h`  | the PDP-11 FP11 in software, from simh's `pdp11_fp.c`          |
+| `fpnat.c/.h` | the same interface on the C `float`, for the native build      |
+| `bas.h`      | the types, `setjmp` and the system call prototypes per target  |
+| `rt.s`       | `_start` and the ten system calls of the VM image              |
+| `runbasic.c` | runs the image on a PC with `src/vm.c`; serves the traps       |
+| `hostrt.c`   | the same ten calls with stdio, for the PC builds               |
+| `Makefile`   | builds the image, the PC interpreters and `runbasic`           |
 
+Two Freya programs host it. `samples/basic11/main.c` includes `basic.c`
+and is compiled by the top-level Makefile for the boards with an FPU:
+it implements the ten calls on the Freya API, supplies `setjmp` and
+`longjmp` for the Cortex-M4F, and takes the workspace from the heap.
 `samples/basic/main.c` is the same host as `runbasic.c` written against
-the Freya API, for a board whose heap can hold the machine.
+the Freya API, for a board whose heap can hold the VM image.
+
+Three macros pick the build: `BAS_VM` for cproc, `BAS_HOST` for the PC
+with a C library, neither for the bare-metal program; `BAS_FP11` takes
+the FP11 arithmetic instead of `fpnat.c`. `BAS_BANNER` is the first
+line printed.
 
 ## Building
 
-The image needs the cproc and QBE builds described in
+```sh
+make BOARD=blackpill samples                              # build/blackpill/samples/basic11.bin
+make -C basic CPROC=/path/to/cproc-qbe QBE=/path/to/qbe   # build/basic/basic.bin
+make -C basic host                                        # basic-host, basic-float, runbasic
+make -C basic test                                        # tests/basic on all of them
+```
+
+The VM image needs the cproc and QBE builds described in
 [`../qbe/README.md`](../qbe/README.md). cproc-qbe has no include path
 option, so the C preprocessor runs first; `as.py` then turns the QBE
 listing plus `rt.s` into `basic.bin`, which the VM runs from address 0.
-
-```sh
-make -C basic CPROC=/path/to/cproc-qbe QBE=/path/to/qbe   # build/basic/basic.bin
-make -C basic host                                        # basic-host and runbasic
-make -C basic test                                        # tests/basic on both
-```
+`basic-host` is the PC build with the FP11 arithmetic, `basic-float`
+with the `float` one; the first is what the VM image computes, the
+second what `basic11` computes.
 
 ```
+run basic11 [-m KiB] [program.bas]
 runbasic [-m KiB] [-r program.bas] [-s] basic.bin
 basic-host [-m KiB] [-r program.bas]
+basic-float [-m KiB] [-r program.bas]
 ```
 
-`-m` is the size of the machine's memory, 256 KiB by default; on the
+On the board `-m` asks for a workspace of that many KiB from the heap;
+without it the program takes 32 KiB, or the largest multiple of 4 KiB
+down to 12 that the heap can give. A program named on the command line
+is loaded and run as though `OLD` and `RUN` had been typed; the
+interpreter then goes on to `READY`. `BYE` returns to the shell. On the
+PC `-m` is the size of the machine's memory, 256 KiB by default; on the
 VM the image, the heap and a 16 KiB stack share it. `-r` loads a
 program, runs it without the banner and the prompts and exits with 0
 at END, or 1 after an error. `-s` prints the number of instructions
 the VM executed.
 
-The image is about 100 KiB: an instruction of this machine is four
+The native program is 16 KiB of Thumb-2 code plus 11 KiB of static
+data, the variable tables mostly, and runs from the shell's stack. The
+VM image is about 100 KiB: an instruction of this machine is four
 bytes and most operands are another four, and about 13 KiB of it is
 the variable tables. That is more than the 56 KiB program region of
 the boards Freya runs on today, so `samples/basic` reports that it has
@@ -74,10 +100,16 @@ heap, and on the PC.
 
 ## The system calls
 
+The interpreter is entered through `bas_main(heap, size, flags)`;
+`flags & 1` is batch mode. It calls back through ten functions, `sys_exit`
+to `sys_unlink` in `bas.h`, that the host defines. In the VM image they
+are `TRAP n` with the arguments in R0–R2 and the result in R0, and
 `main(heap_lo, heap_hi, flags)` is called with a normal C frame whose
-return address is a HALT; `flags & 1` is batch mode. A system call is
-`TRAP n` with the arguments in R0–R2 and the result in R0. The host
-finds `n` in the low byte of the word before the PC the VM stopped at.
+return address is a HALT; the host finds `n` in the low byte of the word
+before the PC the VM stopped at. In `basic11` they are ordinary
+functions on the Freya API: `readline` reads the console with echo and
+editing, `break` polls it for Ctrl-C, `open` and the rest are the file
+calls, `ticks` the millisecond clock.
 
 | n | call                    | notes                                   |
 |---|-------------------------|-----------------------------------------|
@@ -103,11 +135,15 @@ executed at once.
 Variables are a letter and an optional digit: `A`, `B7` are floating,
 `I%` integer, `S$` string. Arrays have one or two dimensions, `DIM
 A(10,10)`, indexed from 0; an array used without `DIM` has 10 as each
-bound. Numbers are the FP11's D format: a 56-bit fraction, about 16
-decimal digits, magnitudes up to about 1.7E38. They print with up to
-15 significant digits, a leading space for a positive value, and in E
-notation when that is shorter, `1E+20`, `1E-06`. Strings hold up to 255
-characters.
+bound. Numbers on the VM are the FP11's D format: a 56-bit fraction,
+about 16 decimal digits, magnitudes up to about 1.7E38. They print with
+up to 15 significant digits, a leading space for a positive value, and
+in E notation when that is shorter, `1E+20`, `1E-06`. In `basic11`
+they are the IEEE single of the FPU, a 24-bit fraction, about 7 decimal
+digits, the same range of magnitudes; they print with up to 6
+significant digits, as BASIC-11 did, `1.41421`, `.333333`, and in E
+notation below 1E-5 and from 1E6, `1E+10`, `1.23457E+11`. Strings hold
+up to 255 characters.
 
 Statements: `LET` (optional), `PRINT` with `,` for the 14-column zones,
 `;` to run items together and `TAB(n)`, `INPUT` with an optional prompt
@@ -159,9 +195,10 @@ programs written for BASIC-11 was not a goal.
 
 Program text lives at the bottom of the heap as records
 `[len][line lo][line hi][tokens...][0]`. A keyword is one byte, 0x80
-plus its index; a numeric constant is 0xFF followed by its eight bytes,
-converted when the line is entered, because parsing a number costs more
-than a hundred multiplications and a loop body would pay it every time.
+plus its index; a numeric constant is 0xFF followed by the bytes of the
+number, eight on the VM and four natively, converted when the line is
+entered, because parsing a number costs more than a hundred
+multiplications and a loop body would pay it every time.
 Line numbers after `GOTO`, `THEN` and the like stay text so `LIST` can
 print them.
 
@@ -181,10 +218,27 @@ compaction never has to know about them. `tests/basic/strings.bas`
 runs the pool through many compactions; `basic-host -m 16 -r
 tests/basic/strings.bas` makes them frequent.
 
-The floating point is simh's `pdp11_fp.c` reduced to what BASIC needs:
-add, subtract, multiply, divide, compare, truncate, floor, the
+The interpreter sees its numbers only through the `fp_*` functions of
+`fp11.h` and `fpnat.h`, which agree on everything but the type behind
+`fpac_t`. The FP11 one is simh's `pdp11_fp.c` reduced to what BASIC
+needs: add, subtract, multiply, divide, compare, truncate, floor, the
 conversions, and on top of them square root by Newton, exp and log by
 their series after range reduction, sin and cos with the argument
 reduced by a two-part π/2, atan by its series with argument halving,
 and power as exp of log with integer powers done by squaring.
-`tests/host_fp11_test.c` runs 290 000 comparisons against libm.
+
+`fpnat.c` does the same on `float`, so on the M4F an add is one
+instruction and the square root is `vsqrt`. It keeps BASIC's view of
+arithmetic rather than IEEE's: a result that would be infinite or NaN
+is an `Overflow` or `Illegal argument` error, a result that underflows
+is 0, and there is no negative zero. The elementary functions are
+short series after the usual reductions — exp by 2^k times a
+polynomial on ±ln2/2, log by the atanh series of the fraction, sin and
+cos by a four-piece π/2 that stays exact out to 2^31 quadrants, atan by
+inversion and two halvings, power as 2^(y·log₂x) with the integer part
+of the exponent split off in halves so the result is within a few
+units in the last place. Reading and printing numbers goes through
+64-bit integers, so `VAL` and a typed constant give the nearest float
+and `PRINT` shows the 6 digits nearest the value; no libm or soft-float
+is linked. `tests/host_fp11_test.c` and `tests/host_fpnat_test.c` run
+290 000 and 330 000 comparisons of the two against libm.

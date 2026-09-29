@@ -133,7 +133,10 @@ Freya 3.1.2 "Poltergeist" for STM32F103C8T6
   interpreter with the FP11 floating point in software and a flat,
   compacting string pool. `basic/runbasic` runs it on the PC with the
   same `src/vm.c`; `samples/basic` is the host for a board with room for
-  the 100 KiB image ([basic/README.md](basic/README.md)).
+  the 100 KiB image. The same interpreter compiled with GCC is
+  `samples/basic11`, a 16 KiB native program for the Cortex-M4F boards
+  whose numbers are the FPU's `float`, with `OLD`, `SAVE` and the file
+  statements on the card ([basic/README.md](basic/README.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
   size from 8 KiB to 24 KiB; on the Black Pill the flash region is 320 KiB
@@ -492,7 +495,11 @@ in its menu (`samples/altair/README.md`;
 Black Pill only, from flash). `samples/altair16` is that machine with
 16 KiB of RAM. On the Black Pill it fits the program region and runs
 from RAM as well; on the Blue Pill, whose SRAM is 20 KiB, that RAM is
-kept in program flash (`samples/altair16/README.md`). Every
+kept in program flash (`samples/altair16/README.md`). `samples/basic11`
+is the BASIC-11 style interpreter of `basic/` compiled natively, with
+its numbers on the FPU, so it is built for the Black Pill and the F405
+and not for the Blue Pill (`run basic11 [-m KiB] [program.bas]`;
+`basic/README.md`). Every
 app and sample is also built as `.xip.bin` for `install`, and a sample too
 large for a board's program RAM region is built there as the flash image
 alone — which on the Blue Pill is what happens to `forth`, whose
@@ -925,9 +932,9 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic`, `basic11` |
 | `qbe/` | QBE target and cproc patch for the virtual machine, and `as.py`, the assembler that makes an image |
-| `basic/` | BASIC for the virtual machine: the interpreter, the FP11 arithmetic, the PC runner |
+| `basic/` | BASIC-11 style interpreter for the virtual machine and, natively, for the FPU boards: the interpreter, the FP11 and `float` arithmetics, the PC runner |
 | `tests/` | host side tests |
 | `docs/shell.md` | the shell language: values, expressions, control, variables, functions |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
@@ -1024,13 +1031,18 @@ the subtractions; a dividend whose high word is negative and the two ways a
 quotient can fail to exist; and every opcode the machine does not have,
 each of which has to leave R7 where a caller can read it.
 
-BASIC is checked in two layers. `basic/fp11.c` is compiled natively and
-290 000 results of its arithmetic, functions and number formatting are
-compared with libm, to a few units in the last place. Then the programs
-under `tests/basic` run on the interpreter compiled natively, each against
-its recorded output, and again on the virtual machine when `basic.bin` has
-been built, so that the compiler for that machine is tested by the largest
-program written for it.
+BASIC is checked in two layers. `basic/fp11.c` and `basic/fpnat.c` are
+compiled natively and 290 000 and 330 000 results of their arithmetic,
+functions and number conversions are compared with libm: the FP11 to a
+few units in the last place, the `float` one exactly for the arithmetic,
+reading and printing of numbers and to a few units for the functions,
+with every overflow and domain error checked to raise its fault. Then the
+programs under `tests/basic` run on the interpreter compiled natively
+with each arithmetic, each against its recorded output (the `float`
+outputs, with their 6 digits, are under `tests/basic/float`), and again
+on the virtual machine when `basic.bin` has been built, so that the
+compiler for that machine is tested by the largest program written for
+it.
 
 The flash programming itself cannot be reached from the host, which is the main
 argument for keeping that driver small and its bounds check absolute. What can
@@ -1052,7 +1064,8 @@ the kernel compares them at boot, and this compares them at build time.
 168 checks, 0 failures    pins, timers, PWM, I2C, 1-Wire and SPI
 42 checks, 0 failures     XTEA
 136 checks, 0 failures    PDP-11 virtual machine
-290180 checks, 0 failures BASIC floating point; 9 programs, natively and on the VM
+290180 checks, 0 failures BASIC FP11 floating point
+330204 checks, 0 failures BASIC float floating point; 9 programs, natively both ways and on the VM
 39 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```

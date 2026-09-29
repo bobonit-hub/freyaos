@@ -1,17 +1,21 @@
-/* basic.c - a BASIC in the manner of BASIC-11 for the Freya VM.
+/* basic.c - a BASIC in the manner of BASIC-11.
  *
- * One translation unit: fp11.c is included so that cproc and QBE see
- * the whole program at once (the backend puts its helper routines in
- * each unit).  There is no libc; everything below is written against
- * the ten system calls in rt.s.
+ * One translation unit: the arithmetic is included so that cproc and
+ * QBE see the whole program at once (the backend puts its helper
+ * routines in each unit), and so that a Freya program is one file.
+ * There is no libc; everything below is written against the ten
+ * system calls in bas.h.  The same source is the image for the PDP-11
+ * virtual machine, with the FP11 of fp11.c for its numbers, and the
+ * program that runs on the board itself, with the C float of fpnat.c;
+ * bas.h says which is which.
  *
- * Memory: the host hands main() the heap between the image and the
- * stack.  It is cut into the program text, an arena for arrays, and a
- * flat pool for string data.  Program lines are stored tokenized:
+ * Memory: the host hands bas_main() a heap.  It is cut into the
+ * program text, an arena for arrays, and a flat pool for string data.
+ * Program lines are stored tokenized:
  *     [len] [line lo] [line hi] tokens... [0]
  * where a keyword is one byte 0x80+index, a numeric constant is 0xff
- * followed by its eight bytes (parsing one costs more than a hundred
- * multiplications), and everything else is the source text,
+ * followed by the bytes of the number (parsing one costs more than a
+ * hundred multiplications), and everything else is the source text,
  * upper-cased outside quotes.  Line numbers after GOTO and the like
  * stay text.  Variables are a letter and
  * an optional digit, with % for integers and $ for strings, so each of
@@ -25,9 +29,18 @@
  * never has to know about them.
  */
 #include "bas.h"
-#include "fp11.h"
 
+#ifdef BAS_FP11
+#include "fp11.h"
 #include "fp11.c"
+#else
+#include "fpnat.h"
+#include "fpnat.c"
+#endif
+
+#ifndef BAS_BANNER
+#define BAS_BANNER "BASIC-11 for the Freya VM"
+#endif
 
 /* ------------------------------------------------------------------ */
 /* Small utilities                                                    */
@@ -86,11 +99,12 @@ enum {
     T_SGN, T_SIN, T_SQR, T_TAN, T_LEN, T_ASC, T_CHRS, T_POS, T_SEGS,
     T_STRS, T_VAL, T_TRMS, T_LEFTS, T_RIGHTS, T_MIDS, T_FN, T_TAB,
     T_LAST,
-    T_NUM = 0xff                 /* followed by the 8 bytes of a number */
+    T_NUM = 0xff                 /* followed by the bytes of a number */
 };
 
-/* The bytes of a number token, after the T_NUM byte. */
-#define NUMLEN 8
+/* The bytes of a number token, after the T_NUM byte: the number as it
+ * is in memory, eight bytes of D format or four of a float. */
+#define NUMLEN ((int)sizeof(fpac_t))
 
 /* Same order as the enum. */
 static const char *const keywords[] = {
@@ -155,14 +169,9 @@ void fp_fault(int code)
 #define WIDTH      72
 #define ZONE       14
 
-/* An address as an integer: 32 bits on the VM, whatever the host has
- * when the sources are built natively for the tests. */
-#ifdef BAS_HOST
-typedef uintptr_t uptr;
-#else
-typedef uint32_t uptr;
-#endif
-
+/* uptr, from bas.h, is an address as an integer: 32 bits on the VM and
+ * the board, whatever the host has when the sources are built natively
+ * for the tests. */
 typedef struct {
     uptr off;                    /* address of the data, 0 when empty */
     uptr len;
@@ -591,25 +600,16 @@ static int is_line_kw(int t)
            t == T_RUNNH;
 }
 
+/* A number in a token is its bytes as they are in memory; a token is
+ * not aligned, so they are copied a byte at a time. */
 static void put_num(uint8_t *d, const fpac_t *n)
 {
-    int i;
-
-    for (i = 0; i < 4; i++) {
-        d[i] = (uint8_t)(n->h >> (8 * i));
-        d[4 + i] = (uint8_t)(n->l >> (8 * i));
-    }
+    mem_copy(d, n, (uint32_t)NUMLEN);
 }
 
 static void get_num(const uint8_t *d, fpac_t *n)
 {
-    int i;
-
-    n->h = n->l = 0;
-    for (i = 0; i < 4; i++) {
-        n->h |= (uint32_t)d[i] << (8 * i);
-        n->l |= (uint32_t)d[4 + i] << (8 * i);
-    }
+    mem_copy(n, d, (uint32_t)NUMLEN);
 }
 
 static int tokenize(const char *s, uint8_t *d, int32_t *lineno)
@@ -2264,30 +2264,25 @@ static void enter_line(const char *text)
     execute();
 }
 
-#ifdef BAS_HOST
+/* The interpreter: heap_size bytes at heap are its memory; flags & 1
+ * is batch mode.  Returns only through sys_exit(). */
 int bas_main(uint8_t *heap, uint32_t heap_size, uint32_t flags)
-#else
-int main(uint32_t heap_lo, uint32_t heap_hi, uint32_t flags)
-#endif
 {
     uint32_t size;
     int code, i, r;
-#ifdef BAS_HOST
-    uint8_t *heap_lo = heap, *heap_hi = heap + heap_size;
-#endif
 
     batch = flags & 1;
     fp_init();
     for (i = 0; i < NCHAN; i++) chans[i].fd = -1;
     chans[0].fd = 0;
     chans[0].mode = 1;
-    if (heap_hi < heap_lo || heap_hi - heap_lo < 8192 + TMP_BYTES) {
+    if (heap_size < 8192 + TMP_BYTES) {
         out_str("?Not enough memory\n");
         sys_exit(1);
     }
-    tmp_lo = (uint8_t *)heap_lo;
+    tmp_lo = heap;
     tmp_hi = tmp_lo + TMP_BYTES;
-    size = ((uint32_t)(heap_hi - heap_lo) - TMP_BYTES) & ~(ALIGN - 1);
+    size = (heap_size - TMP_BYTES) & ~(ALIGN - 1);
     prog_lo = tmp_hi;
     prog_hi = prog_lo + (size * 2 / 5 & ~(ALIGN - 1));
     arena_lo = prog_hi;
@@ -2297,7 +2292,7 @@ int main(uint32_t heap_lo, uint32_t heap_hi, uint32_t flags)
     new_program();
     console();
     if (!batch) {
-        out_str("BASIC-11 for the Freya VM\n");
+        out_str(BAS_BANNER "\n");
         show_length();
     }
     for (;;) {
@@ -2332,3 +2327,12 @@ int main(uint32_t heap_lo, uint32_t heap_hi, uint32_t flags)
     }
     return 0;
 }
+
+#ifdef BAS_VM
+/* The VM image: rt.s jumps here with the frame the host built. */
+int main(uint32_t heap_lo, uint32_t heap_hi, uint32_t flags)
+{
+    if (heap_hi < heap_lo) heap_hi = heap_lo;
+    return bas_main((uint8_t *)heap_lo, heap_hi - heap_lo, flags);
+}
+#endif

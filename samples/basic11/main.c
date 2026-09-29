@@ -1,0 +1,253 @@
+/*
+ * basic11 - BASIC-11 compiled for the board itself.
+ *
+ *     run basic11 [-m KIB] [PROGRAM.BAS]
+ *
+ * The interpreter in basic/basic.c, the one that also runs on the PDP-11
+ * virtual machine, built with arm-none-eabi-gcc for the Cortex-M4F.  Its
+ * numbers are the FPU's single-precision floats (basic/fpnat.c), so this
+ * program is for the Black Pill and the STM32F405 and is not built for
+ * the Blue Pill, whose Cortex-M3 has no floating point.
+ *
+ * The BASIC program, its variables and its strings live in KIB kilobytes
+ * taken from the kernel heap: what -m asks for, or as much as the kernel
+ * will give up to 32 KiB.  With PROGRAM.BAS the program is loaded and
+ * run and the run ends when it does, with status 1 after an error;
+ * otherwise the interpreter takes commands from the console until BYE.
+ *
+ * basic.c wants ten system calls and a setjmp; they are below, written
+ * against the Freya API.  Ctrl-C is taken raw so that it stops the BASIC
+ * program and returns to READY rather than ending this one.
+ */
+#include "freya_api.h"
+
+#define BAS_BANNER "BASIC-11 for Freya"
+#include "../../basic/basic.c"
+
+#define DEFAULT_KIB  32u
+#define MIN_KIB      12u        /* 8 KiB of workspace plus the scratch area */
+
+static const freya_api_t *g;
+static int s_break;             /* Ctrl-C seen, not yet reported */
+static const char *queued[2];   /* OLD "name" and RUN, typed for the user */
+static int nqueued;
+
+/*
+ * setjmp and longjmp for the interpreter's error exit.  r4-r11, sp and
+ * lr, and s16-s31 because the code is hard-float and the compiler may
+ * keep a value in the callee-saved half of the FPU across a call.
+ * Plain Thumb-2 and VFP, as the kernel's own src/setjmp.s is.
+ */
+__asm__(
+    ".syntax unified\n"
+    ".thumb\n"
+    ".section .text.setjmp,\"ax\",%progbits\n"
+    ".thumb_func\n"
+    ".global setjmp\n"
+    ".type setjmp, %function\n"
+    "setjmp:\n"                             /* r0 = buffer */
+    "    mov     r2, sp\n"
+    "    stmia   r0!, {r2, r4-r11, lr}\n"
+    "    vstmia  r0!, {s16-s31}\n"
+    "    movs    r0, #0\n"
+    "    bx      lr\n"
+    ".size setjmp, . - setjmp\n"
+    ".section .text.longjmp,\"ax\",%progbits\n"
+    ".thumb_func\n"
+    ".global longjmp\n"
+    ".type longjmp, %function\n"
+    "longjmp:\n"                            /* r0 = buffer, r1 = value */
+    "    ldmia   r0!, {r2, r4-r11, lr}\n"
+    "    vldmia  r0!, {s16-s31}\n"
+    "    mov     sp, r2\n"
+    "    movs    r0, r1\n"
+    "    it      eq\n"
+    "    moveq   r0, #1\n"                  /* setjmp must never return 0 twice */
+    "    bx      lr\n"
+    ".size longjmp, . - longjmp\n"
+);
+
+/* Ctrl-C arrives as a key; anything else waiting stays for readline. */
+static void poll_break(void)
+{
+    if (g->kbhit()) {
+        int c = g->getc_timeout(0);
+
+        if (c == 0x03) s_break = 1;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* The system calls of bas.h                                          */
+
+void sys_exit(int code)
+{
+    g->exit(code);
+    for (;;)
+        ;
+}
+
+void sys_putc(int c)
+{
+    if ((c & 0xff) == '\n') g->putc('\r');
+    g->putc((char)c);
+}
+
+/* A line with its own echo and erase; the newline is not stored. */
+int sys_readline(char *buf, int max)
+{
+    int n = 0;
+
+    if (max <= 0) return -1;
+    if (nqueued) {
+        const char *s = queued[0];
+
+        queued[0] = queued[1];
+        nqueued--;
+        while (*s && n < max - 1) buf[n++] = *s++;
+        buf[n] = 0;
+        return n;
+    }
+    for (;;) {
+        int c = g->getc();
+
+        if (c < 0) return -1;
+        if (c == '\r' || c == '\n') break;
+        if (c == 0x03) {
+            g->puts("^C\r\n");
+            s_break = 1;
+            n = 0;
+            break;
+        }
+        if (c == 0x08 || c == 0x7f) {
+            if (n) {
+                n--;
+                g->puts("\b \b");
+            }
+            continue;
+        }
+        if (c >= ' ' && n < max - 1) {
+            buf[n++] = (char)c;
+            g->putc((char)c);
+        }
+    }
+    g->puts("\r\n");
+    buf[n] = 0;
+    return n;
+}
+
+int sys_break(void)
+{
+    int r;
+
+    poll_break();
+    r = s_break;
+    s_break = 0;
+    return r;
+}
+
+int sys_open(const char *path, int mode)
+{
+    return g->open(path, mode ? FREYA_O_WRONLY | FREYA_O_CREATE | FREYA_O_TRUNC
+                              : FREYA_O_RDONLY);
+}
+
+int sys_close(int fd)
+{
+    return g->close(fd);
+}
+
+int sys_read(int fd, void *buf, int len)
+{
+    return g->read(fd, buf, len);
+}
+
+int sys_write(int fd, const void *buf, int len)
+{
+    return g->write(fd, buf, len);
+}
+
+uint32_t sys_ticks(void)
+{
+    return g->ticks_ms();
+}
+
+int sys_unlink(const char *path)
+{
+    return g->unlink(path);
+}
+
+/* ------------------------------------------------------------------ */
+
+static int parse_kib(const char *s, uint32_t *out)
+{
+    uint32_t v = 0;
+
+    if (!*s) return -1;
+    for (; *s; s++) {
+        if (*s < '0' || *s > '9' || v > 1000000u) return -1;
+        v = v * 10u + (uint32_t)(*s - '0');
+    }
+    *out = v;
+    return 0;
+}
+
+int app_main(const freya_api_t *api, int argc, char **argv)
+{
+    const char *program = 0;
+    uint32_t kib = 0, flags = 0;
+    uint8_t *heap = 0;
+    static char oldcmd[80];
+    int i;
+
+    g = api;
+    if (!FREYA_API_HAS(api, console_raw)) {
+        api->puts("basic11: this kernel has no raw console\r\n");
+        return FREYA_EXIT_FAIL;
+    }
+    for (i = 1; i < argc; i++) {
+        if (argv[i][0] == '-' && argv[i][1] == 'm' && argv[i][2] == 0 && i + 1 < argc) {
+            if (parse_kib(argv[++i], &kib) || kib < MIN_KIB) {
+                api->printf("basic11: -m needs a size in KiB, %u or more\r\n", MIN_KIB);
+                return FREYA_EXIT_USAGE;
+            }
+        } else if (argv[i][0] == '-' || program) {
+            api->puts("usage: basic11 [-m KIB] [PROGRAM.BAS]\r\n");
+            return FREYA_EXIT_USAGE;
+        } else {
+            program = argv[i];
+        }
+    }
+
+    /* the workspace: what was asked for, or the most the kernel has */
+    if (kib) {
+        heap = api->malloc(kib * 1024u);
+    } else {
+        for (kib = DEFAULT_KIB; kib >= MIN_KIB && !heap; kib -= 4u)
+            heap = api->malloc(kib * 1024u);
+    }
+    if (!heap) {
+        api->printf("basic11: no %u KiB of memory for the workspace\r\n", kib);
+        return FREYA_EXIT_FAIL;
+    }
+
+    if (program) {
+        /* the first two lines of input are OLD "name" and RUN */
+        const char *p = program;
+        int n = 0;
+
+        oldcmd[n++] = 'O'; oldcmd[n++] = 'L'; oldcmd[n++] = 'D';
+        oldcmd[n++] = ' '; oldcmd[n++] = '"';
+        while (*p && n < (int)sizeof oldcmd - 3) oldcmd[n++] = *p++;
+        oldcmd[n++] = '"';
+        oldcmd[n] = 0;
+        queued[nqueued++] = oldcmd;
+        queued[nqueued++] = "RUN";
+        flags |= 1;                     /* batch: no banner, exit at the end */
+    }
+
+    /* The interpreter leaves through sys_exit(), and the kernel frees
+     * the workspace and turns raw mode off when the run ends. */
+    api->console_raw(1);
+    return bas_main(heap, kib * 1024u, flags);
+}

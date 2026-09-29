@@ -823,11 +823,6 @@ static void mul10add(fpac_t *d, int digit)
     add64(d, d, &a);
 }
 
-static int is_digit(int c)
-{
-    return c >= '0' && c <= '9';
-}
-
 int fp_parse(const char *s, fpac_t *d)
 {
     fpac_t mant;
