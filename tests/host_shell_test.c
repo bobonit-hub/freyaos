@@ -1046,6 +1046,27 @@ int main(void)
     rc = run("crypt 00 4142434445464748 00");
     expect_rc("a short key fails", rc, FREYA_EXIT_FAIL);
     expect_has("a short key prints the usage", "usage: crypt");
+    rc = run("help aead");
+    expect_rc("help aead succeeds", rc, 0);
+#if BOARD_AEAD
+    expect_exact("help aead shows call syntax",
+                 "aead([\"-d\",] \"key\", \"nonce\", \"in\", \"out\")\r\n");
+#else
+    expect_exact("help aead shows call syntax", "aead()\r\n");
+#endif
+#if BOARD_AEAD
+    rc = run("aead");
+    expect_rc("aead with no arguments succeeds", rc, 0);
+    expect_has("aead names the cipher", "Ascon-AEAD128");
+    expect_has("aead prints its usage", "usage: aead [-d] <key> <nonce> <in> <out>");
+    rc = run("aead 00");
+    expect_rc("aead with one argument fails", rc, FREYA_EXIT_FAIL);
+    expect_has("aead with one argument prints the usage", "usage: aead");
+#else
+    rc = run("aead 00 11 /a /b");
+    expect_rc("aead is unsupported on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("aead says it is unsupported", "aead unsupported");
+#endif
     rc = run("help compress");
     expect_rc("help compress succeeds", rc, 0);
     expect_exact("help compress shows call syntax",
@@ -1180,6 +1201,59 @@ int main(void)
             fail("decompress restores the text byte for byte");
         plant_script(NULL, NULL);
         if (packed >= 0) s_ram[packed].used = 0;
+        if (back >= 0) s_ram[back].used = 0;
+    }
+#endif
+
+#if BOARD_AEAD
+    printf("aead\n");
+    {
+        /* NIST SP 800-232 LWC KAT count 34: one plaintext byte 0x20. */
+        static const char text[] = " ";
+        static const uint8_t expect[] = {
+            0xe8, 0xdd, 0x57, 0x6a, 0xba, 0x1c, 0xd3, 0xe6,
+            0xfc, 0x70, 0x4d, 0xe0, 0x2a, 0xed, 0xb7, 0x95, 0x88
+        };
+        int ct, back;
+        const char *key = "000102030405060708090A0B0C0D0E0F";
+        const char *nonce = "101112131415161718191A1B1C1D1E1F";
+        char line[160];
+
+        plant_script("/note.txt", text);
+        snprintf(line, sizeof line, "aead %s %s /note.txt /note.txt", key, nonce);
+        rc = run(line);
+        expect_rc("aead onto itself fails", rc, FREYA_EXIT_FAIL);
+        expect_has("aead onto itself says so", "same file");
+        snprintf(line, sizeof line, "aead %s %s /nosuch.txt /note.ct", key, nonce);
+        rc = run(line);
+        expect_rc("aead of a missing file fails", rc, FREYA_EXIT_FAIL);
+        expect_has("aead names the missing file", "aead: /nosuch.txt:");
+        snprintf(line, sizeof line, "aead %s %s /note.txt /note.ct", key, nonce);
+        rc = run(line);
+        expect_rc("aead seals a file", rc, 0);
+        expect_exact("aead reports the sizes", "aead: 1 -> 17 B\r\n");
+        ct = ram_lookup("/note.ct");
+        if (ct >= 0 && s_ram[ct].len == (int)sizeof expect &&
+            memcmp(s_ram[ct].data, expect, sizeof expect) == 0)
+            pass("aead writes the KAT ciphertext");
+        else
+            fail("aead writes the KAT ciphertext");
+        snprintf(line, sizeof line, "aead -d %s %s /note.ct /note.back", key, nonce);
+        rc = run(line);
+        expect_rc("aead opens that file", rc, 0);
+        expect_exact("aead reports the plaintext size", "aead: 17 -> 1 B\r\n");
+        back = ram_lookup("/note.back");
+        if (back >= 0 && s_ram[back].len == 1 && s_ram[back].data[0] == ' ')
+            pass("aead restores the byte");
+        else
+            fail("aead restores the byte");
+        if (ct >= 0) s_ram[ct].data[0] ^= 0x01;
+        snprintf(line, sizeof line, "aead -d %s %s /note.ct /note.bad", key, nonce);
+        rc = run(line);
+        expect_rc("aead rejects a flipped ciphertext", rc, FREYA_EXIT_FAIL);
+        expect_has("aead names the failure", "authentication failed");
+        plant_script(NULL, NULL);
+        if (ct >= 0) s_ram[ct].used = 0;
         if (back >= 0) s_ram[back].used = 0;
     }
 #endif

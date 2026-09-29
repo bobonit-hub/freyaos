@@ -480,6 +480,8 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .web_read        = web_read,
     .compress        = lz_compress,
     .decompress      = lz_decompress,
+    .aead_encrypt    = aead_encrypt,
+    .aead_decrypt    = aead_decrypt,
 };
 
 const freya_api_t *app_api(void)

@@ -59,7 +59,13 @@ LFS_FLAGS := -I$(LFS_DIR) -DLFS_NO_MALLOC -DLFS_NO_ASSERT \
 HS_DIR    := third_party/heatshrink
 HS_FLAGS  := -I$(HS_DIR)
 
-CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) $(HS_FLAGS) \
+# Ascon-AEAD128, the NIST SP 800-232 reference.  The object is compiled
+# for every board; on one whose board.h leaves BOARD_AEAD at 0 nothing
+# refers to it and the linker drops it.
+ASCON_DIR := third_party/ascon
+ASCON_FLAGS := -I$(ASCON_DIR)
+
+CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) $(HS_FLAGS) $(ASCON_FLAGS) \
              -std=gnu11 -Os -g3 \
              -ffreestanding -fno-common -fno-builtin \
              -ffunction-sections -fdata-sections \
@@ -129,7 +135,8 @@ OBJS      := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(filter %.c,$(CSRC))) \
              $(patsubst $(BOARD_DIR)/%.c,$(BUILD)/board/%.o,$(BCSRC)) \
              $(patsubst $(BOARD_DIR)/%.s,$(BUILD)/board/%.o,$(BASRC)) \
              $(if $(filter blackpill,$(BOARD)),$(BUILD)/lfs.o $(BUILD)/lfs_util.o) \
-             $(BUILD)/heatshrink_encoder.o $(BUILD)/heatshrink_decoder.o
+             $(BUILD)/heatshrink_encoder.o $(BUILD)/heatshrink_decoder.o \
+             $(BUILD)/ascon.o
 DEPS      := $(OBJS:.o=.d)
 
 # User programs, one directory per program under apps/
@@ -152,7 +159,7 @@ APP_GC     :=
 endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 crypt compress flashprobe threads vm basic \
+SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 crypt aead compress flashprobe threads vm basic \
              basic11 altair altair16 httpd
 # A sample a board has no room for at all is not built there.  The 48 KiB
 # Altair keeps the 8080's RAM in the program region.  The Blue Pill's
@@ -289,6 +296,10 @@ $(BUILD)/lfs_util.o: $(LFS_DIR)/lfs_util.c | $(BUILD)
 $(BUILD)/heatshrink_%.o: $(HS_DIR)/heatshrink_%.c | $(BUILD)
 	@echo "  CC    $<"
 	@$(CC) $(CFLAGS) -Wno-implicit-fallthrough -MMD -MP -c $< -o $@
+
+$(BUILD)/ascon.o: $(ASCON_DIR)/aead.c | $(BUILD)
+	@echo "  CC    $<"
+	@$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(BUILD)/$(TARGET).elf: $(OBJS) $(LDSCRIPT)
 	@echo "  LD    $@"

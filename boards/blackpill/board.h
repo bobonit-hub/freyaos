@@ -124,6 +124,9 @@
 /* heatshrink LZSS in the kernel extension: compress() and decompress(). */
 #define BOARD_COMPRESS       1
 
+/* Ascon-AEAD128 in the kernel extension.  The key comes from the PC. */
+#define BOARD_AEAD           1
+
 /* --------------------------------------------------------------- ADC */
 /* ADC1 channels common to both supported boards and not kept by Freya.
  * The internal temperature sensor is channel 18 on the F4; Vref is 17. */

@@ -214,8 +214,9 @@ $CC $CFLAGS -c src/shell.c -o "$OUT/shell_host.o" \
     -D__ram_end=freya_test_ram_end \
     -D__kernel_flash_end=freya_test_kernel_flash_end
 # shellcheck disable=SC2086
-$CC $CFLAGS $HS_CFLAGS tests/host_shell_test.c "$OUT/shell_host.o" src/print.c \
-    src/crypt.c src/cksum.c src/lz.c $HS_SRC -o "$OUT/hostshell"
+$CC $CFLAGS $HS_CFLAGS -Ithird_party/ascon tests/host_shell_test.c \
+    "$OUT/shell_host.o" src/print.c src/crypt.c src/cksum.c src/lz.c src/aead.c \
+    third_party/ascon/aead.c $HS_SRC -o "$OUT/hostshell"
 "$OUT/hostshell" || status=1
 
 echo
@@ -304,6 +305,54 @@ echo "================= heatshrink ================="
 $CC $CFLAGS $HS_CFLAGS tests/host_compress_test.c src/lz.c $HS_SRC \
     -o "$OUT/hostcompress"
 "$OUT/hostcompress" || status=1
+
+# Ascon-AEAD128.  The NIST known answers, a round trip and every refusal,
+# compiled unchanged from src/aead.c and the reference.  The STM32F103
+# build answers unsupported, and that is checked on its own even when
+# the rest of this run is another board.  Keys are made by tools/aead,
+# which is the PC side of the same reference code.
+echo
+echo "================= Ascon-AEAD128 ================="
+for b in blackpill bluepill; do
+    bdef="-DFREYA_BOARD_$(echo "$b" | tr '[:lower:]' '[:upper:]')"
+    # shellcheck disable=SC2086
+    $CC -std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
+        -Iinclude -Isrc -Ithird_party/ascon -Iboards/$b $bdef -DFREYA_HOST \
+        tests/host_aead_test.c src/aead.c third_party/ascon/aead.c \
+        -o "$OUT/hostaead-$b"
+    "$OUT/hostaead-$b" || status=1
+done
+# shellcheck disable=SC2086
+$CC -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter -Ithird_party/ascon \
+    tools/aead.c third_party/ascon/aead.c -o "$OUT/aead"
+key=$("$OUT/aead" key) || status=1
+nonce=$("$OUT/aead" nonce) || status=1
+if [ "${#key}" -eq 32 ] && [ "${#nonce}" -eq 32 ]; then
+    echo "  ok    tools/aead key and nonce are 16 bytes"
+else
+    echo "  FAIL  tools/aead key and nonce are 16 bytes"
+    status=1
+fi
+printf ' ' > "$OUT/aead-pt"
+"$OUT/aead" seal 000102030405060708090A0B0C0D0E0F \
+    101112131415161718191A1B1C1D1E1F "$OUT/aead-pt" "$OUT/aead-ct" >/dev/null \
+    || status=1
+got=$(od -An -tx1 "$OUT/aead-ct" | tr -d ' \n')
+if [ "$got" = "e8dd576aba1cd3e6fc704de02aedb79588" ]; then
+    echo "  ok    tools/aead seal matches the published ciphertext"
+else
+    echo "  FAIL  tools/aead seal matches the published ciphertext"
+    status=1
+fi
+"$OUT/aead" open 000102030405060708090A0B0C0D0E0F \
+    101112131415161718191A1B1C1D1E1F "$OUT/aead-ct" "$OUT/aead-back" >/dev/null \
+    || status=1
+if cmp -s "$OUT/aead-pt" "$OUT/aead-back"; then
+    echo "  ok    tools/aead open restores the byte"
+else
+    echo "  FAIL  tools/aead open restores the byte"
+    status=1
+fi
 
 # PDP-11 opcodes on 32-bit registers, compiled unchanged from src/vm.c.
 echo

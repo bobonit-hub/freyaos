@@ -388,9 +388,25 @@ typedef struct {
 #define FREYA_COMPRESS_LOOKAHEAD_BITS  4
 #define FREYA_COMPRESS_BOUND(n)        ((n) + ((n) + 7) / 8)
 
+/* ------------------------------------------------------- Ascon-AEAD128 */
 /*
- * What the pin, timer, PWM, I2C, 1-Wire, SPI, ADC, crypt, compress and
- * interrupt calls return.
+ * NIST SP 800-232.  The key is 16 bytes, the nonce is 16 and the tag
+ * is 16, appended to the ciphertext.  Associated data is authenticated
+ * and not encrypted; a length of zero needs no pointer.  A plaintext
+ * longer than FREYA_AEAD_MAX_LEN is refused rather than split: the tag
+ * covers one message, and the next message is a new nonce.  The key is
+ * the caller's.  Freya does not generate one; tools/aead does, on the
+ * PC.  The STM32F103 build has no cipher and returns
+ * FREYA_ERR_UNSUPPORTED.
+ */
+#define FREYA_AEAD_KEY_LEN     16
+#define FREYA_AEAD_NONCE_LEN   16
+#define FREYA_AEAD_TAG_LEN     16
+#define FREYA_AEAD_MAX_LEN     4096
+
+/*
+ * What the pin, timer, PWM, I2C, 1-Wire, SPI, ADC, crypt, compress, aead
+ * and interrupt calls return.
  * Anything else they hand back is the value asked for: a pin level, a
  * handle, a count.
  */
@@ -482,8 +498,9 @@ typedef struct {
  * that called it and 'arg' to whatever was registered beside it.
  *
  * What a handler may do is decided by what it can preempt.  Console
- * output, the LED, ticks_ms(), the pin calls, the timer calls and
- * crypt() are all safe.  malloc(), free(), the filesystem, power(),
+ * output, the LED, ticks_ms(), the pin calls, the timer calls,
+ * crypt(), aead_encrypt() and aead_decrypt() are all safe.  malloc(),
+ * free(), the filesystem, power(),
  * compress(), decompress() and
  * the I2C, SPI, 1-Wire and ADC calls are not - they can be interrupted
  * halfway through their own bookkeeping, or they spin on a bus - so the
@@ -850,6 +867,27 @@ typedef struct freya_api {
      * and FREYA_ERR_UNSUPPORTED a board built without the code. */
     int      (*compress)(const void *in, int in_len, void *out, int out_cap);
     int      (*decompress)(const void *in, int in_len, void *out, int out_cap);
+
+    /* appended: Ascon-AEAD128.  aead_encrypt() writes the ciphertext of
+     * the in_len bytes at in, then the 16-byte tag, and returns that
+     * length.  aead_decrypt() checks the tag and returns the plaintext
+     * length; in_len counts the tag.  ad is associated data, or a zero
+     * length and a null pointer when there is none.  in and out may not
+     * overlap, and neither may ad and out.  A length of zero is a
+     * message: encryption returns the tag alone.  FREYA_ERR_ARG is a
+     * bad pointer or length, an overlap, or an out too small - the
+     * ciphertext always fits in in_len + FREYA_AEAD_TAG_LEN.
+     * FREYA_ERR_IO is a tag that does not match, and out is then zeros.
+     * FREYA_ERR_UNSUPPORTED is a board built without the code.  The key
+     * is not generated here. */
+    int      (*aead_encrypt)(const void *key, const void *nonce,
+                             const void *ad, int ad_len,
+                             const void *in, int in_len,
+                             void *out, int out_cap);
+    int      (*aead_decrypt)(const void *key, const void *nonce,
+                             const void *ad, int ad_len,
+                             const void *in, int in_len,
+                             void *out, int out_cap);
 } freya_api_t;
 
 /*

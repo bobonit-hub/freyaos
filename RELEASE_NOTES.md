@@ -28,6 +28,16 @@ The program ABI is still version 3.
   `FREYA_ERR_UNSUPPORTED` and the commands say so. The library is
   `third_party/heatshrink`, version 0.4.1, ISC licensed. See
   [docs/compress.md](docs/compress.md).
+* A program can seal and open messages with Ascon-AEAD128 (NIST
+  SP 800-232). `aead_encrypt()` and `aead_decrypt()` were appended to
+  the service table. The key is 16 bytes and the nonce is 16; the
+  16-byte tag is appended to the ciphertext. The key is generated on
+  the PC with `tools/aead`, not on the board. `aead` at the console
+  seals or opens a file, and `samples/aead` checks the published
+  answers. The STM32F103 has no cipher: there the calls return
+  `FREYA_ERR_UNSUPPORTED` and the command says so. The reference
+  implementation is `third_party/ascon`, CC0. See
+  [docs/aead.md](docs/aead.md).
 
 # Freya 3.1.1 "Poltergeist"
 

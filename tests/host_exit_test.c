@@ -100,11 +100,19 @@ int main(void)
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
     api.size = sizeof(freya_api_t);
-    check("decompress is the last call in the table",
+    check("aead_decrypt is the last call in the table",
           (int)sizeof(freya_api_t),
+          (int)(__builtin_offsetof(freya_api_t, aead_decrypt) +
+                sizeof(api.aead_decrypt)));
+    check("aead_encrypt comes just before it",
+          (int)__builtin_offsetof(freya_api_t, aead_decrypt),
+          (int)(__builtin_offsetof(freya_api_t, aead_encrypt) +
+                sizeof(api.aead_encrypt)));
+    check("decompress comes just before aead",
+          (int)__builtin_offsetof(freya_api_t, aead_encrypt),
           (int)(__builtin_offsetof(freya_api_t, decompress) +
                 sizeof(api.decompress)));
-    check("compress comes just before it",
+    check("compress comes just before decompress",
           (int)__builtin_offsetof(freya_api_t, decompress),
           (int)(__builtin_offsetof(freya_api_t, compress) +
                 sizeof(api.compress)));

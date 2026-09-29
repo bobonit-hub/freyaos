@@ -430,6 +430,21 @@ int      crypt_apply(const void *key, const void *nonce, uint32_t off,
 typedef struct lz_stream lz_stream_t;
 int          lz_compress(const void *in, int in_len, void *out, int out_cap);
 int          lz_decompress(const void *in, int in_len, void *out, int out_cap);
+
+/* ------------------------------------------------------- Ascon-AEAD128 */
+/*
+ * NIST SP 800-232.  aead_encrypt() and aead_decrypt() are the service
+ * calls (see freya_api.h).  Neither keeps the key, and neither makes
+ * one.  A board without the code returns FREYA_ERR_UNSUPPORTED.
+ */
+int          aead_encrypt(const void *key, const void *nonce,
+                          const void *ad, int ad_len,
+                          const void *in, int in_len,
+                          void *out, int out_cap);
+int          aead_decrypt(const void *key, const void *nonce,
+                          const void *ad, int ad_len,
+                          const void *in, int in_len,
+                          void *out, int out_cap);
 #if BOARD_COMPRESS
 lz_stream_t *lz_open(int decode);
 void         lz_close(lz_stream_t *s);

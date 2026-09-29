@@ -82,6 +82,12 @@ static int line_holds_secret(const char *line)
     for (p = line; *p; p++) {
         if (strncmp(p, "password_check(", 15) == 0 && p[15] != ')') return 1;
     }
+    /* aead() with no arguments names the cipher.  Any other aead line
+     * carries the key, which must not stay in history. */
+    if (strncmp(line, "aead ", 5) == 0) return 1;
+    for (p = line; *p; p++) {
+        if (strncmp(p, "aead(", 5) == 0 && p[5] != ')') return 1;
+    }
     if (strncmp(line, "password(", 9) != 0 && strncmp(line, "password ", 9) != 0)
         return 0;
     if (strcmp(line, "password()") == 0 || strcmp(line, "password") == 0)
@@ -2484,6 +2490,194 @@ static int cmd_crypt(int argc, char **argv)
     return 0;
 }
 
+/* ------------------------------------------------------------ aead */
+/* Ascon-AEAD128.  The key and the nonce are hex, with no 0x and no
+ * spaces in a word; both are 16 bytes and both come from the caller.
+ * -d opens a file instead of sealing it.  The command and its helpers
+ * share one section so the linker can put them in the kernel extension;
+ * the 48 KiB image has no room for them.  A board without the code
+ * keeps the name and says so. */
+#if BOARD_AEAD
+#define AEAD_TEXT  __attribute__((section(".text.cmd_aead")))
+#define AEAD_USAGE "aead [-d] <key> <nonce> <in> <out>"
+
+static int AEAD_TEXT aead_hexval(int c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static int AEAD_TEXT aead_parse_hex(const char *s, uint8_t *out, int exact)
+{
+    int n = 0;
+
+    while (s[0]) {
+        int hi, lo;
+
+        if (n >= exact) return -1;
+        hi = aead_hexval((unsigned char)s[0]);
+        lo = s[1] ? aead_hexval((unsigned char)s[1]) : -1;
+        if (hi < 0 || lo < 0) return -1;
+        out[n++] = (uint8_t)((hi << 4) | lo);
+        s += 2;
+    }
+    return n == exact ? 0 : -1;
+}
+
+static int AEAD_TEXT aead_same_file(const char *a, const char *b)
+{
+    char pa[FAT_MAX_PATH], pb[FAT_MAX_PATH];
+
+    if (fs_abspath(a, pa, sizeof pa) == 0 && fs_abspath(b, pb, sizeof pb) == 0)
+        return strcmp(pa, pb) == 0;
+    return strcmp(a, b) == 0;
+}
+
+static void AEAD_TEXT aead_wipe(void *p, int n)
+{
+    if (p && n > 0) memset(p, 0, (size_t)n);
+}
+
+/* decode is 0 to seal, 1 to open.  argv[0] is the command. */
+static int AEAD_TEXT aead_file(int decode, int arg0, int argc, char **argv)
+{
+    uint8_t key[FREYA_AEAD_KEY_LEN];
+    uint8_t nonce[FREYA_AEAD_NONCE_LEN];
+    uint8_t *in = NULL, *out = NULL;
+    int32_t sz;
+    int fin = -1, fout = -1, in_len = 0, out_len = 0, off, n, rc = -1;
+    int limit;
+
+    if (argc != arg0 + 4) return usage(AEAD_USAGE);
+    if (aead_parse_hex(argv[arg0], key, FREYA_AEAD_KEY_LEN) != 0 ||
+        aead_parse_hex(argv[arg0 + 1], nonce, FREYA_AEAD_NONCE_LEN) != 0) {
+        aead_wipe(key, (int)sizeof key);
+        aead_wipe(nonce, (int)sizeof nonce);
+        return usage(AEAD_USAGE);
+    }
+    if (!need_fs()) goto done;
+    if (aead_same_file(argv[arg0 + 2], argv[arg0 + 3])) {
+        kprintf("aead: input and output are the same file\r\n");
+        goto done;
+    }
+    fin = fs_fd_open(argv[arg0 + 2], FREYA_O_RDONLY);
+    if (fin < 0) {
+        fs_fail("aead", argv[arg0 + 2], fin);
+        goto done;
+    }
+    sz = fs_fd_size(fin);
+    if (sz < 0) {
+        fs_fail("aead", argv[arg0 + 2], (int)sz);
+        goto done;
+    }
+    limit = decode ? FREYA_AEAD_MAX_LEN + FREYA_AEAD_TAG_LEN
+                   : FREYA_AEAD_MAX_LEN;
+    if (sz > limit) {
+        kprintf("aead: file is larger than %d bytes\r\n", limit);
+        goto done;
+    }
+    if (decode && sz < FREYA_AEAD_TAG_LEN) {
+        kprintf("aead: file is too short to hold a tag\r\n");
+        goto done;
+    }
+    in_len = (int)sz;
+    if (in_len) {
+        in = kmalloc((uint32_t)in_len);
+        if (!in) {
+            kprintf("aead: out of memory\r\n");
+            goto done;
+        }
+        off = 0;
+        while (off < in_len) {
+            if (script_interrupted()) {
+                kprintf("aead: cancelled\r\n");
+                goto done;
+            }
+            n = fs_fd_read(fin, in + off, in_len - off);
+            if (n < 0) {
+                fs_fail("aead", argv[arg0 + 2], n);
+                goto done;
+            }
+            if (n == 0) {
+                kprintf("aead: read failed\r\n");
+                goto done;
+            }
+            off += n;
+        }
+    }
+    out_len = decode ? in_len - FREYA_AEAD_TAG_LEN
+                     : in_len + FREYA_AEAD_TAG_LEN;
+    if (out_len) {
+        out = kmalloc((uint32_t)out_len);
+        if (!out) {
+            kprintf("aead: out of memory\r\n");
+            goto done;
+        }
+    }
+    n = decode ? aead_decrypt(key, nonce, NULL, 0, in, in_len, out, out_len)
+               : aead_encrypt(key, nonce, NULL, 0, in, in_len, out, out_len);
+    if (n == FREYA_ERR_IO) {
+        kprintf("aead: authentication failed\r\n");
+        goto done;
+    }
+    if (n < 0) {
+        kprintf("aead: bad argument\r\n");
+        goto done;
+    }
+    fout = fs_fd_open(argv[arg0 + 3],
+                      FREYA_O_WRONLY | FREYA_O_CREATE | FREYA_O_TRUNC);
+    if (fout < 0) {
+        fs_fail("aead", argv[arg0 + 3], fout);
+        goto done;
+    }
+    if (n > 0 && fs_fd_write(fout, out, n) != n) {
+        fs_fail("aead", argv[arg0 + 3], FAT_ERR_IO);
+        goto done;
+    }
+    rc = fs_fd_close(fout);
+    fout = -1;
+    if (rc != FAT_OK) {
+        fs_fail("aead", argv[arg0 + 3], rc);
+        rc = -1;
+        goto done;
+    }
+    kprintf("aead: %d -> %d B\r\n", in_len, n);
+    rc = 0;
+done:
+    aead_wipe(key, (int)sizeof key);
+    aead_wipe(nonce, (int)sizeof nonce);
+    aead_wipe(in, in_len);
+    aead_wipe(out, out_len);
+    kfree(in);
+    kfree(out);
+    if (fout >= 0) fs_fd_close(fout);
+    if (fin >= 0) fs_fd_close(fin);
+    return rc;
+}
+
+static int AEAD_TEXT cmd_aead(int argc, char **argv)
+{
+    if (argc == 1) {
+        kprintf("Ascon-AEAD128, 16-byte key, 16-byte nonce, 16-byte tag\r\n"
+                "usage: %s\r\n", AEAD_USAGE);
+        return 0;
+    }
+    if (argc > 1 && strcmp(argv[1], "-d") == 0)
+        return aead_file(1, 2, argc, argv);
+    return aead_file(0, 1, argc, argv);
+}
+#else
+static int KEXT cmd_aead(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    kprintf("aead unsupported on this board\r\n");
+    return -1;
+}
+#endif
+
 /* ------------------------------------------------ compress, decompress */
 /* heatshrink's LZSS, one file to another, in pieces the stream calls
  * take, so the file may be any size.  The commands and their helpers
@@ -2836,6 +3030,15 @@ static const char s_help_compress[]
 static const char s_help_decompress[]
     __attribute__((section(".rodata.cmd_decompress.help"))) =
     "decompress([\"in\", \"out\"])";
+#if BOARD_AEAD
+static const char s_help_aead[]
+    __attribute__((section(".rodata.cmd_aead.help"))) =
+    "aead([\"-d\",] \"key\", \"nonce\", \"in\", \"out\")";
+#else
+/* The Blue Pill kernel image has a few dozen bytes left.  The long
+ * signature stays with the command, which this board does not build. */
+static const char s_help_aead[] = "aead()";
+#endif
 
 static const command_t s_cmds[] = {
     { "help",     cmd_help,     "help([\"command\"])" },
@@ -2887,6 +3090,7 @@ static const command_t s_cmds[] = {
     { "curl",     cmd_curl,     "curl([\"--basic\", \"user:password\",] [\"--compressed\",] [\"--data\", text,] [\"--output\", file,] [\"--user-agent\", text,] [\"--insecure\",] [\"--verbose\",] \"http[s]://...\")" },
     { "w1",       cmd_w1,       "w1([\"pin\" [, \"off\"|\"reset\"|\"search\"]])" },
     { "crypt",    cmd_crypt,    "crypt([\"key\", \"nonce\", \"hex\"])" },
+    { "aead",     cmd_aead,     s_help_aead },
     { "compress", cmd_compress, s_help_compress },
     { "decompress", cmd_decompress, s_help_decompress },
     { "echo",     cmd_echo,     "echo([value [, ...]])" },

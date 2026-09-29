@@ -98,6 +98,9 @@ SECTIONS
         *shell.o(.text.pin_fail*)
         *shell.o(.text.cmd_crypt)
         *crypt.o(.text .text.*)
+        /* Ascon is not built here.  The two service calls are a dozen
+         * bytes and stay in the kernel image; the command that says so
+         * is .text.kext_script, already claimed above. */
         /* heatshrink and the two file coders that drive it. */
         *shell.o(.text.cmd_compress)
         *shell.o(.text.cmd_decompress)

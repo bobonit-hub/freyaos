@@ -96,6 +96,10 @@ SECTIONS
         *shell.o(.text.pin_fail*)
         *shell.o(.text.cmd_crypt)
         *crypt.o(.text .text.*)
+        /* Ascon-AEAD128.  The 48 KiB image has no room for it. */
+        *shell.o(.text.cmd_aead)
+        *aead.o(.text .text.* .rodata .rodata.*)
+        *ascon.o(.text .text.* .rodata .rodata.*)
         /* heatshrink and the two file coders that drive it. */
         *shell.o(.text.cmd_compress)
         *shell.o(.text.cmd_decompress)
@@ -167,6 +171,7 @@ SECTIONS
         *shell.o(.rodata.pin_fail*)
         *shell.o(.rodata.cmd_crypt*)
         *crypt.o(.rodata .rodata.*)
+        *shell.o(.rodata.cmd_aead*)
         *shell.o(.rodata.cmd_compress*)
         *shell.o(.rodata.cmd_decompress*)
         *vm.o(.rodata .rodata.*)

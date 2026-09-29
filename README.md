@@ -127,6 +127,11 @@ Freya 3.1.2 "Poltergeist" for STM32F103C8T6
   `heatshrink -w 8 -l 4` writes. A program hands over a buffer;
   `compress` and `decompress` at the console stream a file of any size.
   The Blue Pill has no room for it ([docs/compress.md](docs/compress.md)).
+* Seals and opens messages with Ascon-AEAD128 (NIST SP 800-232). The key
+  is 16 bytes, the nonce is 16 and the tag is 16, appended to the
+  ciphertext. The key is generated on the PC with `tools/aead`, not on
+  the board. `aead` at the console and `samples/aead` do the same thing.
+  The STM32F103 has no cipher ([docs/aead.md](docs/aead.md)).
 * Runs a PDP-11 whose eight registers and whose words are 32 bits. The
   opcodes and the condition codes are the PDP-11's. A program steps it
   with `api->vm_step()` or runs a stretch of instructions with
@@ -382,6 +387,7 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | bounded HTTP request through the ESP32-C6 |
 | `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one and talk to it |
 | `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts |
+| `aead(["-d",] "key", "nonce", "in", "out")` | Ascon-AEAD128: seal a file, or open it with `-d` (not on the Blue Pill) |
 | `compress(["in", "out"])` | pack a file with heatshrink LZSS (not on the Blue Pill) |
 | `decompress(["in", "out"])` | unpack a file `compress` or the host tool wrote |
 | `sleep(ms)` | wait that many milliseconds; Ctrl-C returns early |
@@ -539,7 +545,8 @@ The service table (`include/freya_api.h`) gives a program console I/O and
 `open`, `read`, `write`, `seek`, `close`, `unlink`, `mkdir`, `rename`,
 `opendir`, `readdir`, `closedir`, the exit status of the run before it:
 `exit`, `last_exit`, `exit_reason_str`, the pins, the timers, PWM and the
-interrupts, XTEA in CTR mode (`crypt`), heatshrink LZSS (`compress`,
+interrupts, XTEA in CTR mode (`crypt`), Ascon-AEAD128 (`aead_encrypt`,
+`aead_decrypt`), heatshrink LZSS (`compress`,
 `decompress`), a raw console (`console_raw`,
 which hands Ctrl-C to the program as an ordinary key, as an emulator needs;
 Freya takes it back when the run ends), and a file log: `log`, `get_log_level`,
@@ -929,6 +936,7 @@ is measured rather than guessed).
 | `src/ds3231.c` | optional DS3231 clock, built with `RTC=ds3231`; SCL is PB6, SDA is PB7 |
 | `src/w1.c` | 1-Wire master, standard speed, on a pin a program names |
 | `src/crypt.c` | XTEA in CTR mode, for a program and for `crypt` |
+| `src/aead.c`, `third_party/ascon/` | Ascon-AEAD128, for a program and for `aead`; not built into the STM32F103. Keys come from `tools/aead` |
 | `src/lz.c`, `third_party/heatshrink/` | heatshrink LZSS, for a program and for `compress` / `decompress`; not built into the Blue Pill |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
 | `src/lfsvol.c`, `third_party/littlefs/` | LittleFS on the Black Pill SPI flash (the default there) |
@@ -942,7 +950,7 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic`, `basic11` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `aead`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic`, `basic11` |
 | `qbe/` | QBE target and cproc patch for the virtual machine, and `as.py`, the assembler that makes an image |
 | `basic/` | BASIC-11 style interpreter for the virtual machine and, natively, for the FPU boards: the interpreter, the FP11 and `float` arithmetics, the PC runner |
 | `tests/` | host side tests |
@@ -954,6 +962,7 @@ is measured rather than guessed).
 | `docs/network.md` | ESP32-C6 wiring, Wi-Fi commands and the asynchronous network API |
 | `docs/w1.md` | the 1-Wire master API, the pin, and the `w1` command |
 | `docs/crypt.md` | the XTEA-CTR API and the `crypt` command |
+| `docs/aead.md` | the Ascon-AEAD128 API, the `aead` command and `tools/aead` |
 | `docs/compress.md` | the heatshrink API and the `compress` / `decompress` commands |
 | `docs/sd-slot.txt` | SD slot wiring for the Blue Pill and the Black Pill |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
@@ -1030,6 +1039,15 @@ XTEA is checked the same way. `src/crypt.c` is compiled unchanged and the
 published block vector pins the 32 rounds and the big-endian words. CTR is
 then checked against that block: a split message, a counter that carries,
 and a piece that starts in the middle of a block.
+
+Ascon-AEAD128 is checked against the NIST SP 800-232 known answers.
+`src/aead.c` and the reference in `third_party/ascon` are compiled
+unchanged, an empty message, a byte with associated data and a 16-byte
+block have to come out as the published ciphertexts, and a flipped tag
+has to be refused with the output cleared. Built for the STM32F103, the
+same test checks that both calls answer `FREYA_ERR_UNSUPPORTED`.
+`tools/aead` generates a key from `/dev/urandom` and its `seal` has to
+write the same ciphertext the board call writes.
 
 heatshrink is checked against a stream the upstream tool wrote: `src/lz.c`
 and the library are compiled unchanged, the encoder has to produce those

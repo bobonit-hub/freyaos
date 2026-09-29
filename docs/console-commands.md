@@ -54,6 +54,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | make a bounded HTTP request through the ESP32-C6 |
 | `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one, check presence, or walk the ROMs |
 | `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts |
+| `aead(["-d",] "key", "nonce", "in", "out")` | Ascon-AEAD128: seal a file, or open it with `-d` (not on the Blue Pill) |
 | `compress(["in", "out"])` | pack a file with heatshrink LZSS (not on the Blue Pill) |
 | `decompress(["in", "out"])` | unpack a file `compress` or the host tool wrote |
 | `sleep(ms)` | wait that many milliseconds; Ctrl-C returns early |
@@ -244,6 +245,26 @@ freya: crypt("000102030405060708090a0b0c0d0e0f", "4142434445464748", "0000000000
 ```
 
 A file is `samples/crypt`. [docs/crypt.md](crypt.md) is the call.
+
+## aead at the prompt
+
+`aead` is Ascon-AEAD128 with a prompt in front of it — the same
+`src/aead.c` a program reaches through `api->aead_encrypt()` and
+`api->aead_decrypt()`. With no arguments it names the cipher and prints
+the usage. Otherwise the key and the nonce are 32 hex digits each, and
+the two paths are a file to read and a file to write. `-d` checks the
+tag and writes the plaintext. The key is generated on the PC with
+`tools/aead key`; the board does not make one. A line that carries a
+key is left out of the shell history.
+
+```
+freya: aead("000102030405060708090a0b0c0d0e0f", "101112131415161718191a1b1c1d1e1f", "/notes.txt", "/notes.ct")
+aead: 128 -> 144 B
+```
+
+The STM32F103 has no room for the cipher and the command says
+`unsupported on this board`. A file is `samples/aead`.
+[docs/aead.md](aead.md) is the call.
 
 ## compress and decompress at the prompt
 

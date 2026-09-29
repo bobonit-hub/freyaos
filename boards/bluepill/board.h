@@ -112,6 +112,11 @@
  * decompress() report FREYA_ERR_UNSUPPORTED there. */
 #define BOARD_COMPRESS       0
 
+/* Ascon-AEAD128 is the same story: the extension is full, so
+ * aead_encrypt() and aead_decrypt() report FREYA_ERR_UNSUPPORTED.
+ * The key is generated on the PC either way. */
+#define BOARD_AEAD           0
+
 /* --------------------------------------------------------------- ADC */
 /* ADC1 channels common to both supported boards and not kept by Freya.
  * The internal temperature sensor is channel 16 on the F1; Vref is 17. */
