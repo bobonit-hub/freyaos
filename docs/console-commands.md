@@ -528,7 +528,9 @@ clears it; erased flash is off. The next boot asks for those eight bytes
 before the `freya:` prompt. Autorun still starts before that prompt.
 Changing `autostart`, `ramdump` or `loglevel` keeps the password. The same
 eight bytes are the password for the C6 TLS terminal on port 8022; the
-username there is `admin`. See [network.md](network.md).
+username there is `admin`. See [network.md](network.md). A script tests
+the password with the expression `password_check(text)`, which is a bool
+and is described in [shell.md](shell.md#terminal-password).
 
 ## Commands that were Blue Pill only
 

@@ -70,11 +70,18 @@ static uint32_t KEXT sh_soon(void); /* ms until the next wake, or 0 */
 
 /* ------------------------------------------------------- line editing */
 /*
- * A line that would store the terminal password.  password() and
- * password("off") may stay in history; the eight secret bytes must not.
+ * A line that would store or test the terminal password.  password(),
+ * password("off") and password_check() may stay in history; the eight
+ * secret bytes must not.  password_check(text) can sit anywhere in a
+ * line, after if, loop or set, so the whole line is searched.
  */
 static int line_holds_secret(const char *line)
 {
+    const char *p;
+
+    for (p = line; *p; p++) {
+        if (strncmp(p, "password_check(", 15) == 0 && p[15] != ')') return 1;
+    }
     if (strncmp(line, "password(", 9) != 0 && strncmp(line, "password ", 9) != 0)
         return 0;
     if (strcmp(line, "password()") == 0 || strcmp(line, "password") == 0)
@@ -4283,7 +4290,8 @@ static int KEXT fn_reserved(const char *s, int n)
         "file_checksum", "file_read", "file_write",
         "flash_read", "flash_write",
         "ram_read", "ram_write", "ram_checksum",
-        "match", "find", "gsub"
+        "match", "find", "gsub",
+        "password_check"
     };
     int i;
 
@@ -6685,6 +6693,55 @@ static int KEXT sh_spawn(fn_arg_t *args, int argc, val_t *out);
 static int KEXT sh_join(fn_arg_t *args, int argc, val_t *out);
 static int KEXT sh_yield_fn(fn_arg_t *args, int argc, val_t *out);
 
+#ifdef FREYA_APP_FLASH_ADDR
+/* Eight bytes, compared in full so a mismatch does not stop early. */
+static int password_match(const uint8_t *stored, const char *got, int n)
+{
+    uint8_t diff = (uint8_t)((n < 0 ? 0 : n) ^ FREYA_PASSWORD_LEN);
+    unsigned i;
+
+    for (i = 0; i < FREYA_PASSWORD_LEN; i++) {
+        unsigned char c = (n > (int)i) ? (unsigned char)got[i] : 0;
+        diff |= (uint8_t)(stored[i] ^ c);
+    }
+    return diff == 0;
+}
+#endif
+
+/*
+ * password_check() is whether a terminal password is set.
+ * password_check(text) is whether that text is the password.  Both are a
+ * bool, and neither prints or returns the stored bytes.  An erased slot
+ * matches nothing, so eight 0xFF characters are not a password either.
+ * The compare is the one the boot prompt uses: every byte, whatever the
+ * length of the text.
+ */
+static int KEXT password_builtin(fn_arg_t *args, int argc, val_t *out)
+{
+    out->type = V_BOOL;
+    out->i = 0;
+    if (argc == 0) {
+#ifdef FREYA_APP_FLASH_ADDR
+        out->i = app_password_enabled() ? 1 : 0;
+#endif
+        return 1;
+    }
+    if (argc != 1 || args[0].type != V_STR) return vfail("bad expression");
+#ifdef FREYA_APP_FLASH_ADDR
+    if (app_password_enabled()) {
+        uint8_t stored[FREYA_PASSWORD_LEN];
+        const char *got = str_text(args[0].u.s);
+        size_t n = strlen(got);
+
+        if (n > FREYA_PASSWORD_LEN) n = FREYA_PASSWORD_LEN + 1;
+        app_password_read(stored);
+        out->i = password_match(stored, got, (int)n) ? 1 : 0;
+        memset(stored, 0, sizeof stored);
+    }
+#endif
+    return 1;
+}
+
 static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
                            int argc, val_t *out)
 {
@@ -6872,6 +6929,8 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         return sh_join(args, argc, out);
     if (nlen == 5 && strncmp(name, "yield", 5) == 0)
         return sh_yield_fn(args, argc, out);
+    if (nlen == 14 && strncmp(name, "password_check", 14) == 0)
+        return password_builtin(args, argc, out);
     if ((rc = file_builtin(name, nlen, args, argc, out)) != 0) return rc;
     if ((rc = binary_builtin(name, nlen, args, argc, out)) != 0) return rc;
     if ((rc = pat_builtin(name, nlen, args, argc, out)) != 0) return rc;
@@ -7932,7 +7991,8 @@ static int KEXT cmd_unset(int argc, char **argv)
     return 0;
 }
 
-/* true, false, or bool(...) are conditions without a comparison. */
+/* true, false, bool(...) or password_check(...) are conditions without
+ * a comparison. */
 static int KEXT is_bool_cond(const char *s)
 {
     int n = 0;
@@ -7943,6 +8003,7 @@ static int KEXT is_bool_cond(const char *s)
     if (n == 4 && strncmp(s, "true", 4) == 0) return 1;
     if (n == 5 && strncmp(s, "false", 5) == 0) return 1;
     if (n == 4 && strncmp(s, "bool", 4) == 0 && s[n] == '(') return 1;
+    if (n == 14 && strncmp(s, "password_check", 14) == 0 && s[n] == '(') return 1;
     return 0;
 }
 
@@ -8886,19 +8947,6 @@ static int KEXT script_append(const char *line)
     s_script_len += n;
     s_script[s_script_len] = '\0';
     return 0;
-}
-
-/* Eight bytes, compared in full so a mismatch does not stop early. */
-static int password_match(const uint8_t *stored, const char *got, int n)
-{
-    uint8_t diff = (uint8_t)((n < 0 ? 0 : n) ^ FREYA_PASSWORD_LEN);
-    unsigned i;
-
-    for (i = 0; i < FREYA_PASSWORD_LEN; i++) {
-        unsigned char c = (n > (int)i) ? (unsigned char)got[i] : 0;
-        diff |= (uint8_t)(stored[i] ^ c);
-    }
-    return diff == 0;
 }
 
 static int s_term_open;

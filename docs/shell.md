@@ -72,8 +72,8 @@ written. The condition's value is an integer or a bool. An integer is false
 at 0 and true otherwise. A bool is `true` or `false`. A condition
 that is neither, such as a bare float, is an error.
 
-`true`, `false`, and `bool(...)` are conditions even without a
-comparison. Anything else after `if` is a command. Status 0 takes the first branch.
+`true`, `false`, `bool(...)` and `password_check(...)` are conditions
+even without a comparison. Anything else after `if` is a command. Status 0 takes the first branch.
 Any other status takes the `else`. A branch that is skipped does not
 change `$?`. A condition does: true leaves 0 and false leaves 1.
 
@@ -98,7 +98,8 @@ count is a decimal integer from 0 to 1000000, or `$?`, or `$name` after
 expansion. It is read once, when the loop starts. `loop 0` runs nothing.
 `loop <condition>` repeats while that condition is true, and tests it
 again before every pass. A condition is the same text `if` accepts: a
-comparison, or `true`, `false`, or `bool(...)`. `loop true` does not
+comparison, or `true`, `false`, `bool(...)` or `password_check(...)`.
+`loop true` does not
 stop on its own. A script thread still repeats by count: `loop true` runs
 at the prompt and from `source`, not inside `spawn`. A false condition runs nothing and leaves `$?` as 1,
 the way a false `if` does. The condition is read again after each pass,
@@ -305,6 +306,7 @@ These names are built in. `fn` refuses each of them with `bad name`.
 | Files | `open`, `read`, `write`, `close`, `seek`, `flush`, `file_checksum`, `file_read`, `file_write` |
 | Memory | `flash_read`, `flash_write`, `ram_read`, `ram_write`, `ram_checksum` |
 | Patterns | `match`, `find`, `gsub` |
+| Terminal | `password_check` |
 
 ## Arrays and dicts
 
@@ -862,6 +864,36 @@ that script into the module with the flag already set.
 `password("xxxxxxxx")` stores eight printable bytes in that same slot.
 The next boot asks for them before the prompt. `password("off")` clears
 the password. `password()` says whether it is set.
+
+## Terminal password
+
+`password_check` is the expression form of that check, so a script can
+ask for the terminal password itself. `password_check()` is `true` when
+a password is set and `false` when the slot is erased.
+`password_check(text)` is `true` only when `text` is exactly the stored
+eight bytes. A wrong text, a text of another length, and any text at
+all while the password is off are `false`. The argument is one string;
+anything else is `bad expression`. Neither form prints or returns the
+stored bytes, and the compare looks at every byte whatever the text, the
+way the boot prompt does.
+
+`password_check(...)` is a condition on its own, so `if` and `loop` take
+it without a comparison. A line that passes text to `password_check` is
+kept out of the command history, the same way `password("xxxxxxxx")` is.
+
+```
+freya: set s read($f)
+freya: if password_check($s)
+> echo("welcome")
+> else
+> echo("denied")
+> end
+denied
+freya: if password_check()
+> echo("a password is set")
+> end
+a password is set
+```
 
 ## Limits
 
