@@ -21,9 +21,9 @@
 #error "program flash region extends past the board's flash"
 #endif
 #if defined(FREYA_SETTINGS_ADDR) && \
-    ((FREYA_SETTINGS_ADDR + FREYA_SETTINGS_SIZE) != \
+    ((FREYA_SETTINGS_ADDR + FREYA_SETTINGS_SIZE) > \
      (0x08000000UL + (BOARD_FLASH_KIB) * 1024UL))
-#error "system settings are not the last bytes of internal flash"
+#error "system settings extend past the board's flash"
 #endif
 
 /* The OS version is the release named in the documentation.  A firmware

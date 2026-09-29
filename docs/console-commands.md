@@ -533,8 +533,9 @@ username there is `admin`. See [network.md](network.md).
 ## Commands that were Blue Pill only
 
 These lived behind `FREYA_APP_FLASH_ADDR`, which only the Blue Pill defined.
-They are implemented on both boards now (Black Pill: 128-byte slot at the
-end of sector 3, 64 KiB program in sector 4).  Acceptance: type any of
+They are implemented on both boards now (Black Pill: system settings at
+the start of sector 3, a 320 KiB program region in sectors 4..6; the 1 MiB
+STM32F405: 832 KiB in sectors 4..10).  Acceptance: type any of
 them at `freya:` on either module.
 
 | Command | Why it was missing on the Black Pill |

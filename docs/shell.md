@@ -803,6 +803,11 @@ These calls transfer byte arrays without converting through strings:
   (`flash_page_size()`). The data must fit in one block. The whole block
   is erased first, so bytes after the data read as `0xff`. An empty data
   array is a no-op. A loaded or running program makes the call fail.
+  On the F4 boards the block is 64 KiB but the region's sectors from
+  block 1 on are 128 KiB, so writing an odd block erases the even block
+  before it as well, and vice versa: fill such a pair in one call to
+  `flash_write` per 128 KiB, or write the region in ascending order and
+  accept that block 2n+1 must be written after block 2n.
 - `ram_read(address, count)` returns bytes from physical SRAM.
   `ram_write(address, count, data)` writes the first `count` bytes and
   returns `count`. `ram_checksum(address, count)` returns the same

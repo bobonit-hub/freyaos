@@ -1,26 +1,27 @@
 /*
  * Freya - linker script for STM32F405xx
  *
- * 512 KiB or 1 MiB internal flash @ 0x08000000
+ * 1 MiB internal flash          @ 0x08000000
  * 128 KiB SRAM                   @ 0x20000000
  * (64 KiB of CCM at 0x10000000 is left unused; DMA cannot reach it.)
  *
- * Flash map - the F4 erases in sectors (16, 16, 16, 16, 64, 128, 128,
- * 128 KiB).  The kernel stays in the first three 16 KiB sectors.  System
- * settings are the last 1 KiB of the 512 KiB map, in sector 7, so erasing
- * them never shares a sector with the kernel, the program or the extension.
- * A 1 MiB part keeps this address; flash above 512 KiB stays unused.
+ * Flash map - the F4 erases in sectors (16, 16, 16, 16, 64, then 128 KiB
+ * each; the 1 MiB part has twelve sectors).  The kernel stays in the first
+ * three 16 KiB sectors.  System settings take sector 3, a 16 KiB sector of
+ * their own, so erasing them never shares a sector with the kernel, the
+ * program or the extension.  The program region is every sector between
+ * the settings and the extension, which is the last sector.  This map
+ * needs the 1 MiB part; every STM32F405 is one.
  *   0x08000000 .. 0x0800BFFF   Freya kernel                      (48 KiB)
- *   0x0800C000 .. 0x0800FFFF   unused (sector 3)
- *   0x08010000 .. 0x0801FFFF   program flash region              (64 KiB)
- *   0x08020000 .. 0x08033FFF   kernel extension (threads, SPI, XTEA,
- *                                  SPI flash, LittleFS, shell)     (80 KiB)
- *   0x08034000 .. 0x0807FBFF   unused
- *   0x0807FC00 .. 0x0807FFFF   system settings, two copies        (1 KiB)
+ *   0x0800C000 .. 0x0800C3FF   system settings, two copies        (1 KiB)
+ *   0x0800C400 .. 0x0800FFFF   rest of sector 3, unused
+ *   0x08010000 .. 0x080DFFFF   program flash region, sectors 4..10 (832 KiB)
+ *   0x080E0000 .. 0x080FFFFF   kernel extension (threads, SPI, XTEA,
+ *                                  SPI flash, LittleFS, shell)    (128 KiB)
  *
- * The extension is a separate image.  It sits in sector 5 so that writing
- * the kernel does not share an erase unit with the program, and so the
- * 48 KiB image stays inside sectors 0..2.
+ * The extension is a separate image.  It sits in sector 11 so that writing
+ * the kernel or the program does not share an erase unit with it, and so
+ * the 48 KiB kernel image stays inside sectors 0..2.
  *
  * RAM map:
  *   0x20000000 .. 0x2000EFFF   kernel .data/.bss + system heap   (60 KiB)
@@ -35,7 +36,7 @@ ENTRY(Reset_Handler)
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 48K
-    KEXT  (rx)  : ORIGIN = 0x08020000, LENGTH = 80K
+    KEXT  (rx)  : ORIGIN = 0x080E0000, LENGTH = 128K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
 }
 
@@ -48,12 +49,12 @@ __app_ram_end        = 0x2001E000;
 __worker_stacks      = __app_ram_start - (__worker_count * __worker_stack_size);
 __thread_stack_top   = __stack_top - __irq_stack_size;
 __shell_stack_limit  = __stack_limit;
-__settings_start     = 0x0807FC00;
-__settings_end       = 0x08080000;
+__settings_start     = 0x0800C000;
+__settings_end       = 0x0800C400;
 __autostart_start    = __settings_start;
 __autostart_end      = __settings_end;
 __app_flash_start    = 0x08010000;
-__app_flash_end      = 0x08020000;
+__app_flash_end      = 0x080E0000;
 __ram_start     = 0x20000000;
 __ram_end       = 0x20020000;
 __stack_top     = __ram_end;
@@ -261,12 +262,14 @@ SECTIONS
            "Freya: program flash is not 128-byte aligned")
     ASSERT((__settings_end - __settings_start) == 1024,
            "Freya: system settings are not 1 KiB")
-    ASSERT(__settings_end == 0x08080000,
-           "Freya: system settings are not the last bytes of flash")
+    ASSERT(__settings_start >= 0x0800C000 && __settings_end <= 0x08010000,
+           "Freya: system settings are not inside sector 3")
     ASSERT(__kernel_flash_end <= 0x0800C000,
            "Freya: kernel image does not fit in the first 48 KiB")
-    ASSERT(__kext_end <= __settings_start,
-           "Freya: kernel extension overflows into system settings")
+    ASSERT(__app_flash_end <= __kext_start,
+           "Freya: program flash region overlaps the kernel extension")
+    ASSERT(__kext_end <= 0x08100000,
+           "Freya: kernel extension runs past the end of flash")
     ASSERT(__ramfunc_end <= __app_ram_end,
            "Freya: the RAM resident flash routines do not fit the program region")
 

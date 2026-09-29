@@ -1,8 +1,8 @@
 /*
  * Freya - internal flash programming for the STM32F411CEU6.
  *
- * Only the program flash region (sector 4) and the system settings (the
- * last 1 KiB of sector 7) are writable through here.  Every erase and
+ * Only the program flash region and the system settings, the first 1 KiB
+ * of sector 3, are writable through here.  Every erase and
  * program goes through in_region() first, and nothing in freya_api_t
  * reaches this file: a program cannot rewrite the kernel that is running
  * it.
@@ -12,15 +12,17 @@
  * instruction and data caches are dropped around an operation and
  * invalidated before fetch from the region that was just programmed.
  *
- * Sectors are unequal, so a 64 KiB program-region erase cannot keep a
- * tail in SRAM the way the F103 keeps a 1 KiB page.  Any write that
- * touches a sector erases that whole sector.  System settings are in
- * sector 7, which holds nothing else, so that does not take the program.
+ * Sectors are unequal, so a program-region erase cannot keep a tail in
+ * SRAM the way the F103 keeps a 1 KiB page.  Any write that touches a
+ * sector erases that whole sector; the region is a 64 KiB sector followed
+ * by 128 KiB ones, and an erase covers only the sectors the range
+ * touches.  System settings are in sector 3, which holds nothing else, so
+ * writing them does not take the program.
  */
 #include "freya.h"
 
-/* 64 KiB sector erase is specified in milliseconds; this is a generous
- * bound on a 96 MHz poll loop, not a timing reference. */
+/* A 128 KiB sector erase is specified at up to about two seconds; this
+ * is a generous bound on a 96 MHz poll loop, not a timing reference. */
 #define FLASH_SPIN_LIMIT    200000000UL
 
 extern char __ramfunc_start[], __ramfunc_end[], __ramfunc_load[];
@@ -36,10 +38,13 @@ typedef struct {
     uint32_t snb;
 } flash_sector_t;
 
-/* F411CE: program sector (4) and the settings sector (7) are writable. */
+/* F411CE: the settings sector (3) and the program sectors (4..6) are
+ * writable; the kernel (0..2) and the extension (7) are not. */
 static const flash_sector_t s_sectors[] = {
+    { 0x0800C000UL, 16U * 1024U,  3 },
     { 0x08010000UL, 64U * 1024U,  4 },
-    { 0x08060000UL, 128U * 1024U, 7 },
+    { 0x08020000UL, 128U * 1024U, 5 },
+    { 0x08040000UL, 128U * 1024U, 6 },
 };
 
 static const flash_sector_t *sector_of(uint32_t addr)

@@ -43,9 +43,9 @@ freya:
 | MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx |
 | Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz |
 | Crystal | 25 MHz | 8 MHz | 8 MHz |
-| Flash | 512 KiB | 128 KiB | 512 KiB or 1 MiB |
+| Flash | 512 KiB | 128 KiB | 1 MiB |
 | SRAM | 128 KiB | 20 KiB | 128 KiB |
-| Program region | 56 KiB RAM, or 64 KiB flash | 8 KiB RAM, or 24 KiB flash | 56 KiB RAM, or 64 KiB flash |
+| Program region | 56 KiB RAM, or 320 KiB flash | 8 KiB RAM, or 24 KiB flash | 56 KiB RAM, or 832 KiB flash |
 | Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -136,10 +136,12 @@ Freya 3.1.2 "Poltergeist" for STM32F103C8T6
   the 100 KiB image ([basic/README.md](basic/README.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
-  size from 8 KiB to 24 KiB; on the Black Pill the flash region is 64 KiB
-  (sector 4) and is there so the same console commands work with no card in
-  the socket. The program can be copied from the card, or packed into the
-  module when Freya itself is flashed.
+  size from 8 KiB to 24 KiB; on the Black Pill the flash region is 320 KiB
+  (sectors 4..6) and on the STM32F405 832 KiB (sectors 4..10) — every
+  sector between the kernel and the kernel extension, so a program far
+  larger than the 56 KiB of program RAM runs there, and the same console
+  commands work with no card in the socket. The program can be copied from
+  the card, or packed into the module when Freya itself is flashed.
 * Runs threads inside a program. A thread has a name and a numeric priority;
   the highest priority that is ready runs, and equal priorities take turns.
   `threads` lists them. `stop blink` stops that thread; `stop` with no name
@@ -734,10 +736,12 @@ kernel extension (the thread scheduler, the shell's script interpreter,
 its variables and functions, XMODEM, the SPI master, the cipher and the
 virtual machine), which is flashed as its own image. The size register on
 these parts often still reads 64 KiB; the region runs through the 128 KiB
-anyway. The Black Pill does not need
-the size (it already has 56 KiB of program RAM) but it keeps the same
-commands: a 128-byte slot at the end of sector 3, then the whole of sector
-4 (64 KiB) for the image. `install` writes an
+anyway. The F4 boards put the same commands to a different use: their
+region is every sector between the kernel and the kernel extension, 320 KiB
+(sectors 4..6) on the Black Pill and 832 KiB (sectors 4..10) on the 1 MiB
+STM32F405, so a program several times the size of the 56 KiB program RAM
+runs from flash there; the system settings are in sector 3 in front of it.
+`install` writes an
 image there from the card, and `make flash PROGRAM=<app>` writes the same
 kind of image into the module together with the kernel:
 
@@ -785,7 +789,7 @@ every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
 spends the 8 KiB RAM window entirely on its variables, and gets 24 KiB
 for code instead of 8 KiB. On the Black Pill the RAM window is still 56 KiB and
-the flash image may be up to 64 KiB.
+the flash image may be up to 320 KiB; on the STM32F405, 832 KiB.
 
 Executing from flash needs nothing special — an address in `0x0800xxxx` is
 fetchable exactly the way one in `0x2000xxxx` is. Writing to flash does: neither
@@ -824,16 +828,24 @@ Black Pill:
 0x08000000  +--------------------------------+
             |  Freya kernel (~47.8 KiB used) |  48 KiB, sectors 0..2
 0x0800C000  +--------------------------------+
-            |  unused                        |  sector 3
+            |  system settings               |  first 1 KiB of sector 3
+0x0800C400  +--------------------------------+
+            |  unused                        |  rest of sector 3
 0x08010000  +--------------------------------+
-            |  program flash region          |  64 KiB, sector 4
-0x08020000  +--------------------------------+
-            |  kernel extension              |  128 KiB, sector 5
-0x08040000  +--------------------------------+
-            |  unused                        |  sectors 6 and most of 7
-0x0807FC00  +--------------------------------+
-            |  system settings               |  final 1 KiB
+            |  program flash region          |  320 KiB, sectors 4..6
+0x08060000  +--------------------------------+
+            |  kernel extension              |  128 KiB, sector 7
 0x08080000  +--------------------------------+
+```
+
+The STM32F405 has 1 MiB in twelve sectors and the same map, stretched:
+the program flash region is sectors 4..10 (`0x08010000`..`0x080DFFFF`,
+832 KiB) and the kernel extension is sector 11 (`0x080E0000`). Each
+sector from 5 on is 128 KiB, so a write into the region erases only the
+sectors it touches and a program never shares a sector with the settings
+or the extension.
+
+```
 
 0x20000000  +--------------------------------+
             |  .data + .bss + system heap    |
@@ -1076,13 +1088,17 @@ ALL TESTS PASSED
   KiB instead of sixty. Installing a program into flash is the answer to the
   first half of that, not the second — such a program gets 24 KiB of code, but
   the heap is still small and the main thread still uses the shell stack.
-* The Black Pill keeps a program in flash for the same console commands, not
-  because 56 KiB of program RAM is too small. Its erase unit at the program
-  region is a 64 KiB sector; the auto-start slot sits in the previous 16 KiB
-  sector so toggling the flag does not erase the image. The kernel image is
-  limited to the first 48 KiB so it never shares a sector with that slot.
-  The thread scheduler is a second image at the start of the next free
-  sector, past the program, so flashing the kernel does not erase either.
+* The F4 boards give the program flash region everything between the
+  kernel and the kernel extension: 320 KiB on the Black Pill (sectors
+  4..6), 832 KiB on the 1 MiB STM32F405 (sectors 4..10). The system
+  settings are the first 1 KiB of sector 3, a 16 KiB sector nothing else
+  uses, so toggling the auto-start flag never erases the image, and the
+  kernel image is limited to the first 48 KiB so it never shares a sector
+  with them. The thread scheduler is a second image in the last sector,
+  past the program, so flashing the kernel or installing a program does
+  not erase it. The region's erase units are one 64 KiB sector and then
+  128 KiB sectors; a write erases only the sectors it touches, which is why
+  the shell's `flash_write()` 64 KiB blocks come in pairs there.
 * One program in flash at a time, as with RAM. `install` erases and rewrites
   the region; `uninstall` erases it. `make flash` writes only the kernel and
   leaves an installed program alone, which is convenient but does mean a stale

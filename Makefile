@@ -364,8 +364,8 @@ test:
 # Kernel plus, when PROGRAM or SCRIPT is set, that image at the address the
 # linker reserved.  The region bounds are read from the kernel ELF so they
 # cannot drift away from boards/<board>/freya.ld.  System settings are a
-# separate image at the end of flash: two copies, the firmware sum, and
-# the auto-start flag when AUTOSTART=1.
+# separate image in their own erase unit: two copies, the firmware sum,
+# and the auto-start flag when AUTOSTART=1.
 ifneq ($(PROGRAM)$(SCRIPT),)
 $(FLASH_IMAGE): $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).bin $(PACK_INPUT) tools/pack_image.py
 	@echo "  PACK  $@"
@@ -402,17 +402,19 @@ endif
 image: $(FLASH_IMAGE)
 
 # The thread scheduler is a second image (__kext_start).  It is written on
-# its own so the gap between the kernel and that address is not erased.
-# System settings are the last 1 KiB of flash.  A packed program replaces
-# that page (auto-start off unless AUTOSTART=1).  A kernel-only flash
-# reads the page back and updates the firmware sum in both copies, and
+# its own so nothing between the kernel and that address is erased.
+# System settings are an erase unit of their own: the last 1 KiB page of
+# the Blue Pill, sector 3 (16 KiB) of the F4 boards, where a packed
+# program image passes over them as 0xFF and the settings are written
+# again after it (auto-start off unless AUTOSTART=1).  A kernel-only flash
+# reads the unit back and updates the firmware sum in both copies, and
 # leaves the sum alone when both copies are corrupt.
 ifeq ($(BOARD),bluepill)
 CKSUM_PAGE_BASE := 0x0801FC00
 CKSUM_PAGE_SIZE := 1024
 else
-CKSUM_PAGE_BASE := 0x08060000
-CKSUM_PAGE_SIZE := 131072
+CKSUM_PAGE_BASE := 0x0800C000
+CKSUM_PAGE_SIZE := 16384
 endif
 
 ifneq ($(PROGRAM)$(SCRIPT),)

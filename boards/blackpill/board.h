@@ -25,9 +25,10 @@
 /* ------------------------------------------------------ internal flash */
 /* 512 KiB, well above the 128 KiB every supported board has.  The F4
  * erases in unequal sectors (16/16/16/16/64/128/128/128 KiB) and programs
- * 32-bit words.  BOARD_FLASH_PAGE_SIZE is the program region's erase unit
- * (sector 4), used only for install progress; the driver walks the real
- * sector map. */
+ * 32-bit words.  BOARD_FLASH_PAGE_SIZE is the erase unit of the program
+ * region's first sector (4), used for install progress and as the block
+ * of the shell's flash_write(); the driver walks the real sector map, and
+ * the two blocks inside each 128 KiB sector share an erase. */
 #define BOARD_FLASH_KIB         512U
 #define BOARD_FLASH_PAGE_SIZE   (64U * 1024U)
 

@@ -69,7 +69,10 @@ only `ACR` is ever touched, for wait states and the prefetch buffer.
 The F103C8T6 erases in 1 KiB pages — 64 of them, page *n* at
 `0x08000000 + n * 1024`. That is a considerably kinder granularity than the
 Black Pill's, where the sectors run 16, 16, 16, 16, 64, 128, 128, 128 KiB and
-the smallest erasable unit past the kernel is 64 KiB.
+the smallest erasable unit past the kernel is 64 KiB. (That coarseness is
+also why the F4 program region is so large: it is every sector between the
+kernel and the kernel extension — 320 KiB on the Black Pill, 832 KiB on the
+1 MiB STM32F405 — with the settings in the 16 KiB sector 3 in front of it.)
 
 The kernel was 29732 bytes when this was written and is 34048 now that the
 flash driver and the installer are in it, so it ends inside page 33. The

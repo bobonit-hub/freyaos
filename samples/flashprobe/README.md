@@ -54,8 +54,10 @@ The step before any of the interesting ones is the last erase unit inside the
 write-read-compare procedure cannot pass there,
 none of its answers higher up are worth believing. On the Blue Pill that unit
 is the last page of the program flash region, so the step is skipped with
-`not blank` when a program is installed; on the Black Pill it is sector 7,
-which Freya never uses, and erasing 128 KiB of it takes a second or two.
+`not blank` when a program is installed; on the Black Pill and the
+STM32F405 it is the last sector, which holds the kernel extension, so the
+step is always skipped there with `not blank` and the run begins with the
+first unit past the declared size.
 
 ## What a step actually does
 
@@ -172,4 +174,7 @@ Nothing resizes Freya from what it finds. The program region in
 `include/freya_api.h` and `boards/<board>/freya.ld` is a build-time constant
 that the kernel checks against the linker script at boot. On the Blue Pill
 that constant already covers the 128 KiB every one of these boards has, past
-the 64 KiB the size register often still reports.
+the 64 KiB the size register often still reports. On the F4 boards the map
+already reaches the last sector of the declared size — 512 KiB on the
+Black Pill, 1 MiB on the STM32F405 — so nothing this program finds above
+that can be put to use without a new linker script.

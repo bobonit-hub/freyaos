@@ -3,13 +3,13 @@
 
 The ROM loader on the STM32F405 programs whatever this file names, and
 nothing else.  The kernel stays at 0x08000000 and the extension stays at
-the address the linker gave it, so the gap between them — unused sector 3
-and the program region — is not erased.  System settings sit at the end
-of flash and are not part of this file.
+the address the linker gave it, the last sector, so everything between
+them — the system settings in sector 3 and the program region — is not
+erased unless the file names an image there.
 
     python3 tools/dfu_image.py \
         --image 0x08000000:build/stm32f405/freya.bin \
-        --image 0x08020000:build/stm32f405/freya-kext.bin \
+        --image 0x080E0000:build/stm32f405/freya-kext.bin \
         --out build/stm32f405/freya.dfu
 """
 import argparse

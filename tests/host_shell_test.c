@@ -1063,7 +1063,7 @@ int main(void)
     expect_has("sysinfo names the board", "STM32F405xx");
     expect_has("sysinfo reads the CPUID", "410fc241");
     expect_has("sysinfo reads the device id", "0x413");
-    expect_has("sysinfo reads the flash size", "512 KiB internal");
+    expect_has("sysinfo reads the flash size", "1024 KiB internal");
     expect_has("sysinfo reports the clock", "168000000 Hz");
 #else
     expect_has("sysinfo names the board", "Black Pill");

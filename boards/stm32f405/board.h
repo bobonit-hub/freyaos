@@ -26,14 +26,14 @@
 #define BOARD_FLASH_WS      5
 
 /* ------------------------------------------------------ internal flash */
-/* The xx family is 512 KiB or 1 MiB.  512 is the floor the size register
- * is raised to; a 1 MiB part reports 1024 and that figure is kept.  The
- * F4 erases in unequal sectors (16/16/16/16/64, then 128 KiB) and programs
- * 32-bit words.  BOARD_FLASH_PAGE_SIZE is the program region's erase unit
- * (sector 4), used only for install progress; the driver walks the real
- * sector map.  The kernel, the program and the system settings all sit
- * inside the first 512 KiB, so both densities use the same map. */
-#define BOARD_FLASH_KIB         512U
+/* Every STM32F405 has 1 MiB, twelve sectors; the kernel extension is the
+ * last of them, so the map needs all of it.  The F4 erases in unequal
+ * sectors (16/16/16/16/64, then 128 KiB) and programs 32-bit words.
+ * BOARD_FLASH_PAGE_SIZE is the erase unit of the program region's first
+ * sector (4), used for install progress and as the block of the shell's
+ * flash_write(); the driver walks the real sector map, and the two blocks
+ * inside each 128 KiB sector share an erase. */
+#define BOARD_FLASH_KIB         1024U
 #define BOARD_FLASH_PAGE_SIZE   (64U * 1024U)
 
 /* ---------------------------------------------------------- SD on SPI1 */

@@ -390,17 +390,41 @@ else
           0 "$(( $(macro settings_addr) % 128 ))"
     check "the program flash region is 128-byte aligned" \
           0 "$(( $(macro app_flash_addr) % 128 ))"
+    # The flash map: the settings, the program region and the extension
+    # each have erase units of their own, in the order the board fixes.
+    # Blue Pill: kernel, program, extension, settings in the last page.
+    # F4: kernel, settings in sector 3, program, extension in the last
+    # sector, so the extension's end is the end of flash.
     case "$BOARD" in
-        bluepill) flash_end=$((0x08020000)) ;;
-        *)        flash_end=$((0x08080000)) ;;
+        bluepill)  flash_end=$((0x08020000)) ;;
+        blackpill) flash_end=$((0x08080000)) ;;
+        *)         flash_end=$((0x08100000)) ;;
     esac
-    check "system settings are the last bytes of internal flash" \
-          "$flash_end" \
-          "$(( $(macro settings_addr) + $(macro settings_size) ))"
-    check "the kernel extension ends at or before system settings" \
-          1 "$(( $(sym "$kelf" __kext_end) <= $(sym "$kelf" __settings_start) ))"
     check "the kernel image ends at or before the program region" \
           1 "$(( $(sym "$kelf" __kernel_flash_end) <= $(sym "$kelf" __app_flash_start) ))"
+    check "the kernel extension ends inside internal flash" \
+          1 "$(( $(sym "$kelf" __kext_end) <= flash_end ))"
+    check "system settings end inside internal flash" \
+          1 "$(( $(macro settings_addr) + $(macro settings_size) <= flash_end ))"
+    if [ "$BOARD" = bluepill ]; then
+        check "system settings are the last bytes of internal flash" \
+              "$flash_end" \
+              "$(( $(macro settings_addr) + $(macro settings_size) ))"
+        check "the kernel extension ends at or before system settings" \
+              1 "$(( $(sym "$kelf" __kext_end) <= $(sym "$kelf" __settings_start) ))"
+        check "the program region ends at or before the kernel extension" \
+              1 "$(( $(sym "$kelf" __app_flash_end) <= $(sym "$kelf" __kext_start) ))"
+    else
+        check "system settings are in sector 3, between the kernel and the program" \
+              1 "$(( $(macro settings_addr) >= 0x0800C000 && \
+                     $(macro settings_addr) + $(macro settings_size) <= 0x08010000 ))"
+        check "the program region starts at sector 4" \
+              "$((0x08010000))" "$(macro app_flash_addr)"
+        check "the program region ends where the kernel extension starts" \
+              "$(sym "$kelf" __kext_start)" "$(sym "$kelf" __app_flash_end)"
+        check "the kernel extension is the last 128 KiB sector" \
+              "$(( flash_end - 0x20000 ))" "$(sym "$kelf" __kext_start)"
+    fi
     check "the RAM resident flash routines sit in the program RAM region" \
           1 "$(( $(sym "$kelf" __ramfunc_start) == $(macro app_load_addr) ))"
 

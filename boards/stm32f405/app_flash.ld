@@ -8,15 +8,15 @@
  *
  * The addresses here have to agree with FREYA_APP_FLASH_ADDR and
  * FREYA_APP_LOAD_ADDR in include/freya_api.h, and with boards/stm32f405/
- * freya.ld.  ORIGIN is sector 4.  System settings live at the end of
- * flash, not in front of this region.
+ * freya.ld.  The region is sectors 4..10; system settings are in sector 3,
+ * in front of it, and the kernel extension is the last sector, behind it.
  */
 
 ENTRY(app_main)
 
 MEMORY
 {
-    APPFLASH (rx)  : ORIGIN = 0x08010000, LENGTH = 64K
+    APPFLASH (rx)  : ORIGIN = 0x08010000, LENGTH = 832K
     APPRAM   (rwx) : ORIGIN = 0x20010000, LENGTH = 56K
 }
 

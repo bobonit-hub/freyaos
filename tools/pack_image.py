@@ -11,8 +11,11 @@ A script is stored the way `install` writes one: an 8-byte header
 
 `make flash PROGRAM=hello` and `make flash SCRIPT=boot.sh` run this.
 The addresses come from the kernel ELF, which is where the linker script
-reserved the region.  System settings live at the end of flash, outside
-this image; the auto-start flag is written with the settings area.
+reserved the region.  System settings are a separate image in their own
+erase unit; the auto-start flag is written with them.  On the F4 boards
+that unit, sector 3, lies between the kernel and the region, so this
+image passes over it as 0xFF and `make flash` writes the settings after
+it.  On the Blue Pill it is the last page, outside this image.
 """
 import argparse
 import struct

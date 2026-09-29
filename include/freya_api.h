@@ -46,8 +46,10 @@
  * program is stored there and copied to RAM before it executes when code
  * and writable state fit together; larger programs retain XIP execution.
  *
- * System settings occupy the last erase-friendly block of internal flash,
- * after the kernel extension.  Two copies are stored.  Each copy begins
+ * System settings occupy an erase unit that holds nothing else: the last
+ * page of the Blue Pill's flash, after the kernel extension, and sector 3
+ * of the F4, between the kernel and the program.  Two copies are stored.
+ * Each copy begins
  * with FREYA_SETTINGS_MAGIC and ends its named fields with a checksum of
  * every other byte in the copy.  Named fields, in order, are the
  * auto-start flag, the default log level, the ram-dump-on-BusFault flag,
@@ -57,9 +59,10 @@
  * outside both, so those images do not include it.
  *
  * The area is 1 KiB: one Blue Pill page, so a settings erase never shares
- * a page with the kernel extension.  On the F4 the same 1 KiB is the tail
- * of the last 128 KiB sector of the 512 KiB map.  A 1 MiB F405 keeps that
- * address; the extra flash above 512 KiB stays unused.
+ * a page with the kernel extension.  On the F4 the same 1 KiB is the head
+ * of sector 3, a 16 KiB sector the kernel does not reach; erasing it takes
+ * nothing else, and the program region can then run from sector 4 to the
+ * sector before the kernel extension, which is the last one.
  *
  * Every supported board has at least 128 KiB of internal flash.  The Blue
  * Pill size register often still reads 64; the map runs to the end of
@@ -99,15 +102,22 @@
 #elif defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
 #define FREYA_APP_LOAD_ADDR      0x20010000UL   /* 128 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE    (56U * 1024U)
-/* Kernel image occupies sectors 0..2 (48 KiB).  Sector 3 is unused.
- * Sector 4 is the program.  The thread scheduler is a second image at
- * the start of sector 5, so writing the kernel does not erase it.  System
- * settings are the last 1 KiB of sector 7.  The F405xx sector map matches
- * this through sector 7 on both the 512 KiB and the 1 MiB densities. */
+/* The kernel image occupies sectors 0..2 (48 KiB).  System settings are
+ * the first 1 KiB of sector 3, which holds nothing else.  The program
+ * region starts at sector 4 and runs to the kernel extension, a second
+ * image in the last sector, so writing the kernel or the program never
+ * erases it.  The F411 has 512 KiB, eight sectors: the program is sectors
+ * 4..6 (320 KiB) and the extension sector 7.  The F405 has 1 MiB, twelve
+ * sectors: the program is sectors 4..10 (832 KiB) and the extension
+ * sector 11. */
 #define FREYA_SETTINGS_SIZE      1024U
-#define FREYA_SETTINGS_ADDR      (0x08080000UL - FREYA_SETTINGS_SIZE)
+#define FREYA_SETTINGS_ADDR      0x0800C000UL
 #define FREYA_APP_FLASH_ADDR     0x08010000UL
-#define FREYA_APP_FLASH_SIZE     (0x08020000UL - FREYA_APP_FLASH_ADDR)
+#if defined(FREYA_BOARD_BLACKPILL)
+#define FREYA_APP_FLASH_SIZE     (0x08060000UL - FREYA_APP_FLASH_ADDR)
+#else
+#define FREYA_APP_FLASH_SIZE     (0x080E0000UL - FREYA_APP_FLASH_ADDR)
+#endif
 #else
 #error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLUEPILL or FREYA_BOARD_STM32F405"
 #endif
