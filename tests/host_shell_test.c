@@ -507,6 +507,8 @@ void kfree(void *ptr)
         p += c->size;
     }
 }
+/* lz.c refuses to run from a pin or timer handler; the shell never is. */
+int app_in_handler(void) { return 0; }
 int  app_flash_erase(void)
 {
     s_erased = 1;
@@ -1044,6 +1046,36 @@ int main(void)
     rc = run("crypt 00 4142434445464748 00");
     expect_rc("a short key fails", rc, FREYA_EXIT_FAIL);
     expect_has("a short key prints the usage", "usage: crypt");
+    rc = run("help compress");
+    expect_rc("help compress succeeds", rc, 0);
+    expect_exact("help compress shows call syntax",
+                 "compress([\"in\", \"out\"])\r\n");
+    rc = run("help decompress");
+    expect_rc("help decompress succeeds", rc, 0);
+    expect_exact("help decompress shows call syntax",
+                 "decompress([\"in\", \"out\"])\r\n");
+#if BOARD_COMPRESS
+    rc = run("compress");
+    expect_rc("compress with no arguments succeeds", rc, 0);
+    expect_has("compress names the coder", "heatshrink LZSS, 8-bit window");
+    expect_has("compress prints its usage", "usage: compress <in> <out>");
+    rc = run("decompress");
+    expect_rc("decompress with no arguments succeeds", rc, 0);
+    expect_has("decompress prints its usage", "usage: decompress <in> <out>");
+    rc = run("compress /a");
+    expect_rc("compress with one path fails", rc, FREYA_EXIT_FAIL);
+    expect_has("compress with one path prints the usage", "usage: compress");
+    fat_unmount();
+    rc = run("compress /a /b");
+    expect_rc("compress before mount fails", rc, FREYA_EXIT_FAIL);
+    expect_has("compress asks for mount", "no filesystem mounted");
+#else
+    rc = run("compress /a /b");
+    expect_rc("compress is unsupported on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("compress says it is unsupported", "compress unsupported");
+    rc = run("decompress /a /b");
+    expect_rc("decompress is unsupported on this board", rc, FREYA_EXIT_FAIL);
+#endif
 
     printf("commands\n");
     rc = run("status");
@@ -1106,6 +1138,51 @@ int main(void)
     expect_has("mount names the volume", "FREYA");
     if (!s_mounted) fail("mount did not mount");
     else pass("mount mounted the card");
+
+#if BOARD_COMPRESS
+    printf("compress and decompress\n");
+    /* A file to read is planted; the two the commands write are RAM
+     * files, so what came back can be compared with what went in. */
+    {
+        static const char text[] =
+            "tick tock tick tock tick tock tick tock tick tock tick tock "
+            "tick tock tick tock tick tock tick tock tick tock tick tock ";
+        int packed, back;
+
+        plant_script("/tick.txt", text);
+        rc = run("compress /tick.txt /tick.txt");
+        expect_rc("compress onto itself fails", rc, FREYA_EXIT_FAIL);
+        expect_has("compress onto itself says so", "same file");
+        rc = run("compress /nosuch.txt /tick.hs");
+        expect_rc("compress of a missing file fails", rc, FREYA_EXIT_FAIL);
+        expect_has("compress names the missing file", "compress: /nosuch.txt:");
+        rc = run("compress /tick.txt /tick.hs");
+        expect_rc("compress of a file succeeds", rc, 0);
+        expect_has("compress reports the sizes", "compress: 120 -> ");
+        expect_has("compress reports the ratio", "%)\r\n");
+        packed = ram_lookup("/tick.hs");
+        if (packed < 0) fail("compress wrote the output file");
+        else {
+            pass("compress wrote the output file");
+            if (s_ram[packed].len > 0 && s_ram[packed].len < 60)
+                pass("the repeated text shrank to under half");
+            else
+                fail("the repeated text shrank to under half");
+        }
+        rc = run("decompress /tick.hs /tick.back");
+        expect_rc("decompress of that file succeeds", rc, 0);
+        expect_has("decompress reports the sizes", "-> 120 B\r\n");
+        back = ram_lookup("/tick.back");
+        if (back >= 0 && s_ram[back].len == (int)sizeof text - 1 &&
+            memcmp(s_ram[back].data, text, sizeof text - 1) == 0)
+            pass("decompress restores the text byte for byte");
+        else
+            fail("decompress restores the text byte for byte");
+        plant_script(NULL, NULL);
+        if (packed >= 0) s_ram[packed].used = 0;
+        if (back >= 0) s_ram[back].used = 0;
+    }
+#endif
 
     rc = run("sysinfo");
     expect_rc("sysinfo after mount succeeds", rc, 0);

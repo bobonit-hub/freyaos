@@ -374,9 +374,23 @@ typedef struct {
 #define FREYA_CRYPT_BLOCK      8
 #define FREYA_CRYPT_MAX_LEN    4096
 
+/* ---------------------------------------------------------- heatshrink */
 /*
- * What the pin, timer, PWM, I2C, 1-Wire, SPI, ADC, crypt and interrupt calls
- * return.
+ * LZSS as heatshrink writes it, with an 8-bit window and a 4-bit
+ * lookahead: the stream of `heatshrink -e -w 8 -l 4` on a host, so a
+ * file made there is one decompress() reads, and the other way round.
+ * There is no header.  The caller keeps the lengths.  A byte that finds
+ * no match costs nine bits, so compress() never needs more room than
+ * FREYA_COMPRESS_BOUND(len).  The state is taken from the heap for the
+ * duration of a call, which is why a handler is refused.
+ */
+#define FREYA_COMPRESS_WINDOW_BITS     8
+#define FREYA_COMPRESS_LOOKAHEAD_BITS  4
+#define FREYA_COMPRESS_BOUND(n)        ((n) + ((n) + 7) / 8)
+
+/*
+ * What the pin, timer, PWM, I2C, 1-Wire, SPI, ADC, crypt, compress and
+ * interrupt calls return.
  * Anything else they hand back is the value asked for: a pin level, a
  * handle, a count.
  */
@@ -469,7 +483,8 @@ typedef struct {
  *
  * What a handler may do is decided by what it can preempt.  Console
  * output, the LED, ticks_ms(), the pin calls, the timer calls and
- * crypt() are all safe.  malloc(), free(), the filesystem, power() and
+ * crypt() are all safe.  malloc(), free(), the filesystem, power(),
+ * compress(), decompress() and
  * the I2C, SPI, 1-Wire and ADC calls are not - they can be interrupted
  * halfway through their own bookkeeping, or they spin on a bus - so the
  * kernel refuses them from a handler
@@ -822,6 +837,19 @@ typedef struct freya_api {
      * response is sent with web_begin() as for a GET; a body that was
      * not read to the end is dropped by the C6. */
     int      (*web_read)(void *data, int max, uint32_t *left);
+
+    /* appended: heatshrink.  compress() writes the LZSS stream of the
+     * in_len bytes at in into out and returns its length.  decompress()
+     * reads such a stream back and returns how many bytes it produced.
+     * in and out may not overlap.  A length of zero returns zero and
+     * needs no pointers.  FREYA_ERR_ARG is a bad pointer or length, or
+     * an out too small for the result - compress() always fits in
+     * FREYA_COMPRESS_BOUND(in_len).  FREYA_ERR_IO is a stream the
+     * decoder cannot finish.  FREYA_ERR_BUSY is a heap that cannot hold
+     * the state, FREYA_ERR_HANDLER a call from a pin or timer handler,
+     * and FREYA_ERR_UNSUPPORTED a board built without the code. */
+    int      (*compress)(const void *in, int in_len, void *out, int out_cap);
+    int      (*decompress)(const void *in, int in_len, void *out, int out_cap);
 } freya_api_t;
 
 /*

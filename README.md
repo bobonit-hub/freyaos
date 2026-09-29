@@ -123,6 +123,10 @@ Freya 3.1.2 "Poltergeist" for STM32F103C8T6
   nonce is 8; the same call does both, and a message longer than 4096 bytes
   is handed over in pieces. `crypt` at the console and `samples/crypt` do
   the same thing ([docs/crypt.md](docs/crypt.md)).
+* Compresses and decompresses with heatshrink LZSS, the stream the host
+  `heatshrink -w 8 -l 4` writes. A program hands over a buffer;
+  `compress` and `decompress` at the console stream a file of any size.
+  The Blue Pill has no room for it ([docs/compress.md](docs/compress.md)).
 * Runs a PDP-11 whose eight registers and whose words are 32 bits. The
   opcodes and the condition codes are the PDP-11's. A program steps it
   with `api->vm_step()` or runs a stretch of instructions with
@@ -378,6 +382,8 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | bounded HTTP request through the ESP32-C6 |
 | `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one and talk to it |
 | `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts |
+| `compress(["in", "out"])` | pack a file with heatshrink LZSS (not on the Blue Pill) |
+| `decompress(["in", "out"])` | unpack a file `compress` or the host tool wrote |
 | `sleep(ms)` | wait that many milliseconds; Ctrl-C returns early |
 | `yield()` | let a script thread run |
 | `source("file"\|"@flash")` | run a shell script from a file, or from program flash |
@@ -482,6 +488,8 @@ servo (`samples/pwm/README.md`), `samples/i2c` scans a bus, `samples/spi`
 loops SPI back to itself (`samples/spi/README.md`), `samples/w1`
 reads a 1-Wire thermometer (`samples/w1/README.md`), `samples/crypt`
 checks XTEA-CTR and encrypts a file (`samples/crypt/README.md`),
+`samples/compress` packs and unpacks a file with heatshrink
+(`samples/compress/README.md`),
 `samples/flashprobe`
 finds out how much
 internal flash the chip really has (`samples/flashprobe/README.md`),
@@ -531,7 +539,8 @@ The service table (`include/freya_api.h`) gives a program console I/O and
 `open`, `read`, `write`, `seek`, `close`, `unlink`, `mkdir`, `rename`,
 `opendir`, `readdir`, `closedir`, the exit status of the run before it:
 `exit`, `last_exit`, `exit_reason_str`, the pins, the timers, PWM and the
-interrupts, XTEA in CTR mode (`crypt`), a raw console (`console_raw`,
+interrupts, XTEA in CTR mode (`crypt`), heatshrink LZSS (`compress`,
+`decompress`), a raw console (`console_raw`,
 which hands Ctrl-C to the program as an ordinary key, as an emulator needs;
 Freya takes it back when the run ends), and a file log: `log`, `get_log_level`,
 `set_log_level`. Log lines are `YYYY-MM-DD HH:MM:SS LEVEL message` in
@@ -920,6 +929,7 @@ is measured rather than guessed).
 | `src/ds3231.c` | optional DS3231 clock, built with `RTC=ds3231`; SCL is PB6, SDA is PB7 |
 | `src/w1.c` | 1-Wire master, standard speed, on a pin a program names |
 | `src/crypt.c` | XTEA in CTR mode, for a program and for `crypt` |
+| `src/lz.c`, `third_party/heatshrink/` | heatshrink LZSS, for a program and for `compress` / `decompress`; not built into the Blue Pill |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
 | `src/lfsvol.c`, `third_party/littlefs/` | LittleFS on the Black Pill SPI flash (the default there) |
 | `src/fs.c` | paths, working directory, descriptor table |
@@ -932,7 +942,7 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic`, `basic11` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic`, `basic11` |
 | `qbe/` | QBE target and cproc patch for the virtual machine, and `as.py`, the assembler that makes an image |
 | `basic/` | BASIC-11 style interpreter for the virtual machine and, natively, for the FPU boards: the interpreter, the FP11 and `float` arithmetics, the PC runner |
 | `tests/` | host side tests |
@@ -944,6 +954,7 @@ is measured rather than guessed).
 | `docs/network.md` | ESP32-C6 wiring, Wi-Fi commands and the asynchronous network API |
 | `docs/w1.md` | the 1-Wire master API, the pin, and the `w1` command |
 | `docs/crypt.md` | the XTEA-CTR API and the `crypt` command |
+| `docs/compress.md` | the heatshrink API and the `compress` / `decompress` commands |
 | `docs/sd-slot.txt` | SD slot wiring for the Blue Pill and the Black Pill |
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/fremote.py` | remote shell and SD card utility (`fs ls`, `fs cp`, …) |
@@ -1019,6 +1030,13 @@ XTEA is checked the same way. `src/crypt.c` is compiled unchanged and the
 published block vector pins the 32 rounds and the big-endian words. CTR is
 then checked against that block: a split message, a counter that carries,
 and a piece that starts in the middle of a block.
+
+heatshrink is checked against a stream the upstream tool wrote: `src/lz.c`
+and the library are compiled unchanged, the encoder has to produce those
+bytes and the decoder has to read them back, and then the bound, an output
+that is exactly large enough, every refusal, and the stream calls fed in
+odd-sized pieces. Built for the Blue Pill, the same test checks that both
+calls answer `FREYA_ERR_UNSUPPORTED`.
 
 The virtual machine is an instruction set, so what would be quietly wrong
 about it is the addressing and the flags rather than the arithmetic.

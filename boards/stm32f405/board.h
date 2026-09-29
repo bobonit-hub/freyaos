@@ -122,6 +122,9 @@
 #define BOARD_ESP_READY      BOARD_NET_READY
 #define BOARD_ESP_SPI_AF     BOARD_NET_SPI_AF
 
+/* heatshrink LZSS in the kernel extension: compress() and decompress(). */
+#define BOARD_COMPRESS       1
+
 /* --------------------------------------------------------------- ADC */
 /* ADC1 channels shared with the other ports and not kept by Freya.
  * The internal temperature sensor is channel 18; Vref is 17. */

@@ -478,6 +478,8 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .settings_block  = settings_block,
     .settings_area_size = settings_area_size,
     .web_read        = web_read,
+    .compress        = lz_compress,
+    .decompress      = lz_decompress,
 };
 
 const freya_api_t *app_api(void)

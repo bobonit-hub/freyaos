@@ -18,6 +18,16 @@ The program ABI is still version 3.
   only the firmware version, and `sysinfo()` prints that version separately.
 * A shell script read with `source` may be 16 KiB. It still has to fit
   in the heap, and a line is still at most 159 characters.
+* A program can compress and decompress with heatshrink LZSS, the stream
+  the host `heatshrink -w 8 -l 4` writes. `compress()` and `decompress()`
+  were appended to the service table and take a whole buffer;
+  `FREYA_COMPRESS_BOUND(n)` is the most a compression writes. `compress`
+  and `decompress` at the console stream a file of any size, and
+  `samples/compress` checks a round trip or packs a file. The Blue Pill
+  has no room for the coder: there the calls return
+  `FREYA_ERR_UNSUPPORTED` and the commands say so. The library is
+  `third_party/heatshrink`, version 0.4.1, ISC licensed. See
+  [docs/compress.md](docs/compress.md).
 
 # Freya 3.1.1 "Poltergeist"
 

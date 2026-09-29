@@ -107,6 +107,11 @@
 #define BOARD_NET_SPI_BUS    0
 #define BOARD_ESP_LINK       0
 
+/* heatshrink needs about 2.5 KiB of extension flash and half a KiB of
+ * heap per call.  The F1 build has neither left, so compress() and
+ * decompress() report FREYA_ERR_UNSUPPORTED there. */
+#define BOARD_COMPRESS       0
+
 /* --------------------------------------------------------------- ADC */
 /* ADC1 channels common to both supported boards and not kept by Freya.
  * The internal temperature sensor is channel 16 on the F1; Vref is 17. */

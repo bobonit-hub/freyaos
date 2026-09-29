@@ -28,9 +28,15 @@ BOARD=${BOARD:-blackpill}
 BOARD_DEF="-DFREYA_BOARD_$(echo "$BOARD" | tr '[:lower:]' '[:upper:]')"
 
 CFLAGS="-std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
-        -Iinclude -Isrc -Ithird_party/littlefs -Iboards/$BOARD $BOARD_DEF -DFREYA_HOST \
+        -Iinclude -Isrc -Ithird_party/littlefs -Ithird_party/heatshrink \
+        -Iboards/$BOARD $BOARD_DEF -DFREYA_HOST \
         -DLFS_NO_MALLOC -DLFS_NO_ASSERT -DLFS_NO_DEBUG -DLFS_NO_WARN -DLFS_NO_ERROR \
         -DLFS_NAME_MAX=63"
+
+# heatshrink, as the kernel builds it.  The encoder's one fall-through is
+# upstream's and deliberate.
+HS_SRC="third_party/heatshrink/heatshrink_encoder.c third_party/heatshrink/heatshrink_decoder.c"
+HS_CFLAGS="-Wno-implicit-fallthrough"
 
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_fat_test.c src/fat.c src/log.c src/string.c src/print.c \
@@ -208,8 +214,8 @@ $CC $CFLAGS -c src/shell.c -o "$OUT/shell_host.o" \
     -D__ram_end=freya_test_ram_end \
     -D__kernel_flash_end=freya_test_kernel_flash_end
 # shellcheck disable=SC2086
-$CC $CFLAGS tests/host_shell_test.c "$OUT/shell_host.o" src/print.c \
-    src/crypt.c src/cksum.c -o "$OUT/hostshell"
+$CC $CFLAGS $HS_CFLAGS tests/host_shell_test.c "$OUT/shell_host.o" src/print.c \
+    src/crypt.c src/cksum.c src/lz.c $HS_SRC -o "$OUT/hostshell"
 "$OUT/hostshell" || status=1
 
 echo
@@ -288,6 +294,16 @@ echo "================= XTEA ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_crypt_test.c src/crypt.c -o "$OUT/hostcrypt"
 "$OUT/hostcrypt" || status=1
+
+# heatshrink.  The stream the host tool writes, round trips, the bound,
+# and every refusal, compiled unchanged from src/lz.c and the library.
+# A board without the code answers unsupported, and that is checked too.
+echo
+echo "================= heatshrink ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS $HS_CFLAGS tests/host_compress_test.c src/lz.c $HS_SRC \
+    -o "$OUT/hostcompress"
+"$OUT/hostcompress" || status=1
 
 # PDP-11 opcodes on 32-bit registers, compiled unchanged from src/vm.c.
 echo

@@ -98,6 +98,12 @@ SECTIONS
         *shell.o(.text.pin_fail*)
         *shell.o(.text.cmd_crypt)
         *crypt.o(.text .text.*)
+        /* heatshrink and the two file coders that drive it. */
+        *shell.o(.text.cmd_compress)
+        *shell.o(.text.cmd_decompress)
+        *lz.o(.text .text.* .rodata .rodata.*)
+        *heatshrink_encoder.o(.text .text.* .rodata .rodata.*)
+        *heatshrink_decoder.o(.text .text.* .rodata .rodata.*)
         *vm.o(.text .text.*)
         /* Socket power is left for .text; the 48 KiB image still has
          * room for it.  The Black Pill script claims those sections
@@ -137,6 +143,8 @@ SECTIONS
         *shell.o(.rodata.pin_fail*)
         *shell.o(.rodata.cmd_crypt*)
         *crypt.o(.rodata .rodata.*)
+        *shell.o(.rodata.cmd_compress*)
+        *shell.o(.rodata.cmd_decompress*)
         *vm.o(.rodata .rodata.*)
         *shell.o(.rodata.shell_poll_runtime*)
         *softfp.o(.rodata .rodata.*)

@@ -411,6 +411,33 @@ int      crypt_block(const void *key, const void *in, void *out);
 int      crypt_apply(const void *key, const void *nonce, uint32_t off,
                      const void *in, void *out, int len);
 
+/* ---------------------------------------------------------- heatshrink */
+/*
+ * LZSS, the heatshrink stream at an 8-bit window and a 4-bit lookahead
+ * (see freya_api.h).  lz_compress() and lz_decompress() are the service
+ * calls: whole buffers, the state taken from the heap for the call.
+ *
+ * The stream calls are for the shell, which works a file through in
+ * pieces.  lz_open() takes the state from the heap and is NULL when it
+ * cannot, or from a handler.  lz_sink() hands the coder input and
+ * returns how much it took; 0 means poll first.  lz_poll() collects
+ * output into out and returns how much, 0 when there is nothing until
+ * more input is sunk or lz_finish() is called.  lz_finish() marks the
+ * end of the input and returns 0 when every byte is out, 1 while
+ * lz_poll() still has some, or FREYA_ERR_IO.  A board without the code
+ * has the two service calls only, and they return FREYA_ERR_UNSUPPORTED.
+ */
+typedef struct lz_stream lz_stream_t;
+int          lz_compress(const void *in, int in_len, void *out, int out_cap);
+int          lz_decompress(const void *in, int in_len, void *out, int out_cap);
+#if BOARD_COMPRESS
+lz_stream_t *lz_open(int decode);
+void         lz_close(lz_stream_t *s);
+int          lz_sink(lz_stream_t *s, const void *in, int len);
+int          lz_poll(lz_stream_t *s, void *out, int cap);
+int          lz_finish(lz_stream_t *s);
+#endif
+
 /* ---------------------------------------------------- PDP-11, 32-bit */
 /* vm_reset() clears the registers and sets Z.  vm_step() runs one
  * instruction.  vm_run() runs up to steps of them.  See freya_api.h. */

@@ -96,6 +96,12 @@ SECTIONS
         *shell.o(.text.pin_fail*)
         *shell.o(.text.cmd_crypt)
         *crypt.o(.text .text.*)
+        /* heatshrink and the two file coders that drive it. */
+        *shell.o(.text.cmd_compress)
+        *shell.o(.text.cmd_decompress)
+        *lz.o(.text .text.* .rodata .rodata.*)
+        *heatshrink_encoder.o(.text .text.* .rodata .rodata.*)
+        *heatshrink_decoder.o(.text .text.* .rodata .rodata.*)
         *vm.o(.text .text.*)
         /* Socket power.  The 48 KiB image has no room; this extension does.
          * The Blue Pill is the other way around, so its script leaves
@@ -161,6 +167,8 @@ SECTIONS
         *shell.o(.rodata.pin_fail*)
         *shell.o(.rodata.cmd_crypt*)
         *crypt.o(.rodata .rodata.*)
+        *shell.o(.rodata.cmd_compress*)
+        *shell.o(.rodata.cmd_decompress*)
         *vm.o(.rodata .rodata.*)
         *power.o(.rodata .rodata.*)
         *shell.o(.rodata.cmd_power*)

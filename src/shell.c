@@ -2484,6 +2484,173 @@ static int cmd_crypt(int argc, char **argv)
     return 0;
 }
 
+/* ------------------------------------------------ compress, decompress */
+/* heatshrink's LZSS, one file to another, in pieces the stream calls
+ * take, so the file may be any size.  The commands and their helpers
+ * share one section so the linker can put them in the kernel extension;
+ * the 48 KiB image has no room for them.  A board without the code
+ * keeps the two names and says so. */
+#if BOARD_COMPRESS
+#define LZ_TEXT   __attribute__((section(".text.cmd_compress")))
+#define LZ_CHUNK  128
+
+static int LZ_TEXT lz_same_file(const char *a, const char *b)
+{
+    char pa[FAT_MAX_PATH], pb[FAT_MAX_PATH];
+
+    if (fs_abspath(a, pa, sizeof pa) == 0 && fs_abspath(b, pb, sizeof pb) == 0)
+        return strcmp(pa, pb) == 0;
+    return strcmp(a, b) == 0;
+}
+
+/* Everything the coder has, into the file.  Bytes written, or -1 with
+ * the error printed. */
+static int LZ_TEXT lz_pump(const char *who, lz_stream_t *s, int fd,
+                           uint8_t *buf, uint32_t *total)
+{
+    int got, n = 0;
+
+    for (;;) {
+        got = lz_poll(s, buf, LZ_CHUNK);
+        if (got < 0) {
+            kprintf("%s: bad stream\r\n", who);
+            return -1;
+        }
+        if (got == 0) return n;
+        if (fs_fd_write(fd, buf, got) != got) {
+            fs_fail(who, NULL, FAT_ERR_IO);
+            return -1;
+        }
+        *total += (uint32_t)got;
+        n += got;
+        if (got < LZ_CHUNK) return n;
+    }
+}
+
+static int LZ_TEXT lz_file(const char *who, int decode, int argc, char **argv)
+{
+    uint8_t ibuf[LZ_CHUNK], obuf[LZ_CHUNK];
+    lz_stream_t *s = NULL;
+    uint32_t total_in = 0, total_out = 0;
+    int fin = -1, fout = -1, rc = -1, n, got, idle = 0;
+
+    if (argc == 1) {
+        kprintf("heatshrink LZSS, %d-bit window, %d-bit lookahead\r\n"
+                "usage: %s <in> <out>\r\n", FREYA_COMPRESS_WINDOW_BITS,
+                FREYA_COMPRESS_LOOKAHEAD_BITS, who);
+        return 0;
+    }
+    if (argc != 3) {
+        kprintf("usage: %s <in> <out>\r\n", who);
+        return -1;
+    }
+    if (!need_fs()) return -1;
+    if (lz_same_file(argv[1], argv[2])) {
+        kprintf("%s: input and output are the same file\r\n", who);
+        return -1;
+    }
+    fin = fs_fd_open(argv[1], FREYA_O_RDONLY);
+    if (fin < 0) return fs_fail(who, argv[1], fin);
+    s = lz_open(decode);
+    if (!s) {
+        kprintf("%s: out of memory\r\n", who);
+        goto done;
+    }
+    fout = fs_fd_open(argv[2], FREYA_O_WRONLY | FREYA_O_CREATE | FREYA_O_TRUNC);
+    if (fout < 0) {
+        fs_fail(who, argv[2], fout);
+        goto done;
+    }
+
+    for (;;) {
+        int off = 0;
+
+        if (script_interrupted()) {
+            kprintf("%s: cancelled\r\n", who);
+            goto done;
+        }
+        n = fs_fd_read(fin, ibuf, LZ_CHUNK);
+        if (n < 0) {
+            fs_fail(who, argv[1], n);
+            goto done;
+        }
+        if (n == 0) break;
+        total_in += (uint32_t)n;
+        while (off < n) {
+            int took = lz_sink(s, ibuf + off, n - off);
+
+            if (took < 0) goto bad;
+            off += took;
+            got = lz_pump(who, s, fout, obuf, &total_out);
+            if (got < 0) goto done;
+            /* A sink that took nothing wanted polling, which the
+             * pump just did.  Twice in a row it is stuck. */
+            if (took == 0 && got == 0) {
+                if (++idle > 1) goto bad;
+            } else {
+                idle = 0;
+            }
+        }
+    }
+    idle = 0;
+    for (;;) {
+        rc = lz_finish(s);
+        if (rc == 0) break;
+        if (rc < 0) goto bad;
+        got = lz_pump(who, s, fout, obuf, &total_out);
+        if (got < 0) { rc = -1; goto done; }
+        if (got == 0 && ++idle > 1) goto bad;
+    }
+    rc = fs_fd_close(fout);
+    fout = -1;
+    if (rc != FAT_OK) {
+        fs_fail(who, argv[2], rc);
+        rc = -1;
+        goto done;
+    }
+    kprintf("%s: %u -> %u B", who, total_in, total_out);
+    if (!decode && total_in) {
+        /* In 32 bits: a 64-bit divide would pull libgcc into the 48 KiB
+         * image.  The output is at most 9/8 of the input, so halving
+         * both until the product fits leaves the divisor above zero. */
+        uint32_t a = total_out, b = total_in;
+
+        while (a > 0xFFFFFFFFu / 100U) { a >>= 1; b >>= 1; }
+        kprintf(" (%u%%)", a * 100U / b);
+    }
+    kprintf("\r\n");
+    rc = 0;
+    goto done;
+bad:
+    kprintf("%s: bad stream\r\n", who);
+    rc = -1;
+done:
+    if (s) lz_close(s);
+    if (fout >= 0) fs_fd_close(fout);
+    if (fin >= 0) fs_fd_close(fin);
+    return rc;
+}
+
+static int cmd_compress(int argc, char **argv)
+{
+    return lz_file("compress", 0, argc, argv);
+}
+
+static int cmd_decompress(int argc, char **argv)
+{
+    return lz_file("decompress", 1, argc, argv);
+}
+#else
+static int KEXT cmd_compress_unsupported(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    kprintf("compress unsupported on this board\r\n");
+    return -1;
+}
+#define cmd_compress   cmd_compress_unsupported
+#define cmd_decompress cmd_compress_unsupported
+#endif
+
 static int cmd_cksum(int argc, char **argv)
 {
     (void)argc;
@@ -2660,6 +2827,16 @@ typedef struct {
     const char *help;
 } command_t;
 
+/* The help of the two file coders is placed by name so the linker can
+ * keep it in the kernel extension beside the code: the Blue Pill's
+ * 48 KiB image has no room left for two more strings. */
+static const char s_help_compress[]
+    __attribute__((section(".rodata.cmd_compress.help"))) =
+    "compress([\"in\", \"out\"])";
+static const char s_help_decompress[]
+    __attribute__((section(".rodata.cmd_decompress.help"))) =
+    "decompress([\"in\", \"out\"])";
+
 static const command_t s_cmds[] = {
     { "help",     cmd_help,     "help([\"command\"])" },
     { "sysinfo",  cmd_sysinfo,  "sysinfo()" },
@@ -2710,6 +2887,8 @@ static const command_t s_cmds[] = {
     { "curl",     cmd_curl,     "curl([\"--basic\", \"user:password\",] [\"--compressed\",] [\"--data\", text,] [\"--output\", file,] [\"--user-agent\", text,] [\"--insecure\",] [\"--verbose\",] \"http[s]://...\")" },
     { "w1",       cmd_w1,       "w1([\"pin\" [, \"off\"|\"reset\"|\"search\"]])" },
     { "crypt",    cmd_crypt,    "crypt([\"key\", \"nonce\", \"hex\"])" },
+    { "compress", cmd_compress, s_help_compress },
+    { "decompress", cmd_decompress, s_help_decompress },
     { "echo",     cmd_echo,     "echo([value [, ...]])" },
     { "sleep",    cmd_sleep,    "sleep(ms)" },
     { "yield",    cmd_yield,    "yield()" },

@@ -53,7 +53,13 @@ LFS_DIR   := third_party/littlefs
 LFS_FLAGS := -I$(LFS_DIR) -DLFS_NO_MALLOC -DLFS_NO_ASSERT \
              -DLFS_NO_DEBUG -DLFS_NO_WARN -DLFS_NO_ERROR -DLFS_NAME_MAX=63
 
-CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) \
+# heatshrink finds its configuration in src/heatshrink_config.h.  Both
+# objects are compiled for every board; on one whose board.h leaves
+# BOARD_COMPRESS at 0 nothing refers to them and the linker drops them.
+HS_DIR    := third_party/heatshrink
+HS_FLAGS  := -I$(HS_DIR)
+
+CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) $(HS_FLAGS) \
              -std=gnu11 -Os -g3 \
              -ffreestanding -fno-common -fno-builtin \
              -ffunction-sections -fdata-sections \
@@ -122,7 +128,8 @@ OBJS      := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(filter %.c,$(CSRC))) \
              $(patsubst $(SRC_DIR)/%.S,$(BUILD)/%.o,$(filter %.S,$(ASRC))) \
              $(patsubst $(BOARD_DIR)/%.c,$(BUILD)/board/%.o,$(BCSRC)) \
              $(patsubst $(BOARD_DIR)/%.s,$(BUILD)/board/%.o,$(BASRC)) \
-             $(if $(filter blackpill,$(BOARD)),$(BUILD)/lfs.o $(BUILD)/lfs_util.o)
+             $(if $(filter blackpill,$(BOARD)),$(BUILD)/lfs.o $(BUILD)/lfs_util.o) \
+             $(BUILD)/heatshrink_encoder.o $(BUILD)/heatshrink_decoder.o
 DEPS      := $(OBJS:.o=.d)
 
 # User programs, one directory per program under apps/
@@ -145,7 +152,7 @@ APP_GC     :=
 endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 crypt flashprobe threads vm basic \
+SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 crypt compress flashprobe threads vm basic \
              basic11 altair altair16 httpd
 # A sample a board has no room for at all is not built there.  The 48 KiB
 # Altair keeps the 8080's RAM in the program region.  The Blue Pill's
@@ -278,6 +285,10 @@ $(BUILD)/lfs.o: $(LFS_DIR)/lfs.c | $(BUILD)
 $(BUILD)/lfs_util.o: $(LFS_DIR)/lfs_util.c | $(BUILD)
 	@echo "  CC    $<"
 	@$(CC) $(CFLAGS) -Wno-shadow -MMD -MP -c $< -o $@
+
+$(BUILD)/heatshrink_%.o: $(HS_DIR)/heatshrink_%.c | $(BUILD)
+	@echo "  CC    $<"
+	@$(CC) $(CFLAGS) -Wno-implicit-fallthrough -MMD -MP -c $< -o $@
 
 $(BUILD)/$(TARGET).elf: $(OBJS) $(LDSCRIPT)
 	@echo "  LD    $@"

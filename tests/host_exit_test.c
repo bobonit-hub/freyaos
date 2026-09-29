@@ -100,10 +100,18 @@ int main(void)
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
     api.size = sizeof(freya_api_t);
-    check("web_read is the last call in the table",
+    check("decompress is the last call in the table",
           (int)sizeof(freya_api_t),
-          (int)(__builtin_offsetof(freya_api_t, web_read) +
-                sizeof(api.web_read)));
+          (int)(__builtin_offsetof(freya_api_t, decompress) +
+                sizeof(api.decompress)));
+    check("compress comes just before it",
+          (int)__builtin_offsetof(freya_api_t, decompress),
+          (int)(__builtin_offsetof(freya_api_t, compress) +
+                sizeof(api.compress)));
+    api.size = __builtin_offsetof(freya_api_t, compress);
+    check("a kernel from before the compressor does not offer it",
+          0, FREYA_API_HAS(&api, compress) ? 1 : 0);
+    check("but still offers web_read", 1, FREYA_API_HAS(&api, web_read) ? 1 : 0);
     api.size = __builtin_offsetof(freya_api_t, web_read);
     check("a kernel from before POST bodies does not offer web_read",
           0, FREYA_API_HAS(&api, web_read) ? 1 : 0);

@@ -54,6 +54,8 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | make a bounded HTTP request through the ESP32-C6 |
 | `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one, check presence, or walk the ROMs |
 | `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts |
+| `compress(["in", "out"])` | pack a file with heatshrink LZSS (not on the Blue Pill) |
+| `decompress(["in", "out"])` | unpack a file `compress` or the host tool wrote |
 | `sleep(ms)` | wait that many milliseconds; Ctrl-C returns early |
 | `yield()` | let a script thread run |
 | `source("file"\|"@flash")` | run a shell script from a file, or from program flash |
@@ -242,6 +244,26 @@ freya: crypt("000102030405060708090a0b0c0d0e0f", "4142434445464748", "0000000000
 ```
 
 A file is `samples/crypt`. [docs/crypt.md](crypt.md) is the call.
+
+## compress and decompress at the prompt
+
+`compress` and `decompress` are the coder with a prompt in front of it —
+the same `src/lz.c` a program reaches through `api->compress()` and
+`api->decompress()`. With no arguments either names the coder and prints
+the usage. Otherwise both take two paths, read the first and create or
+truncate the second, 128 bytes at a time, so the file may be any size.
+The stream is what the host `heatshrink -w 8 -l 4` writes:
+
+```
+freya: compress("/notes.txt", "/notes.hs")
+compress: 2048 -> 1433 B (69%)
+freya: decompress("/notes.hs", "/notes.txt")
+decompress: 1433 -> 2048 B
+```
+
+The Blue Pill has no room for the coder and both commands say
+`unsupported on this board`. A file is `samples/compress`.
+[docs/compress.md](compress.md) is the call.
 
 Ctrl-C stops a running program and every thread it created. It also
 stops a `sleep`, a `loop` or a `wait`, and every script thread, and throws
