@@ -1,3 +1,33 @@
+# Freya 3.2.0 "Poltergeist"
+
+30 September 2026
+
+A script and the threads it starts now take turns without either of them
+asking to. The shell's function table holds sixty-four.
+
+The program ABI is still version 3.
+
+## What changed
+
+* A script is a thread of the script scheduler, at `FREYA_PRIO_NORMAL`,
+  the way a program's own `app_main` is. Before each of its statements a
+  higher priority runs until it sleeps, yields or ends, and an equal one
+  takes a statement and hands the interpreter back. A thread `spawn`ed
+  at priority 1 takes turns with the script that started it; one at 0
+  waits for the script to sleep, yield, wait or reach the prompt.
+  Until now the script drained every thread it had started before it ran
+  its own next statement, so a thread that never slept starved it.
+* The statement is still the unit the scheduler switches on, and a call
+  to a function is one statement. A loop that never sleeps or yields no
+  longer keeps the CPU: it gives it up after each statement in the body.
+* The shell holds 64 functions instead of 4. A sixty-fifth is still
+  `too many functions`, and a body is still at most 127 characters, kept
+  on the heap. The table costs 720 bytes more of the kernel's RAM, which
+  comes out of the system heap.
+* A script thread that called a function could be picked again while
+  that call was still running, because the scheduler forgot which thread
+  it had interrupted. It remembers.
+
 # Freya 3.1.2 "Poltergeist"
 
 28 September 2026

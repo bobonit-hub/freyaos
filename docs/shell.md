@@ -234,7 +234,8 @@ n = 7
 
 `fn` with no name lists the functions. `fn <name>` ... `end` defines
 one. The body is not run at the definition. A name has the same shape as
-a variable, and there are four functions. Defining the same name again
+a variable, and there are sixty-four functions. A sixty-fifth is
+`too many functions`. Defining the same name again
 replaces the body. The body is at most 127 characters. A longer one is
 `function too long`. The body is kept on the heap, so it can also be
 refused with `out of memory`. The list
@@ -707,11 +708,18 @@ The same calls from a program are described in
 ## Threads
 
 A script can run two functions at once. They are not the threads a
-program starts. Those have a stack of their own and a priority the
-scheduler enforces. A script thread shares the one interpreter, so it
-runs until `sleep`, `yield` or `return`, and then another ready one
-runs. A larger priority runs first. The same priority takes turns at
-`yield`.
+program starts. Those have a stack of their own. A script thread shares
+the one interpreter, and the statement is what the scheduler switches
+on: a thread runs a statement, and then the highest priority that is
+ready runs the next one. A larger priority runs first, and equal
+priorities take turns. Nothing has to call `yield` for that to happen.
+
+The script itself is one of those threads, at priority 1, the way a
+program's own `app_main` is. So a thread `spawn`ed at priority 1 takes
+turns with the script that started it, one statement each. A thread at
+2 or above runs until it sleeps, yields or ends before the script gets
+its next statement, and a thread at 0 waits until the script sleeps,
+yields, waits or reaches the prompt.
 
 `spawn(name, priority)` starts the function of that name and returns
 its id, 2 or 3. The name is a string. The priority is an integer from
@@ -733,10 +741,13 @@ cannot join itself.
 
 Variables are shared, and so is `$?`. One statement finishes before
 another thread starts, so a `set` is not torn, but two threads can
-store into the same name. A loop that never sleeps or yields keeps
-the CPU until it ends. Ctrl-C stops every script thread. `stop add`
-stops the one named `add`. `threads` lists them with the others.
-`run` is refused while one is still alive.
+store into the same name. That statement is the whole of a call to a
+function, so a thread stays on the CPU for as long as one of those
+takes. A loop that never sleeps or yields does not keep the CPU: it
+gives it up after each statement in the body like any other. Ctrl-C
+stops every script thread. `stop add` stops the one named `add`.
+`threads` lists them with the others. `run` is refused while one is
+still alive.
 
 ```
 freya: fn blink
@@ -750,6 +761,23 @@ freya: set n join($n)
 tock
 freya: echo($n)
 0
+```
+
+Neither of these sleeps or yields, and they still take turns:
+
+```
+freya: fn count
+> loop 3
+> echo thread
+> end
+> end
+freya: set n spawn("count", 1); loop 3; echo script; end
+thread
+script
+thread
+script
+thread
+script
 ```
 
 ## Files
@@ -926,7 +954,7 @@ a password is set
 | Dict | One key type and one value type; sorted, limited by system heap |
 | Byte array | Largest available system-heap block |
 | Collections | 4 total arrays, byte arrays and dicts |
-| Functions | 4, each body at most 127 characters |
+| Functions | 64, each body at most 127 characters |
 | Arguments | 32 |
 | Values from `return` | 1 .. 32 |
 | Nested calls | 4 |

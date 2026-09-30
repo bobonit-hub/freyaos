@@ -3,9 +3,10 @@
 A program can start threads. They are not POSIX threads: there is no
 `pthread_create`, no attributes block and no cancellation state. A thread
 is a name, a numeric priority and a function. A script has its own,
-described in [shell.md](shell.md): two functions, sharing the interpreter,
-running until `sleep` or `yield`. Those are not these threads, and they
-are refused while a program is running.
+described in [shell.md](shell.md): two functions, sharing the
+interpreter, switched between statements rather than on their own
+stacks. Those are not these threads, and they are refused while a
+program is running.
 
 ```c
 static void blink(void *arg)

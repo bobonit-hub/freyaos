@@ -320,8 +320,9 @@ the same text `if` accepts, and it is tested again before each pass.
 `break` outside a loop is refused before anything runs.
 `sleep` waits that many milliseconds. A count is a decimal number, at
 most 1000000. `$?` may be the count: it is read when the loop starts.
-While it waits, a script thread that is ready runs. `yield` does that
-and does not wait. The calls are in [shell.md](shell.md).
+While it waits, a script thread that is ready runs; so does one of the
+same priority between any two statements of the script. `yield` hands
+the turn over without waiting. The calls are in [shell.md](shell.md).
 
 ```
 freya: if echo("hi")

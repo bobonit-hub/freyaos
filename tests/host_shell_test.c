@@ -1122,7 +1122,7 @@ int main(void)
 
     rc = run("sysinfo");
     expect_rc("sysinfo succeeds", rc, 0);
-    expect_has("sysinfo reports the OS version", "Freya 3.1.2");
+    expect_has("sysinfo reports the OS version", "Freya 3.2.0");
     expect_has("sysinfo reports the firmware version", "firmware   : 3.1.1");
 #if defined(FREYA_BOARD_BLUEPILL)
     expect_has("sysinfo names the board", "Blue Pill");
@@ -3005,6 +3005,29 @@ int main(void)
     expect_exact("yield gives each thread a turn",
                  "a1\r\nb1\r\na2\r\nb2\r\n");
 
+    /* The script is a thread of the scheduler too, at FREYA_PRIO_NORMAL.
+     * Neither loop sleeps or yields, so only preemption interleaves them. */
+    run("fn add; loop 3; echo w; end; end");
+    rc = run("set x spawn(\"add\",1); loop 3; echo m; end");
+    expect_rc("a script runs beside a thread of its own priority", rc, 0);
+    expect_exact("an equal priority takes turns with the script",
+                 "w\r\nm\r\nw\r\nm\r\nw\r\nm\r\n");
+    run("stop add");
+
+    run("fn add; loop 3; echo w; end; end");
+    rc = run("set x spawn(\"add\",2); loop 3; echo m; end");
+    expect_rc("a script runs beside a higher priority", rc, 0);
+    expect_exact("a higher priority runs before the script again",
+                 "w\r\nw\r\nw\r\nm\r\nm\r\nm\r\n");
+    run("stop add");
+
+    run("fn add; loop 3; echo w; end; end");
+    rc = run("set x spawn(\"add\",0); loop 3; echo m; end");
+    expect_rc("a script runs beside a lower priority", rc, 0);
+    expect_exact("a lower priority waits for the script",
+                 "m\r\nm\r\nm\r\nw\r\nw\r\nw\r\n");
+    run("stop add");
+
     rc = run("fn add; echo a; sleep 10; echo b; end; "
              "set n spawn(\"add\", 1); echo mid; sleep 10; echo end");
     expect_rc("a thread sleeps", rc, 0);
@@ -3410,6 +3433,37 @@ int main(void)
     expect_exact("help log shows the call",
                  "log(\"error\"|\"warn\"|\"info\"|\"debug\"|1..4, message)\r\n");
     rc = run("unset n");
+
+    /* Last: filling the table leaves no room for a later definition. */
+    printf("function table\n");
+    {
+        char cmd[64];
+        int made = 0, lines = 0, i;
+
+        /* Earlier tests hold some of the 64 already, so fill the table
+         * and find the edge rather than assume where it is. */
+        for (i = 0; i < 80; i++) {
+            snprintf(cmd, sizeof cmd, "fn f%d; return %d; end", i, i);
+            if (run(cmd) != 0) break;
+            made++;
+        }
+        expect_has("a full table is refused", "too many functions");
+        if (made > 4) pass("more than the four functions there used to be");
+        else fail("more than the four functions there used to be");
+
+        snprintf(cmd, sizeof cmd, "set n f%d()", made - 1);
+        rc = run(cmd);
+        expect_rc("the last function of a full table is callable", rc, 0);
+        run("echo $n");
+        snprintf(cmd, sizeof cmd, "%d\r\n", made - 1);
+        expect_exact("that function returns its value", cmd);
+
+        run("fn");
+        for (const char *p = s_out; *p; p++)
+            if (*p == '\n') lines++;
+        if (lines == 64) pass("a full table lists 64 functions");
+        else fail("a full table lists 64 functions");
+    }
 
     printf("%d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;

@@ -3,9 +3,9 @@
 # the eight bytes password("xxxxxxxx") stored, without printing them.
 # Only the word ok on the first line opens a session.
 if password_check($query)
-echo("ok")
+	echo("ok")
 else
-echo("denied")
+	echo("denied")
 end
 # The password must not stay in a shell variable.
 unset query

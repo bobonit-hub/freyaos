@@ -58,8 +58,15 @@ static int  s_console_call_only;    /* direct console commands need name() */
 #endif
 
 /* Script threads share this interpreter.  Declarations; the scheduler
- * is with the script runner. */
+ * is with the script runner.  sh_sched() runs the threads down to a
+ * priority floor: sh_pump() has none and runs them until none is ready,
+ * and sh_turn() is the turn the script takes between two of its own
+ * statements, at its own priority or at that of a thread it is inside. */
+static int  KEXT sh_sched(int floor);
 static int  KEXT sh_pump(void);
+#define SH_DRAIN   (FREYA_PRIO_MIN - 1)
+#define sh_turn()  sh_sched(s_sh_cur >= 0 ? s_sh[s_sh_cur].priority \
+                                          : FREYA_PRIO_NORMAL)
 static void KEXT sh_stop_all(void);
 static int  KEXT sh_alive(void);
 static int  KEXT sh_stop_named(const char *name);
@@ -4528,8 +4535,10 @@ static int KEXT parse_expr(const char **pp, val_t *out);
 
 /* ---------------------------------------------------------- functions */
 /*
- * Four functions.  A body is kept on the heap, at most 127 characters,
- * so the static cost is the table.  A call takes 0 to 32 arguments.
+ * Sixty-four functions.  A body is kept on the heap, at most 127
+ * characters, so the static cost is the table: a name and a pointer
+ * each, and the bodies come out of the heap as they are defined.
+ * A call takes 0 to 32 arguments.
  * 'return' leaves from anywhere in the body with 1 to 32 values, each
  * an integer, a float, a byte, a bool, empty, none, or a string.  The arguments of the call in
  * progress sit on the stack, sized to how many were passed.  $0 is
@@ -4537,7 +4546,7 @@ static int KEXT parse_expr(const char **pp, val_t *out);
  * integer 0.  One name in 'set' takes the first value; several names
  * take the first of those values from a call.
  */
-#define FN_MAX    4
+#define FN_MAX    64
 #define FN_BODY   128
 #define FN_ARGS   32
 #define FN_NEST   4
@@ -8996,8 +9005,22 @@ static int KEXT sh_step(sh_thr_t *t)
     return SH_STEP;
 }
 
-static int KEXT sh_pump(void)
+/*
+ * One pass of the scheduler.  A thread above `floor` runs until it
+ * sleeps, yields or ends; a thread at `floor` runs one statement and
+ * hands the turn back to the caller, which is a thread of that priority
+ * itself.  SH_DRAIN is under every priority, so nothing matches it and
+ * the threads run until none of them is ready.
+ *
+ * The script is a thread of this scheduler at FREYA_PRIO_NORMAL, the
+ * way a program's app_main() is: sh_turn() before each of its
+ * statements lets a higher priority run to a stop and an equal one take
+ * a statement, so a thread that never sleeps no longer holds the
+ * interpreter for as long as it cares to.
+ */
+static int KEXT sh_sched(int floor)
 {
+    int outer = s_sh_cur;
     int ran = 0;
 
     if (g_app.running || s_pumping) return 0;
@@ -9006,10 +9029,10 @@ static int KEXT sh_pump(void)
 
     for (;;) {
         sh_thr_t *t;
-        int idx, rc;
+        int idx, rc, pri;
 
         if (script_interrupted()) {
-            if (s_sh_cur < 0) sh_stop_all();
+            if (outer < 0) sh_stop_all();
             else s_sh_kill = 1;
             s_pumping = 0;
             return -1;
@@ -9017,11 +9040,15 @@ static int KEXT sh_pump(void)
         sh_wake();
         t = sh_pick();
         if (!t) break;
+        pri = t->priority;
+        if (pri < floor) break;
         idx = (int)(t - s_sh);
         s_sh_cur = idx;
         t->state = SH_RUN;
         rc = sh_step(t);
-        s_sh_cur = -1;
+        /* Back to whoever was mid-statement under us, so sh_pick() keeps
+         * skipping it: its position is on the C stack, not in the slot. */
+        s_sh_cur = outer;
         s_sh_last = idx;
         ran = 1;
         if (s_sh_kill || rc < 0 || rc == SH_DONE) {
@@ -9032,6 +9059,7 @@ static int KEXT sh_pump(void)
                 s_pumping = 0;
                 return -1;
             }
+            if (pri == floor) break;
             continue;
         }
         if (rc == SH_SLEPT) t->state = SH_SLEEP;
@@ -9041,9 +9069,15 @@ static int KEXT sh_pump(void)
         } else {
             t->state = SH_READY;
         }
+        if (pri == floor) break;
     }
     s_pumping = 0;
     return ran ? 1 : 0;
+}
+
+static int KEXT sh_pump(void)
+{
+    return sh_sched(SH_DRAIN);
 }
 
 static int KEXT sh_getc(void)
@@ -9178,7 +9212,7 @@ static int KEXT exec_block(const char **pp, int skip, char *walk, char *one)
         if (ns != 0) break;
 
         if (script_interrupted()) return SCR_ERR;
-        if (sh_pump() < 0) return SCR_ERR;
+        if (sh_turn() < 0) return SCR_ERR;
 
         if (word_is(walk, "end", NULL)) return SCR_END;
         if (word_is(walk, "else", NULL)) return SCR_ELSE;
