@@ -1,11 +1,7 @@
 /* fpnat.h - BASIC's numbers as the C compiler's float.
  *
- * The same calls as fp11.h, so basic.c is written once, but a number
- * is a single-precision IEEE float: what the FPU of a Cortex-M4F
- * computes in hardware, and what the STM32F103 lacks.  fp11.c is the
- * PDP-11's D format in software and is compiled into the image for
- * the virtual machine; this file is compiled into the program that
- * runs on the board itself.
+ * A number is a single-precision IEEE float: what the FPU of a
+ * Cortex-M4F computes in hardware, and what the STM32F103 lacks.
  *
  * A float has a 24-bit fraction, about seven decimal digits, and
  * magnitudes up to 3.4E38.  fp_format() prints six of those digits,
@@ -39,6 +35,7 @@ void    fp_sub(fpac_t *a, const fpac_t *b);            /* a -= b */
 void    fp_mul(fpac_t *a, const fpac_t *b);            /* a *= b */
 void    fp_div(fpac_t *a, const fpac_t *b);            /* a /= b */
 void    fp_from_int(fpac_t *d, int32_t v);
+void    fp_from_uint(fpac_t *d, uint32_t v);
 int32_t fp_to_int(const fpac_t *a);                    /* toward zero; faults out of range */
 void    fp_trunc(fpac_t *a);                           /* toward zero */
 void    fp_floor(fpac_t *a);

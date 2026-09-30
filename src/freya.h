@@ -101,6 +101,9 @@ typedef struct {
 
 void     rtc_set(const rtc_time_t *t);
 void     rtc_get(rtc_time_t *t);
+/* rtc_set() with the range check and the DS3231 write the date command
+ * and the program's rtc_set() both need.  0, or FREYA_ERR_*. */
+int      rtc_apply(const rtc_time_t *t);
 uint16_t rtc_fat_date(void);
 uint16_t rtc_fat_time(void);
 

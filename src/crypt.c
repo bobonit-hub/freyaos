@@ -10,9 +10,13 @@
  * the zeros.
  *
  * The 48 KiB kernel image has no room left for this.  The linker script
- * puts the whole file in the kernel extension.
+ * puts the whole file in the kernel extension.  A board whose extension
+ * has no room either builds none of it: BOARD_CRYPT is 0 and the two
+ * calls report that the board cannot do it.
  */
 #include "freya.h"
+
+#if BOARD_CRYPT
 
 #define DELTA  0x9E3779B9u
 
@@ -101,3 +105,20 @@ int crypt_apply(const void *key, const void *nonce, uint32_t off,
     }
     return 0;
 }
+
+#else /* !BOARD_CRYPT */
+
+int crypt_block(const void *key, const void *in, void *out)
+{
+    (void)key; (void)in; (void)out;
+    return FREYA_ERR_UNSUPPORTED;
+}
+
+int crypt_apply(const void *key, const void *nonce, uint32_t off,
+                const void *in, void *out, int len)
+{
+    (void)key; (void)nonce; (void)off; (void)in; (void)out; (void)len;
+    return FREYA_ERR_UNSUPPORTED;
+}
+
+#endif /* BOARD_CRYPT */

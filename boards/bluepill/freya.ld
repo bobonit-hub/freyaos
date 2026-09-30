@@ -22,15 +22,20 @@
  * RAM map - the whole system has to fit in a fifth of what the Black Pill
  * offers, so the heap is small and the program region is sized for the
  * kind of program this board can run at all:
- *   0x20000000 .. 0x200017FF   kernel .data/.bss + system heap    ( 6 KiB)
- *   0x20001800 .. 0x200037FF   user program image region          ( 8 KiB)
+ *   0x20000000 .. 0x20001BFF   kernel .data/.bss + system heap    ( 7 KiB)
+ *   0x20001C00 .. 0x200037FF   user program image region          ( 7 KiB)
  *   0x20003800 .. 0x20003FFF   thread stacks, 2 x 1 KiB           ( 2 KiB)
  *   0x20004000 .. 0x200049FF   shell stack                      (2560 B)
  *   0x20004A00 .. 0x20004FFF   interrupt stack                  (1536 B)
  *
- * A copied installed program shares that 8 KiB window between its image
+ * A copied installed program shares that 7 KiB window between its image
  * (at the top) and its .data and .bss (at the bottom).  Larger images
  * execute in place and use the window only for writable state.
+ *
+ * The kernel slice is a kilobyte wider than the program window is, the
+ * other way round from the Black Pill: the static buffers of the shell,
+ * the console and the file system come to just over 6 KiB on their own,
+ * and what is left of the seventh kilobyte is the whole system heap.
  */
 
 ENTRY(Reset_Handler)
@@ -46,7 +51,7 @@ __stack_size         = 6K;
 __irq_stack_size     = 1536;
 __worker_stack_size  = 1024;
 __worker_count       = 2;
-__app_ram_start      = 0x20001800;
+__app_ram_start      = 0x20001C00;
 __app_ram_end        = 0x20003800;
 __worker_stacks      = __stack_limit;
 __thread_stack_top   = __stack_top - __irq_stack_size;
@@ -96,8 +101,9 @@ SECTIONS
         *board.o(.text.board_adc_read)
         *shell.o(.text.cmd_adc)
         *shell.o(.text.pin_fail*)
-        *shell.o(.text.cmd_crypt)
-        *crypt.o(.text .text.*)
+        /* XTEA is not built here either.  crypt() is a stub of a
+         * dozen bytes in the kernel image, and the command that says
+         * so is .text.kext_script, already claimed above. */
         /* Ascon is not built here.  The two service calls are a dozen
          * bytes and stay in the kernel image; the command that says so
          * is .text.kext_script, already claimed above. */
@@ -107,7 +113,8 @@ SECTIONS
         *lz.o(.text .text.* .rodata .rodata.*)
         *heatshrink_encoder.o(.text .text.* .rodata .rodata.*)
         *heatshrink_decoder.o(.text .text.* .rodata .rodata.*)
-        *vm.o(.text .text.*)
+        /* The machine is not built here; see BOARD_VM.  Its three
+         * service calls are stubs of a few bytes in the kernel image. */
         /* Socket power is left for .text; the 48 KiB image still has
          * room for it.  The Black Pill script claims those sections
          * up here instead. */
@@ -132,6 +139,12 @@ SECTIONS
         *xmodem.o(.text .text.*)
         *xmodem.o(.rodata .rodata.*)
         *softfp.o(.text .text.*)
+        /* The date command and the clock setter beside it.  They
+         * were in the 48 KiB image while it had room; the cipher this
+         * board no longer builds left enough space here for them. */
+        *shell.o(.text.cmd_date)
+        *shell.o(.text.cmd_date.*)
+        *shell.o(.rodata.cmd_date*)
         *shell.o(.text.kext_script)
         *shell.o(.text.kext_script.*)
         *loader.o(.text.kext_script)
@@ -144,16 +157,17 @@ SECTIONS
         *adc.o(.rodata .rodata.*)
         *shell.o(.rodata.cmd_adc*)
         *shell.o(.rodata.pin_fail*)
-        *shell.o(.rodata.cmd_crypt*)
-        *crypt.o(.rodata .rodata.*)
         *shell.o(.rodata.cmd_compress*)
         *shell.o(.rodata.cmd_decompress*)
-        *vm.o(.rodata .rodata.*)
         *shell.o(.rodata.shell_poll_runtime*)
         *softfp.o(.rodata .rodata.*)
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_api)
+        /* The clock calls of the program table, beside the date
+         * command: needed at run time, not to boot. */
+        *loader.o(.text.kext_rtc)
+        *loader.o(.text.kext_rtc.*)
         *shell.o(.rodata.s_cmds)
         /* RTC decoding and bus helpers live here so enabling the driver
          * does not overflow the fixed 48 KiB boot image.  The write entry

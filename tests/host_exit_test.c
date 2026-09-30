@@ -100,8 +100,16 @@ int main(void)
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
     api.size = sizeof(freya_api_t);
-    check("aead_decrypt is the last call in the table",
+    check("rtc_set is the last call in the table",
           (int)sizeof(freya_api_t),
+          (int)(__builtin_offsetof(freya_api_t, rtc_set) +
+                sizeof(api.rtc_set)));
+    check("rtc_get comes just before it",
+          (int)__builtin_offsetof(freya_api_t, rtc_set),
+          (int)(__builtin_offsetof(freya_api_t, rtc_get) +
+                sizeof(api.rtc_get)));
+    check("aead_decrypt comes just before the clock",
+          (int)__builtin_offsetof(freya_api_t, rtc_get),
           (int)(__builtin_offsetof(freya_api_t, aead_decrypt) +
                 sizeof(api.aead_decrypt)));
     check("aead_encrypt comes just before it",

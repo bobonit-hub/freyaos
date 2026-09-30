@@ -1,12 +1,11 @@
 /* hostrt.c - run the interpreter natively, for testing.
  *
- *   cc -DBAS_HOST -DBAS_FP11 basic/basic.c basic/hostrt.c -o basic-host
- *   cc -DBAS_HOST basic/basic.c basic/hostrt.c -lm -o basic-float
+ *   cc -DBAS_HOST basic/basic.c basic/hostrt.c -lm -o basic-host
  *   basic-host [-m kbytes] [-r program.bas]
  *
  * Supplies the system calls of bas.h with stdio, so the same basic.c
- * that goes into the VM image, or into the program for the board, runs
- * on the PC, where a debugger and the sanitizers can reach it.
+ * that goes into the program for the board runs on the PC, where a
+ * debugger and the sanitizers can reach it.
  */
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
@@ -17,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "bas.h"
@@ -105,12 +105,44 @@ int sys_write(int fd, const void *buf, int len)
     return (int)write(fd, buf, (size_t)len);
 }
 
+/* Milliseconds since the first call, as the board counts from boot.
+ * The wall clock itself is far too large for a BASIC number to hold to
+ * the millisecond. */
 uint32_t sys_ticks(void)
 {
+    static uint32_t base;
     struct timeval tv;
+    uint32_t now;
 
     gettimeofday(&tv, NULL);
-    return (uint32_t)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+    now = (uint32_t)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+    if (!base) base = now;
+    return now - base;
+}
+
+int sys_clock(int *f)
+{
+    time_t now = time(NULL);
+    struct tm tm;
+
+    if (now == (time_t)-1 || !localtime_r(&now, &tm)) return -1;
+    f[0] = tm.tm_year + 1900;
+    f[1] = tm.tm_mon + 1;
+    f[2] = tm.tm_mday;
+    f[3] = tm.tm_hour;
+    f[4] = tm.tm_min;
+    f[5] = tm.tm_sec;
+    return 0;
+}
+
+void sys_sleep(uint32_t ms)
+{
+    struct timespec ts;
+
+    ts.tv_sec = (time_t)(ms / 1000);
+    ts.tv_nsec = (long)(ms % 1000) * 1000000L;
+    while (nanosleep(&ts, &ts) != 0 && errno == EINTR)
+        ;
 }
 
 int sys_unlink(const char *path)

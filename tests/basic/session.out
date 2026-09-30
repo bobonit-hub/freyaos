@@ -1,4 +1,4 @@
-BASIC-11 for the Freya VM
+BASIC-11 for Freya
 
 READY
 
@@ -74,6 +74,50 @@ READY
 
 A
  1.5 B$ 100000 
+
+READY
+
+
+READY
+
+10 DEF FNSUM(A,B)
+20 FNSUM = A + B
+30 FNEND
+
+READY
+
+ 5 
+
+READY
+
+?Undefined function
+
+READY
+
+?Syntax error
+
+READY
+
+?Undefined function at line 50
+
+READY
+
+
+READY
+
+?DEF without FNEND at line 50
+
+READY
+
+
+READY
+
+?Syntax error at line 10
+
+READY
+
+ 7 
+?Syntax error at line 50
 
 READY
 

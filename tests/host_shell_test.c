@@ -2636,6 +2636,36 @@ int main(void)
         pass("date command sets every clock field");
     else
         fail("date command sets every clock field");
+    /* rtc_apply() is the range, and a program's rtc_set() goes through
+     * the same call.  A date it refuses leaves the clock alone. */
+    s_rtc_set_count = 0;
+    rc = run("date(\"1979-12-31 23:59:59\")");
+    expect_rc("a year before the FAT epoch is refused", rc, 1);
+    expect_has("and says so", "out of range");
+    rc = run("date(\"2200-01-01 00:00:00\")");
+    expect_rc("a year past the DS3231's last is refused", rc, 1);
+    rc = run("date(\"2026-13-01 00:00:00\")");
+    expect_rc("month 13 is refused", rc, 1);
+    rc = run("date(\"2026-00-01 00:00:00\")");
+    expect_rc("month 0 is refused", rc, 1);
+    rc = run("date(\"2026-268-01 00:00:00\")");
+    expect_rc("a month that would wrap to 12 in a byte is refused", rc, 1);
+    rc = run("date(\"2026-09-32 00:00:00\")");
+    expect_rc("day 32 is refused", rc, 1);
+    rc = run("date(\"2026-09-27 24:00:00\")");
+    expect_rc("hour 24 is refused", rc, 1);
+    rc = run("date(\"2026-09-27 23:60:00\")");
+    expect_rc("minute 60 is refused", rc, 1);
+    if (s_rtc_set_count == 0)
+        pass("a refused date never reaches the clock");
+    else
+        fail("a refused date never reaches the clock");
+    rc = run("date(\"1980-01-01 00:00:00\")");
+    expect_rc("the FAT epoch itself is taken", rc, 0);
+    if (s_rtc_set_count == 1 && s_rtc_set_time.year == 1980)
+        pass("and it is the one that reached the clock");
+    else
+        fail("and it is the one that reached the clock");
     rc = run("set n year()");
     rc = run("echo $n");
     expect_exact("year reads the clock", "2026\r\n");

@@ -54,7 +54,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `ping("host" [, timeout_ms])` | resolve and ping a host through the ESP32-C6 |
 | `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | make a bounded HTTP request through the ESP32-C6 |
 | `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one, check presence, or walk the ROMs |
-| `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts |
+| `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts (not on the Blue Pill) |
 | `aead(["-d",] "key", "nonce", "in", "out")` | Ascon-AEAD128: seal a file, or open it with `-d` (not on the Blue Pill) |
 | `compress(["in", "out"])` | pack a file with heatshrink LZSS (not on the Blue Pill) |
 | `decompress(["in", "out"])` | unpack a file `compress` or the host tool wrote |
@@ -245,7 +245,8 @@ freya: crypt("000102030405060708090a0b0c0d0e0f", "4142434445464748", "0000000000
 497df3d072612cb5
 ```
 
-A file is `samples/crypt`. [docs/crypt.md](crypt.md) is the call.
+The Blue Pill builds no cipher and has no such command; `help` does not
+list it. A file is `samples/crypt`. [docs/crypt.md](crypt.md) is the call.
 
 ## aead at the prompt
 
@@ -263,8 +264,8 @@ freya: aead("000102030405060708090a0b0c0d0e0f", "101112131415161718191a1b1c1d1e1
 aead: 128 -> 144 B
 ```
 
-The STM32F103 has no room for the cipher and the command says
-`unsupported on this board`. A file is `samples/aead`.
+The STM32F103 has no room for the cipher and carries no such command;
+`help` does not list it. A file is `samples/aead`.
 [docs/aead.md](aead.md) is the call.
 
 ## compress and decompress at the prompt
@@ -283,8 +284,8 @@ freya: decompress("/notes.hs", "/notes.txt")
 decompress: 1433 -> 2048 B
 ```
 
-The Blue Pill has no room for the coder and both commands say
-`unsupported on this board`. A file is `samples/compress`.
+The Blue Pill has no room for the coder and carries neither command;
+`help` lists neither. A file is `samples/compress`.
 [docs/compress.md](compress.md) is the call.
 
 Ctrl-C stops a running program and every thread it created. It also

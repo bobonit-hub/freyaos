@@ -26,7 +26,7 @@ typedef uint32_t ucell_t;
 
 /*
  * Every arena is sized from the program region, because the region is
- * what differs between boards: 8 KiB on the Blue Pill, 56 KiB on the
+ * what differs between boards: 7 KiB on the Blue Pill, 56 KiB on the
  * Black Pill.  A flash resident image spends the whole window on data; a
  * RAM image shares it with its own code, so it settles for a dictionary
  * that is small but still enough to define in.
@@ -38,7 +38,8 @@ typedef uint32_t ucell_t;
 #define LINE_SIZE   200
 #define PAD_SIZE    128
 #elif defined(FREYA_APP_XIP)
-#define DICT_SIZE   7168u
+/* The whole 7 KiB window less the stacks, the line and the pad. */
+#define DICT_SIZE   6144u
 #define DS_CELLS    48
 #define RS_CELLS    48
 #define LINE_SIZE   128

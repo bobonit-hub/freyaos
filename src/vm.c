@@ -7,11 +7,13 @@
  * index word all step by 4.  The high 16 bits of an instruction are
  * reserved and must be zero.
  *
- * The linker script puts this file in the kernel extension.  On the
- * Blue Pill that extension is 47 KiB, and the program region is 4 KiB
- * smaller so the machine fits.
+ * The linker script puts this file in the kernel extension.  A board
+ * whose extension has no room for it sets BOARD_VM to 0 and the three
+ * calls report that the board cannot run the machine.
  */
 #include "freya.h"
+
+#if BOARD_VM
 
 int vm_reset(freya_vm_t *vm)
 {
@@ -659,3 +661,26 @@ int vm_run(freya_vm_t *vm, void *mem, uint32_t size, uint32_t steps, uint32_t *r
     if (capped && n == steps) return FREYA_VM_LIMIT;
     return 0;
 }
+
+#else /* !BOARD_VM */
+
+int vm_reset(freya_vm_t *vm)
+{
+    (void)vm;
+    return FREYA_ERR_UNSUPPORTED;
+}
+
+int vm_step(freya_vm_t *vm, void *mem, uint32_t size)
+{
+    (void)vm; (void)mem; (void)size;
+    return FREYA_ERR_UNSUPPORTED;
+}
+
+int vm_run(freya_vm_t *vm, void *mem, uint32_t size,
+           uint32_t steps, uint32_t *ran)
+{
+    (void)vm; (void)mem; (void)size; (void)steps; (void)ran;
+    return FREYA_ERR_UNSUPPORTED;
+}
+
+#endif /* BOARD_VM */

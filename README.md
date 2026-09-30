@@ -45,7 +45,7 @@ freya:
 | Crystal | 25 MHz | 8 MHz | 8 MHz |
 | Flash | 512 KiB | 128 KiB | 1 MiB |
 | SRAM | 128 KiB | 20 KiB | 128 KiB |
-| Program region | 56 KiB RAM, or 320 KiB flash | 8 KiB RAM, or 24 KiB flash | 56 KiB RAM, or 832 KiB flash |
+| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM, or 24 KiB flash | 56 KiB RAM, or 832 KiB flash |
 | Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -122,7 +122,8 @@ Freya 3.2.0 "Poltergeist" for STM32F103C8T6
 * Encrypts and decrypts with XTEA in CTR mode. The key is 16 bytes and the
   nonce is 8; the same call does both, and a message longer than 4096 bytes
   is handed over in pieces. `crypt` at the console and `samples/crypt` do
-  the same thing ([docs/crypt.md](docs/crypt.md)).
+  the same thing. The Blue Pill has room for no cipher at all
+  ([docs/crypt.md](docs/crypt.md)).
 * Compresses and decompresses with heatshrink LZSS, the stream the host
   `heatshrink -w 8 -l 4` writes. A program hands over a buffer;
   `compress` and `decompress` at the console stream a file of any size.
@@ -135,17 +136,17 @@ Freya 3.2.0 "Poltergeist" for STM32F103C8T6
 * Runs a PDP-11 whose eight registers and whose words are 32 bits. The
   opcodes and the condition codes are the PDP-11's. A program steps it
   with `api->vm_step()` or runs a stretch of instructions with
-  `api->vm_run()`. `samples/vm` adds two numbers and returns
-  ([docs/vm.md](docs/vm.md)).
+  `api->vm_run()`. `samples/vm` adds two numbers and returns. The machine
+  is 3.4 KiB the Blue Pill has not got ([docs/vm.md](docs/vm.md)).
 * Has a C compiler for that machine, cproc and QBE with a target in
-  `qbe/`, and a BASIC written in C and compiled with it: a BASIC-11 style
-  interpreter with the FP11 floating point in software and a flat,
-  compacting string pool. `basic/runbasic` runs it on the PC with the
-  same `src/vm.c`; `samples/basic` is the host for a board with room for
-  the 100 KiB image. The same interpreter compiled with GCC is
-  `samples/basic11`, a 16 KiB native program for the Cortex-M4F boards
-  whose numbers are the FPU's `float`, with `OLD`, `SAVE` and the file
-  statements on the card ([basic/README.md](basic/README.md)).
+  `qbe/`, which turns a C program into an image the VM runs from
+  address 0.
+* Has a BASIC: `samples/basic11`, a BASIC-11 style interpreter with a
+  flat, compacting string pool, written in C and compiled with GCC into
+  an 18 KiB native program for the Cortex-M4F boards, whose numbers are
+  the FPU's `float`, with `OLD`, `SAVE` and the file statements on the
+  card, and `DATE$`, `TIME$`, `TIME` and `SLEEP` on the clock
+  ([basic/README.md](basic/README.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
   size from 8 KiB to 24 KiB; on the Black Pill the flash region is 320 KiB
@@ -387,10 +388,10 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `ping("host" [, timeout_ms])` | resolve and ping a host through the ESP32-C6 |
 | `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | bounded HTTP request through the ESP32-C6 |
 | `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one and talk to it |
-| `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts |
+| `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts (not on the Blue Pill) |
 | `aead(["-d",] "key", "nonce", "in", "out")` | Ascon-AEAD128: seal a file, or open it with `-d` (not on the Blue Pill) |
 | `compress(["in", "out"])` | pack a file with heatshrink LZSS (not on the Blue Pill) |
-| `decompress(["in", "out"])` | unpack a file `compress` or the host tool wrote |
+| `decompress(["in", "out"])` | unpack a file `compress` or the host tool wrote (not on the Blue Pill) |
 | `sleep(ms)` | wait that many milliseconds; Ctrl-C returns early |
 | `yield()` | let a script thread run |
 | `source("file"\|"@flash")` | run a shell script from a file, or from program flash |
@@ -548,7 +549,10 @@ The service table (`include/freya_api.h`) gives a program console I/O and
 `exit`, `last_exit`, `exit_reason_str`, the pins, the timers, PWM and the
 interrupts, XTEA in CTR mode (`crypt`), Ascon-AEAD128 (`aead_encrypt`,
 `aead_decrypt`), heatshrink LZSS (`compress`,
-`decompress`), a raw console (`console_raw`,
+`decompress`), the civil clock (`rtc_get`, `rtc_set`, which also
+writes the DS3231 when one is fitted; not on the Blue Pill, whose
+kernel extension had no room, though its clock still keeps file
+timestamps), a raw console (`console_raw`,
 which hands Ctrl-C to the program as an ordinary key, as an emulator needs;
 Freya takes it back when the run ends), and a file log: `log`, `get_log_level`,
 `set_log_level`. A script writes the same line with `log(level, message)`.
@@ -754,7 +758,7 @@ built against this ABI can check before calling:
 
 ### Running from flash
 
-On the Blue Pill 8 KiB is all a 20 KiB SRAM can spare for a program, while
+On the Blue Pill 7 KiB is all a 20 KiB SRAM can spare for a program, while
 most of the 128 KiB of flash sits idle. So the board reserves 24 KiB
 from page 48 through page 71 for one program image. The next 55 KiB holds the
 kernel extension (the thread scheduler, the shell's script interpreter,
@@ -812,8 +816,8 @@ flash into the RAM region before `app_main` is called. That is what the second
 linker script (`boards/<board>/app_flash.ld`) describes, and `make` builds
 every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
-spends the 8 KiB RAM window entirely on its variables, and gets 24 KiB
-for code instead of 8 KiB. On the Black Pill the RAM window is still 56 KiB and
+spends the 7 KiB RAM window entirely on its variables, and gets 24 KiB
+for code instead of 7 KiB. On the Black Pill the RAM window is still 56 KiB and
 the flash image may be up to 320 KiB; on the STM32F405, 832 KiB.
 
 Executing from flash needs nothing special — an address in `0x0800xxxx` is
@@ -902,9 +906,9 @@ heap takes whatever `.bss` leaves behind:
 0x08020000  +--------------------------------+
 
 0x20000000  +--------------------------------+
-            |  .data + .bss + system heap    |
-0x20001800  +--------------------------------+
-            |  user program region (8 KiB)   |  image + .bss loaded from
+            |  .data + .bss + system heap    |  7 KiB; the buffers alone
+0x20001C00  +--------------------------------+  are 6.4 KiB of it
+            |  user program region (7 KiB)   |  image + .bss loaded from
 0x20003800  +--------------------------------+  card, or just .data + .bss
             |  thread stacks, 2 x 1 KiB      |
 0x20004000  +--------------------------------+
@@ -937,7 +941,7 @@ is measured rather than guessed).
 | `src/i2c.c` | I2C master, on the buses the board header names |
 | `src/ds3231.c` | optional DS3231 clock, built with `RTC=ds3231`; SCL is PB6, SDA is PB7 |
 | `src/w1.c` | 1-Wire master, standard speed, on a pin a program names |
-| `src/crypt.c` | XTEA in CTR mode, for a program and for `crypt` |
+| `src/crypt.c` | XTEA in CTR mode, for a program and for `crypt`; not built into the Blue Pill |
 | `src/aead.c`, `third_party/ascon/` | Ascon-AEAD128, for a program and for `aead`; not built into the STM32F103. Keys come from `tools/aead` |
 | `src/lz.c`, `third_party/heatshrink/` | heatshrink LZSS, for a program and for `compress` / `decompress`; not built into the Blue Pill |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
@@ -952,9 +956,9 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `aead`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic`, `basic11` |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `aead`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic11` |
 | `qbe/` | QBE target and cproc patch for the virtual machine, and `as.py`, the assembler that makes an image |
-| `basic/` | BASIC-11 style interpreter for the virtual machine and, natively, for the FPU boards: the interpreter, the FP11 and `float` arithmetics, the PC runner |
+| `basic/` | BASIC-11 style interpreter for the FPU boards: the interpreter, its `float` arithmetic, the PC build it is tested on |
 | `tests/` | host side tests |
 | `docs/shell.md` | the shell language: values, expressions, control, variables, functions |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
@@ -1069,18 +1073,15 @@ the subtractions; a dividend whose high word is negative and the two ways a
 quotient can fail to exist; and every opcode the machine does not have,
 each of which has to leave R7 where a caller can read it.
 
-BASIC is checked in two layers. `basic/fp11.c` and `basic/fpnat.c` are
-compiled natively and 290 000 and 330 000 results of their arithmetic,
-functions and number conversions are compared with libm: the FP11 to a
-few units in the last place, the `float` one exactly for the arithmetic,
-reading and printing of numbers and to a few units for the functions,
-with every overflow and domain error checked to raise its fault. Then the
-programs under `tests/basic` run on the interpreter compiled natively
-with each arithmetic, each against its recorded output (the `float`
-outputs, with their 6 digits, are under `tests/basic/float`), and again
-on the virtual machine when `basic.bin` has been built, so that the
-compiler for that machine is tested by the largest program written for
-it.
+BASIC is checked in two layers. `basic/fpnat.c` is compiled natively
+and 330 000 results of its arithmetic, functions and number
+conversions are compared with libm: exactly for the arithmetic,
+reading and printing of numbers, and to a few units in the last place
+for the functions, with every overflow and domain error checked to
+raise its fault. Then the programs under `tests/basic` run on the
+interpreter compiled natively, each against its recorded output.
+The host build uses the same arithmetic as the board, so those outputs
+are what the board prints.
 
 The flash programming itself cannot be reached from the host, which is the main
 argument for keeping that driver small and its bounds check absolute. What can
@@ -1102,8 +1103,7 @@ the kernel compares them at boot, and this compares them at build time.
 168 checks, 0 failures    pins, timers, PWM, I2C, 1-Wire and SPI
 42 checks, 0 failures     XTEA
 136 checks, 0 failures    PDP-11 virtual machine
-290180 checks, 0 failures BASIC FP11 floating point
-330204 checks, 0 failures BASIC float floating point; 9 programs, natively both ways and on the VM
+330204 checks, 0 failures BASIC float floating point; 11 programs natively
 39 checks, 0 failures     program image layout
 ALL TESTS PASSED
 ```
@@ -1135,8 +1135,8 @@ ALL TESTS PASSED
   and erases each unit again afterwards. The kernel's region is a build-time
   constant, not whatever the probe found.
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 128 KiB of
-  flash: a RAM program gets 8 KiB rather than 56, and the heap is a couple of
-  KiB instead of sixty. Installing a program into flash is the answer to the
+  flash: a RAM program gets 7 KiB rather than 56, and the heap is a few
+  hundred bytes instead of sixty KiB. Installing a program into flash is the answer to the
   first half of that, not the second — such a program gets 24 KiB of code, but
   the heap is still small and the main thread still uses the shell stack.
 * The F4 boards give the program flash region everything between the

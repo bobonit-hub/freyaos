@@ -361,16 +361,10 @@ echo "================= PDP-11 virtual machine ================="
 $CC $CFLAGS tests/host_vm_test.c src/vm.c -o "$OUT/hostvm"
 "$OUT/hostvm" || status=1
 
-# BASIC: first its two arithmetics against libm, the FP11 in software
-# that the VM image uses and the float of the board build; then the
-# BASIC programs under tests/basic on the interpreter compiled natively
-# with each of them and, when basic/Makefile has produced the image
-# with cproc and QBE, on the VM as well.
+# BASIC: first its arithmetic against libm, then the BASIC programs
+# under tests/basic on the interpreter compiled natively.
 echo
 echo "================= BASIC ================="
-# shellcheck disable=SC2086
-$CC $CFLAGS tests/host_fp11_test.c -lm -o "$OUT/hostfp11"
-"$OUT/hostfp11" || status=1
 # shellcheck disable=SC2086
 $CC $CFLAGS -fno-math-errno tests/host_fpnat_test.c -lm -o "$OUT/hostfpnat"
 "$OUT/hostfpnat" || status=1

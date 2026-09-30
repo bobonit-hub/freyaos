@@ -1,13 +1,9 @@
 /* basic.c - a BASIC in the manner of BASIC-11.
  *
- * One translation unit: the arithmetic is included so that cproc and
- * QBE see the whole program at once (the backend puts its helper
- * routines in each unit), and so that a Freya program is one file.
- * There is no libc; everything below is written against the ten
- * system calls in bas.h.  The same source is the image for the PDP-11
- * virtual machine, with the FP11 of fp11.c for its numbers, and the
- * program that runs on the board itself, with the C float of fpnat.c;
- * bas.h says which is which.
+ * One translation unit: the arithmetic is included so that a Freya
+ * program is one file.  There is no libc; everything below is written
+ * against the ten system calls in bas.h.  The numbers are the C float
+ * of fpnat.c, the single precision the FPU of a Cortex-M4F computes.
  *
  * Memory: the host hands bas_main() a heap.  It is cut into the
  * program text, an arena for arrays, and a flat pool for string data.
@@ -30,16 +26,11 @@
  */
 #include "bas.h"
 
-#ifdef BAS_FP11
-#include "fp11.h"
-#include "fp11.c"
-#else
 #include "fpnat.h"
 #include "fpnat.c"
-#endif
 
 #ifndef BAS_BANNER
-#define BAS_BANNER "BASIC-11 for the Freya VM"
+#define BAS_BANNER "BASIC-11 for Freya"
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -90,14 +81,15 @@ static int to_upper(int c)
 enum {
     T_LET = 0x80, T_PRINT, T_INPUT, T_LINPUT, T_IF, T_THEN, T_ELSE,
     T_FOR, T_TO, T_STEP, T_NEXT, T_GOTO, T_GOSUB, T_RETURN, T_ON,
-    T_DIM, T_READ, T_DATA, T_RESTORE, T_DEF, T_REM, T_STOP, T_END,
-    T_RANDOMIZE, T_OPEN, T_CLOSE, T_AS, T_FILE, T_OUTPUT,
+    T_DIM, T_READ, T_DATA, T_RESTORE, T_DEF, T_FNEND, T_REM, T_STOP, T_END,
+    T_RANDOMIZE, T_SLEEP, T_OPEN, T_CLOSE, T_AS, T_FILE, T_OUTPUT,
     T_RUN, T_RUNNH, T_LIST, T_LISTNH, T_NEW, T_SCR, T_OLD, T_SAVE,
     T_REPLACE, T_UNSAVE, T_BYE, T_CLEAR, T_CONT, T_LENGTH, T_DEL,
     T_AND, T_OR, T_NOT,
     T_ABS, T_ATN, T_COS, T_EXP, T_INT, T_LOG10, T_LOG, T_PI, T_RND,
-    T_SGN, T_SIN, T_SQR, T_TAN, T_LEN, T_ASC, T_CHRS, T_POS, T_SEGS,
-    T_STRS, T_VAL, T_TRMS, T_LEFTS, T_RIGHTS, T_MIDS, T_FN, T_TAB,
+    T_SGN, T_SIN, T_SQR, T_TAN, T_TIME, T_LEN, T_ASC, T_CHRS, T_POS,
+    T_SEGS, T_STRS, T_VAL, T_TRMS, T_LEFTS, T_RIGHTS, T_MIDS,
+    T_DATES, T_TIMES, T_FN, T_TAB,
     T_LAST,
     T_NUM = 0xff                 /* followed by the bytes of a number */
 };
@@ -110,14 +102,15 @@ enum {
 static const char *const keywords[] = {
     "LET", "PRINT", "INPUT", "LINPUT", "IF", "THEN", "ELSE",
     "FOR", "TO", "STEP", "NEXT", "GOTO", "GOSUB", "RETURN", "ON",
-    "DIM", "READ", "DATA", "RESTORE", "DEF", "REM", "STOP", "END",
-    "RANDOMIZE", "OPEN", "CLOSE", "AS", "FILE", "OUTPUT",
+    "DIM", "READ", "DATA", "RESTORE", "DEF", "FNEND", "REM", "STOP", "END",
+    "RANDOMIZE", "SLEEP", "OPEN", "CLOSE", "AS", "FILE", "OUTPUT",
     "RUN", "RUNNH", "LIST", "LISTNH", "NEW", "SCR", "OLD", "SAVE",
     "REPLACE", "UNSAVE", "BYE", "CLEAR", "CONT", "LENGTH", "DEL",
     "AND", "OR", "NOT",
     "ABS", "ATN", "COS", "EXP", "INT", "LOG10", "LOG", "PI", "RND",
-    "SGN", "SIN", "SQR", "TAN", "LEN", "ASC", "CHR$", "POS", "SEG$",
-    "STR$", "VAL", "TRM$", "LEFT$", "RIGHT$", "MID$", "FN", "TAB",
+    "SGN", "SIN", "SQR", "TAN", "TIME", "LEN", "ASC", "CHR$", "POS",
+    "SEG$", "STR$", "VAL", "TRM$", "LEFT$", "RIGHT$", "MID$",
+    "DATE$", "TIME$", "FN", "TAB",
 };
 
 /* ------------------------------------------------------------------ */
@@ -126,8 +119,13 @@ static const char *const keywords[] = {
 enum {
     E_SYNTAX = 1, E_LINE, E_NUMBER, E_DIVZERO, E_OVERFLOW, E_SUBSCRIPT,
     E_STRLEN, E_MEMORY, E_NEXT, E_RETURN, E_DATA, E_ARG, E_FILE, E_EOF,
-    E_FUNC, E_TYPE, E_NEST, E_REDIM, E_CHANNEL, E_CONT, E_LONGLINE,
-    E_LAST
+    E_FUNC, E_TYPE, E_NEST, E_REDIM, E_CHANNEL, E_CONT, E_LONGLINE, E_DEF,
+    E_CLOCK,
+    E_LAST,
+    /* Not an error and not printed: the program ended, or Ctrl-C
+     * stopped it, while a DEF ... FNEND body was running, and the C
+     * frames of the expression that called it have to go. */
+    E_HALT
 };
 
 static const char *const messages[] = {
@@ -138,7 +136,8 @@ static const char *const messages[] = {
     "RETURN without GOSUB", "Out of data", "Illegal argument",
     "Bad file", "End of file", "Undefined function", "Type mismatch",
     "Too many nested loops", "Redimensioned array", "Bad channel",
-    "Cannot continue", "Line too long",
+    "Cannot continue", "Line too long", "DEF without FNEND",
+    "No clock",
 };
 
 static jmp_buf err_jb;
@@ -164,6 +163,9 @@ void fp_fault(int code)
 #define MAXSTR     255
 #define NFOR       16
 #define NGOSUB     32
+#define NFNDEF     26           /* DEF FNx definitions in one program */
+#define NFNARG     4            /* parameters of one */
+#define NFN        6            /* function calls inside one another */
 #define NCHAN      8             /* channel 0 is the terminal */
 #define CHBUF      128
 #define WIDTH      72
@@ -206,6 +208,34 @@ typedef struct {
     const uint8_t *tp, *line;
 } gosub_t;
 
+/* A DEF, found in the program text, which the definition points into:
+ *
+ *     DEF FNMAX(A,B) = ...        one statement, multi = 0
+ *     DEF FNMAX(A,B)              the statements up to FNEND, multi = 1
+ */
+typedef struct {
+    const uint8_t *name;         /* the characters after FN */
+    const uint8_t *hdr;          /* the parameter list, or the '=' */
+    const uint8_t *body;         /* the statements, when multi */
+    const uint8_t *line;         /* the record the DEF is on */
+    const uint8_t *end;          /* just past the FNEND that ends it */
+    const uint8_t *endline;      /* the record that one is on */
+    uint8_t len;                 /* characters in the name */
+    uint8_t str;                 /* the name ends in $ */
+    uint8_t strparm;             /* one of the parameters is a string */
+    uint8_t multi;
+} fndef_t;
+
+/* One call of a DEF ... FNEND in progress.  An assignment to the
+ * function's own name inside the body sets val; buf is MAXSTR bytes of
+ * the caller's scratch area, held by a function whose name ends in $,
+ * because the body's own scratch is emptied before every statement. */
+typedef struct {
+    const fndef_t *def;
+    val_t val;
+    uint8_t *buf;
+} fncall_t;
+
 typedef struct {
     int fd;                      /* -1 when closed */
     int mode;                    /* 0 input, 1 output */
@@ -218,12 +248,18 @@ typedef struct {
 static uint8_t *prog_lo, *prog_hi, *prog_end;
 static uint8_t *arena_lo, *arena_hi, *arena_top;
 static uint8_t *pool_lo, *pool_hi, *pool_top;
-static uint8_t *tmp_lo, *tmp_hi, *tmp_top;
+static uint8_t *tmp_base, *tmp_lo, *tmp_hi, *tmp_top;
 
 static fpac_t nvars[NVARS], ivars[NVARS];
 static sdesc_t svars[NVARS];
 static arr_t *arrays[3][NVARS];
-static const uint8_t *fndefs[26];
+
+static fndef_t fndefs[NFNDEF];
+static int nfndef;               /* definitions in the table */
+static int nfnpool;              /* how many of them can allocate a string */
+static int defs_valid;           /* the table matches the program text */
+static fncall_t fnstk[NFN];
+static int fn_depth;
 
 static for_t forstk[NFOR];
 static int nfor;
@@ -424,11 +460,11 @@ static void clear_vars(void)
     }
     for (k = 0; k < 3; k++)
         for (i = 0; i < NVARS; i++) arrays[k][i] = NULL;
-    for (i = 0; i < 26; i++) fndefs[i] = NULL;
     arena_top = arena_lo;
     pool_top = pool_lo;
     nfor = 0;
     ngosub = 0;
+    fn_depth = 0;
     data_line = NULL;
 }
 
@@ -534,12 +570,16 @@ static void store_line(uint32_t n, const uint8_t *tok, uint32_t len)
     uint8_t *p = find_line(n);
     uint32_t old = 0, need;
 
+    defs_valid = 0;
     if (p < prog_end && line_no(p) == n) old = p[0];
     need = len ? len + 4 : 0;
     if (need > old && need - old > (uint32_t)(prog_hi - prog_end)) error(E_MEMORY);
     if (need != old) {
         mem_move(p + need, p + old, (uint32_t)(prog_end - (p + old)));
-        prog_end += need - old;
+        /* not prog_end += need - old: that difference is unsigned, and
+         * a pointer of more than 32 bits does not wrap with it */
+        if (need > old) prog_end += need - old;
+        else prog_end -= old - need;
     }
     if (need) {
         p[0] = (uint8_t)need;
@@ -553,6 +593,7 @@ static void store_line(uint32_t n, const uint8_t *tok, uint32_t len)
 static void new_program(void)
 {
     prog_end = prog_lo;
+    defs_valid = 0;
     clear_vars();
     cont_line = NULL;
 }
@@ -666,6 +707,24 @@ static int tokenize(const char *s, uint8_t *d, int32_t *lineno)
                 s += len;
                 if (t == T_REM || t == T_DATA)
                     return copy_raw(s, d, n);
+                if (t == T_FN) {
+                    /* The name of a function is text, and not scanned
+                     * for keywords: FNTOTAL is a name, not FN and TO.
+                     * It ends at the first character that cannot be
+                     * part of one, so IF FNA THEN still sees THEN. */
+                    while (*s == ' ') {
+                        if (n >= MAXLINE - 1) error(E_LONGLINE);
+                        d[n++] = (uint8_t)*s++;
+                    }
+                    while (is_digit(*s) || is_upper(to_upper(*s))) {
+                        if (n >= MAXLINE - 1) error(E_LONGLINE);
+                        d[n++] = (uint8_t)to_upper(*s++);
+                    }
+                    if (*s == '$') {
+                        if (n >= MAXLINE - 1) error(E_LONGLINE);
+                        d[n++] = (uint8_t)*s++;
+                    }
+                }
                 linectx = is_line_kw(t);
                 continue;
             }
@@ -914,6 +973,24 @@ static void load_var(lval_t *lv, val_t *v)
 /* ------------------------------------------------------------------ */
 /* Expressions                                                        */
 
+/* Keep a string value that has to outlive a nested evaluation.  An
+ * expression allocates only from the scratch area, with two
+ * exceptions: binding a string parameter of a DEF, and the statements
+ * of a DEF ... FNEND body.  Either can compact the pool, which a
+ * value still held in the expression around the call would not
+ * survive; the scratch area is never compacted.  nfnpool is 0 for a
+ * program with no such definition, and then nothing is copied. */
+static void pin_str(val_t *v)
+{
+    uint8_t *p;
+
+    if (!nfnpool || !v->str || v->len == 0) return;
+    if (v->s < pool_lo || v->s >= pool_hi) return;
+    p = tmp_alloc(v->len);
+    mem_copy(p, v->s, v->len);
+    v->s = p;
+}
+
 static void fp_from_bool(fpac_t *d, int b)
 {
     fp_from_int(d, b ? -1 : 0);
@@ -975,6 +1052,15 @@ static void sub_string(val_t *v, const val_t *s, int32_t from, int32_t to)
     str_val(v, s->s + from - 1, (uint32_t)(to - from + 1));
 }
 
+/* The last n digits of v, zero filled and with no terminator. */
+static void put_digits(char *d, int v, int n)
+{
+    while (n-- > 0) {
+        d[n] = (char)('0' + v % 10);
+        v /= 10;
+    }
+}
+
 static void function(int t, val_t *v)
 {
     val_t a, b;
@@ -986,6 +1072,37 @@ static void function(int t, val_t *v)
     tp++;
     if (t == T_PI) {
         num_val(v, &fp_pi);
+        return;
+    }
+    if (t == T_TIME) {
+        /* Milliseconds since the board came up.  A BASIC number holds
+         * whole milliseconds exactly for the first 2^24 of them, four
+         * hours and three quarters; past that the count is still right
+         * but it steps in 2 ms, then 4, and so on. */
+        fp_from_uint(&n, sys_ticks());
+        num_val(v, &n);
+        return;
+    }
+    if (t == T_DATES || t == T_TIMES) {
+        int f[6];
+
+        if (sys_clock(f) != 0) error(E_CLOCK);
+        if (t == T_DATES) {
+            put_digits(buf, f[0], 4);
+            buf[4] = '-';
+            put_digits(buf + 5, f[1], 2);
+            buf[7] = '-';
+            put_digits(buf + 8, f[2], 2);
+        } else {
+            put_digits(buf, f[3], 2);
+            buf[2] = ':';
+            put_digits(buf + 3, f[4], 2);
+            buf[5] = ':';
+            put_digits(buf + 6, f[5], 2);
+        }
+        i = t == T_DATES ? 10 : 8;
+        p = tmp_str(v, (uint32_t)i);
+        mem_copy(p, buf, (uint32_t)i);
         return;
     }
     if (t == T_RND) {
@@ -1023,8 +1140,11 @@ static void function(int t, val_t *v)
     case T_POS:
         eval_str(&a);
         expect(',');
+        pin_str(&a);
         eval_str(&b);
         expect(',');
+        pin_str(&a);
+        pin_str(&b);
         i = eval_int();
         expect(')');
         if (i < 1) i = 1;
@@ -1044,6 +1164,7 @@ static void function(int t, val_t *v)
     case T_SEGS:
         eval_str(&a);
         expect(',');
+        pin_str(&a);
         i = eval_int();
         expect(',');
         j = eval_int();
@@ -1053,6 +1174,7 @@ static void function(int t, val_t *v)
     case T_LEFTS:
         eval_str(&a);
         expect(',');
+        pin_str(&a);
         i = eval_int();
         expect(')');
         sub_string(v, &a, 1, i);
@@ -1061,6 +1183,7 @@ static void function(int t, val_t *v)
         /* as in BASIC-11: from character i to the end */
         eval_str(&a);
         expect(',');
+        pin_str(&a);
         i = eval_int();
         expect(')');
         sub_string(v, &a, i, (int32_t)a.len);
@@ -1068,6 +1191,7 @@ static void function(int t, val_t *v)
     case T_MIDS:
         eval_str(&a);
         expect(',');
+        pin_str(&a);
         i = eval_int();
         expect(',');
         j = eval_int();
@@ -1163,7 +1287,7 @@ static void primary(val_t *v)
         fn_call(v);
         return;
     }
-    if ((c >= T_ABS && c <= T_TAN) || (c >= T_LEN && c <= T_MIDS)) {
+    if ((c >= T_ABS && c <= T_TIME) || (c >= T_LEN && c <= T_TIMES)) {
         function(c, v);
         return;
     }
@@ -1234,6 +1358,7 @@ static void sum(val_t *v)
         c = peek();
         if (c != '+' && c != '-') return;
         tp++;
+        pin_str(v);
         term(&r);
         if (v->str != r.str) error(E_TYPE);
         if (v->str) {
@@ -1268,6 +1393,7 @@ static void relation(val_t *v)
     else if (c == '=' && *tp == '<') { op = 'l'; tp++; }
     else if (c == '=' && *tp == '>') { op = 'g'; tp++; }
     else if (c == '>' && *tp == '<') { op = 'n'; tp++; }
+    pin_str(v);
     sum(&r);
     if (v->str != r.str) error(E_TYPE);
     t = v->str ? str_cmp(v, &r) : fp_cmp(&v->n, &r.n);
@@ -1319,13 +1445,80 @@ static void eval(val_t *v)
 }
 
 /* ------------------------------------------------------------------ */
-/* User functions: DEF FNx(p, ...) = expression                        */
+/* User functions: DEF FNx(p, ...) = expr, and DEF FNx(p, ...) ... FNEND */
 
-static const uint8_t *find_def(int letter)
+/* run_body() is the statement loop of a DEF ... FNEND; it is below the
+ * statements it runs. */
+static void run_body(const fndef_t *d);
+
+static int is_name_ch(int c)
+{
+    return is_upper(c) || is_digit(c);
+}
+
+/* The name after an FN token, which the tokenizer left as text. */
+static int fn_name(const uint8_t **name)
+{
+    const uint8_t *p;
+
+    skip_sp();
+    p = tp;
+    while (is_name_ch(*tp)) tp++;
+    if (*tp == '$') tp++;
+    *name = p;
+    return (int)(tp - p);
+}
+
+/* p is just after a DEF token.  Reads the header into d, all but the
+ * record it is on; returns 0 when it is not one. */
+static int def_header(const uint8_t *p, fndef_t *d)
+{
+    int depth;
+
+    while (*p == ' ') p++;
+    if (*p != T_FN) return 0;
+    for (p++; *p == ' '; p++)
+        ;
+    d->name = p;
+    while (is_name_ch(*p)) p++;
+    if (*p == '$') p++;
+    d->len = (uint8_t)(p - d->name);
+    if (d->len == 0) return 0;
+    d->str = p[-1] == '$';
+    d->strparm = 0;
+    d->hdr = p;
+    while (*p == ' ') p++;
+    if (*p == '(') {
+        for (depth = 1, p++; *p && depth; p++) {
+            if (*p == T_NUM) p += NUMLEN;
+            else if (*p == '(') depth++;
+            else if (*p == ')') depth--;
+            else if (*p == '$') d->strparm = 1;
+        }
+        if (depth) return 0;
+        while (*p == ' ') p++;
+    }
+    /* what follows the header tells the two forms apart */
+    d->multi = *p != '=';
+    d->body = p;
+    d->end = NULL;               /* scan_defs() looks for the FNEND */
+    d->endline = NULL;
+    return 1;
+}
+
+/* Find every DEF in the program.  The definitions point into the
+ * program text, so the table is thrown away whenever a line is
+ * entered or deleted. */
+static void scan_defs(void)
 {
     const uint8_t *rec, *p;
+    fndef_t *open = NULL;        /* the DEF ... FNEND being scanned */
+    fndef_t d;
 
+    nfndef = 0;
+    nfnpool = 0;
     for (rec = prog_lo; rec < prog_end; rec = next_rec(rec)) {
+        int cond = 0;            /* a THEN or an ELSE has opened a clause */
         for (p = rec + 3; *p; p++) {
             if (*p == '"') {
                 for (p++; *p && *p != '"'; p++)
@@ -1335,72 +1528,167 @@ static const uint8_t *find_def(int letter)
                 p += NUMLEN;
             else if (*p == T_REM || *p == T_DATA)
                 break;
-            else if (*p == T_DEF) {
-                const uint8_t *q = p + 1;
-                while (*q == ' ') q++;
-                if (*q == T_FN) {
-                    q++;
-                    while (*q == ' ') q++;
-                    if (*q == 'A' + letter) return q + 1;
-                }
+            else if (*p == T_THEN || *p == T_ELSE)
+                cond = 1;
+            else if (*p == T_FNEND && open && !cond) {
+                /* A body leaves early by reaching an FNEND of its own
+                 * in the THEN or the ELSE part of an IF, so the block
+                 * ends at the first one that is not conditional.  Any
+                 * after that belong to no DEF and are a syntax error
+                 * when the program reaches them. */
+                open->end = p + 1;
+                open->endline = rec;
+                open = NULL;
+            } else if (*p == T_DEF && def_header(p + 1, &d)) {
+                if (nfndef == NFNDEF) error(E_MEMORY);
+                d.line = rec;
+                fndefs[nfndef++] = d;
+                if (d.multi || d.strparm) nfnpool++;
+                open = d.multi ? &fndefs[nfndef - 1] : NULL;
+                p = d.body - 1;      /* the loop steps on to the body */
             }
         }
+    }
+    defs_valid = 1;              /* only a whole table is worth keeping */
+}
+
+static void ensure_defs(void)
+{
+    if (!defs_valid) scan_defs();
+}
+
+static const fndef_t *find_def(const uint8_t *name, int len)
+{
+    int i, j;
+
+    ensure_defs();
+    for (i = 0; i < nfndef; i++) {
+        if (fndefs[i].len != len) continue;
+        for (j = 0; j < len && fndefs[i].name[j] == name[j]; j++)
+            ;
+        if (j == len) return &fndefs[i];
     }
     return NULL;
 }
 
 static void fn_call(val_t *v)
 {
-    int letter, n = 0, i;
-    const uint8_t *def, *save_tp;
-    lval_t params[4];
-    val_t args[4], old[4];
-    lval_t plv;
-    uint8_t *p;
+    const uint8_t *name, *save_tp, *save_line;
+    uint8_t *save_tmp_lo, *p;
+    const fndef_t *d;
+    lval_t params[NFNARG], plv;
+    val_t args[NFNARG], old[NFNARG];
+    int n = 0, i, len, lvl, save_run, save_jumped, save_nfor, save_ngosub;
+    int save_out;
 
-    tp++;
-    letter = peek() - 'A';
-    if (letter < 0 || letter >= 26) error(E_SYNTAX);
-    tp++;
-    def = fndefs[letter];
-    if (!def) {
-        def = find_def(letter);
-        if (!def) error(E_FUNC);
-        fndefs[letter] = def;
-    }
+    tp++;                                /* past FN */
+    len = fn_name(&name);
+    if (len == 0) error(E_SYNTAX);
+    d = find_def(name, len);
+    if (!d) error(E_FUNC);
     /* the arguments, in the caller's context */
     if (accept('(')) {
         do {
-            if (n == 4) error(E_SYNTAX);
+            if (n == NFNARG) error(E_SYNTAX);
             eval(&args[n++]);
         } while (accept(','));
         expect(')');
     }
+    if (fn_depth == NFN) error(E_NEST);
+    /* Binding a string parameter writes to the pool, so no argument
+     * may still be pointing there when the next one is bound. */
+    for (i = 0; i < n; i++) pin_str(&args[i]);
     save_tp = tp;
-    tp = def;
+    tp = d->hdr;
     if (accept('(')) {
         for (i = 0; i < n; i++) {
             parse_lval(&plv);
-            /* A string parameter would put a string into the pool
-             * while the caller holds pointers into it. */
-            if (plv.kind == 2) error(E_TYPE);
             params[i] = plv;
+            /* the parameters are the caller's variables, put back
+             * below, so their values have to leave the pool too */
             load_var(&plv, &old[i]);
+            pin_str(&old[i]);
             assign(&plv, &args[i]);
             if (i + 1 < n) expect(',');
         }
         expect(')');
     } else if (n)
         error(E_SYNTAX);
-    expect('=');
-    eval(v);
-    if (v->str && v->len) {
-        p = tmp_alloc(v->len);
-        mem_copy(p, v->s, v->len);
-        v->s = p;
+    lvl = fn_depth;
+    if (!d->multi) {
+        expect('=');
+        fnstk[lvl].def = NULL;
+        fn_depth = lvl + 1;
+        eval(v);
+        fn_depth = lvl;
+        if (v->str && v->len) {
+            p = tmp_alloc(v->len);
+            mem_copy(p, v->s, v->len);
+            v->s = p;
+        }
+    } else {
+        /* The value of the function starts at 0 or "", and the body
+         * sets it by assigning to the function's own name. */
+        fnstk[lvl].def = d;
+        fnstk[lvl].buf = d->str ? tmp_alloc(MAXSTR) : NULL;
+        fnstk[lvl].val.str = d->str;
+        fnstk[lvl].val.s = fnstk[lvl].buf;
+        fnstk[lvl].val.len = 0;
+        fp_zero(&fnstk[lvl].val.n);
+        save_line = cur_line;
+        save_run = running;
+        save_jumped = jumped;
+        save_nfor = nfor;
+        save_ngosub = ngosub;
+        save_out = cur_out;
+        save_tmp_lo = tmp_lo;
+        /* the body's own PRINT goes to the terminal, not to the
+         * channel of a PRINT #n the call is an item of */
+        cur_out = 0;
+        /* The body's statements empty the scratch area before each of
+         * them; give it one of its own above what the caller holds.
+         * tmp_top stays where the body left it, so that the value the
+         * call returns is not handed back over free space. */
+        tmp_lo = tmp_top;
+        fn_depth = lvl + 1;
+        run_body(d);
+        fn_depth = lvl;
+        tmp_lo = save_tmp_lo;
+        nfor = save_nfor;                /* a jump may have left loops open */
+        ngosub = save_ngosub;
+        cur_out = save_out;
+        jumped = save_jumped;
+        running = save_run;
+        cur_line = save_line;
+        *v = fnstk[lvl].val;
     }
     for (i = 0; i < n; i++) assign(&params[i], &old[i]);
     tp = save_tp;
+}
+
+/* FNx = expr inside its own DEF ... FNEND: the value of the call. */
+static void st_fnset(void)               /* the FN token has been read */
+{
+    const uint8_t *name;
+    const fndef_t *d;
+    val_t v;
+    int len, i, lvl = fn_depth - 1;
+
+    len = fn_name(&name);
+    if (lvl < 0 || !fnstk[lvl].def) error(E_FUNC);
+    d = fnstk[lvl].def;                  /* the innermost body's own name */
+    if (len != d->len) error(E_FUNC);
+    for (i = 0; i < len; i++)
+        if (name[i] != d->name[i]) error(E_FUNC);
+    expect('=');
+    eval(&v);                            /* may call this function again */
+    if (v.str != (int)d->str) error(E_TYPE);
+    if (d->str) {
+        if (v.len > MAXSTR) error(E_STRLEN);
+        mem_copy(fnstk[lvl].buf, v.s, v.len);
+        fnstk[lvl].val.len = v.len;
+    } else
+        fnstk[lvl].val.n = v.n;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1964,16 +2252,42 @@ static void st_if(void)
     }
 }
 
+/* DEF FNx(...) = ... is not executed.  Neither is a DEF ... FNEND:
+ * reaching it skips the whole block, so that a definition may sit
+ * among the lines that call it without a GOTO around it. */
 static void st_def(void)
 {
-    /* DEF FNx(...) = ...: nothing to do at run time */
-    skip_stmt();
+    fndef_t d;
+    int i;
+
+    if (!def_header(tp, &d)) error(E_SYNTAX);
+    if (!d.multi) {
+        skip_stmt();
+        return;
+    }
+    if (cur_line == imm_buf) {
+        /* a definition has to be in the program to be called */
+        skip_line();
+        return;
+    }
+    ensure_defs();
+    /* the name is a place in the program text, so it says which DEF
+     * this is even where two of them share a name */
+    for (i = 0; i < nfndef; i++)
+        if (fndefs[i].name == d.name) {
+            if (!fndefs[i].end) error(E_DEF);
+            tp = fndefs[i].end;
+            cur_line = fndefs[i].endline;
+            return;
+        }
+    error(E_DEF);
 }
 
 static void st_randomize(void)
 {
     rnd_seed = sys_ticks() * 2654435761u + 1;
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Commands                                                           */
@@ -2033,6 +2347,7 @@ static void delete_lines(void)
     b = find_line(to + 1);
     mem_move(a, b, (uint32_t)(prog_end - b));
     prog_end -= b - a;
+    defs_valid = 0;
     cont_line = NULL;
 }
 
@@ -2085,6 +2400,37 @@ static void stop_message(const char *what)
     out_ch('\n');
 }
 
+/* SLEEP milliseconds.  The wait is broken into pieces so that Ctrl-C
+ * stops the program during a long one, as it does between statements;
+ * a piece is short enough that the console does not feel stuck and
+ * long enough that the polling costs nothing. */
+#define SLEEP_SLICE 20u
+
+static void st_sleep(void)
+{
+    fpac_t n;
+    int32_t ms;
+    uint32_t left, slice;
+
+    eval_num(&n);
+    ms = fp_to_int(&n);
+    if (ms < 0) error(E_ARG);
+    left = (uint32_t)ms;
+    while (left) {
+        slice = left < SLEEP_SLICE ? left : SLEEP_SLICE;
+        sys_sleep(slice);
+        left -= slice;
+        if (sys_break()) {
+            cont_tp = tp;
+            cont_line = cur_line;
+            stop_message("STOP");
+            running = 0;
+            skip_line();
+            return;
+        }
+    }
+}
+
 /* Execute one statement at tp. */
 static void statement(void)
 {
@@ -2128,6 +2474,10 @@ static void statement(void)
         return;
     case T_RESTORE: restore_data(); break;
     case T_DEF: st_def(); break;
+    case T_FN: st_fnset(); break;
+    case T_FNEND:                       /* reached only by a jump into a body */
+        error(E_SYNTAX);
+        break;
     case T_STOP:
         cont_tp = tp;
         cont_line = cur_line;
@@ -2142,6 +2492,7 @@ static void statement(void)
         skip_line();
         return;
     case T_RANDOMIZE: st_randomize(); break;
+    case T_SLEEP: st_sleep(); break;
     case T_OPEN: st_open(); break;
     case T_CLOSE: st_close(); break;
     case T_RUN:
@@ -2190,12 +2541,58 @@ static void statement(void)
     if (!at_end()) error(E_SYNTAX);
 }
 
+/* The statements of a DEF ... FNEND, as a loop of its own: fn_call()
+ * is in the middle of an expression, so the body cannot be run by the
+ * loop below and returned from.  It ends at the FNEND.  Anything else
+ * that would end it -- an error, Ctrl-C, END, the last line of the
+ * program -- has to unwind the expression too, and leaves through
+ * longjmp() rather than a return. */
+static void run_body(const fndef_t *d)
+{
+    int c;
+
+    tp = d->body;
+    cur_line = d->line;
+    running = 1;
+    jumped = 0;
+    for (;;) {
+        if (peek() == T_FNEND) return;
+        statement();
+        if ((++stmt_count & 63) == 0 && sys_break()) {
+            stop_message("STOP");
+            running = 0;
+        }
+        if (!running) {
+            cont_line = NULL;            /* CONT cannot re-enter a body */
+            error(E_HALT);
+        }
+        if (jumped) {
+            jumped = 0;
+            continue;
+        }
+        c = peek();
+        if (c == '\\' || c == ':') {
+            tp++;
+            continue;
+        }
+        if (c == T_ELSE) {
+            skip_line();
+            c = 0;
+        }
+        if (c != 0) error(E_SYNTAX);
+        if (cur_line == imm_buf || next_rec(cur_line) >= prog_end) error(E_DEF);
+        cur_line = next_rec(cur_line);
+        tp = cur_line + 3;
+    }
+}
+
 /* Run from tp until the program ends or, in immediate mode, until the
  * end of the typed line. */
 static void execute(void)
 {
     int c;
 
+    ensure_defs();
     jumped = 0;
     for (;;) {
         statement();
@@ -2280,7 +2677,7 @@ int bas_main(uint8_t *heap, uint32_t heap_size, uint32_t flags)
         out_str("?Not enough memory\n");
         sys_exit(1);
     }
-    tmp_lo = heap;
+    tmp_base = tmp_lo = heap;
     tmp_hi = tmp_lo + TMP_BYTES;
     size = (heap_size - TMP_BYTES) & ~(ALIGN - 1);
     prog_lo = tmp_hi;
@@ -2300,19 +2697,25 @@ int bas_main(uint8_t *heap, uint32_t heap_size, uint32_t flags)
         if (code) {
             console();
             close_all();
-            if (chans[0].col) out_ch('\n');
-            out_ch('?');
-            out_str(messages[code]);
-            if (running && cur_line != imm_buf) {
-                out_str(" at line ");
-                out_int((int32_t)line_no(cur_line));
+            /* E_HALT is the end of a program that stopped inside a
+             * DEF ... FNEND, and has said so already */
+            if (code != E_HALT) {
+                if (chans[0].col) out_ch('\n');
+                out_ch('?');
+                out_str(messages[code]);
+                if (running && cur_line != imm_buf) {
+                    out_str(" at line ");
+                    out_int((int32_t)line_no(cur_line));
+                }
+                out_ch('\n');
             }
-            out_ch('\n');
             nfor = 0;
             ngosub = 0;
+            fn_depth = 0;
+            tmp_lo = tmp_base;
             running = 0;
             cont_line = NULL;
-            if (batch) sys_exit(1);
+            if (code != E_HALT && batch) sys_exit(1);
         }
         ready();
         for (;;) {
@@ -2327,12 +2730,3 @@ int bas_main(uint8_t *heap, uint32_t heap_size, uint32_t flags)
     }
     return 0;
 }
-
-#ifdef BAS_VM
-/* The VM image: rt.s jumps here with the frame the host built. */
-int main(uint32_t heap_lo, uint32_t heap_hi, uint32_t flags)
-{
-    if (heap_hi < heap_lo) heap_hi = heap_lo;
-    return bas_main((uint8_t *)heap_lo, heap_hi - heap_lo, flags);
-}
-#endif

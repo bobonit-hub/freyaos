@@ -88,14 +88,15 @@
 #define FREYA_PASSWORD_OFF       FREYA_SET_PASSWORD_OFF
 #define FREYA_PASSWORD_LEN       8U
 #if defined(FREYA_BOARD_BLUEPILL)
-#define FREYA_APP_LOAD_ADDR      0x20001800UL   /* 20 KiB of SRAM */
-#define FREYA_APP_REGION_SIZE    (8U * 1024U)
+#define FREYA_APP_LOAD_ADDR      0x20001C00UL   /* 20 KiB of SRAM */
+#define FREYA_APP_REGION_SIZE    (7U * 1024U)
 #define FREYA_SETTINGS_SIZE      1024U          /* last page of the 128 KiB */
 #define FREYA_SETTINGS_ADDR      (0x08020000UL - FREYA_SETTINGS_SIZE)
 #define FREYA_APP_FLASH_ADDR     0x0800C000UL
 /* The kernel extension sits above the program and stops at the settings
  * page: threads, the shell's script interpreter, its variables and
- * functions, the SPI master, XMODEM, the cipher and the virtual machine.
+ * functions, the SPI master and XMODEM.  Neither the cipher nor the
+ * virtual machine is built for this board; there was no room.
  * The program boundary leaves enough pages for that extension to grow.
  * An install does not erase it. */
 #define FREYA_APP_FLASH_SIZE     (0x08012000UL - FREYA_APP_FLASH_ADDR)
@@ -582,6 +583,20 @@ typedef struct {
 } freya_vm_t;
 
 /*
+ * Civil time, as rtc_get() and rtc_set() carry it.  mon is 1..12, day
+ * is 1..31 and hour is 0..23.  The year runs from FREYA_RTC_MIN_YEAR,
+ * where a FAT timestamp starts, to FREYA_RTC_MAX_YEAR, which is as far
+ * as a DS3231 counts.
+ */
+#define FREYA_RTC_MIN_YEAR   1980
+#define FREYA_RTC_MAX_YEAR   2199
+
+typedef struct {
+    uint16_t year;
+    uint8_t  mon, day, hour, min, sec;
+} freya_rtc_t;
+
+/*
  * Service table handed to the program.  Fields are only ever appended,
  * and 'size' lets a program check what the running kernel provides.
  */
@@ -888,6 +903,34 @@ typedef struct freya_api {
                              const void *ad, int ad_len,
                              const void *in, int in_len,
                              void *out, int out_cap);
+
+    /* appended: the civil clock.  Freya counts it from SysTick, so it
+     * starts at the epoch below after a reset and the date command, or
+     * a program, is what puts the real time into it.  A board built
+     * with RTC=ds3231 reads the battery-backed chip into that count at
+     * boot, and rtc_set() writes the chip as well as the count, so the
+     * time survives the next reset.  Without the chip rtc_set() only
+     * moves the count and returns 0 all the same.
+     *
+     * rtc_get() fills *t and returns 0, or FREYA_ERR_ARG for a null
+     * pointer.  Until something sets the clock a board believes it is
+     * 2026-01-01 00:00:00.  rtc_set() returns 0, or FREYA_ERR_ARG when
+     * the fields are out of range, in which case it changes nothing.
+     * The range is FREYA_RTC_MIN_YEAR..FREYA_RTC_MAX_YEAR, mon 1..12,
+     * day 1..31, hour 0..23.  A day past the end of its month is taken
+     * as it falls and the count carries it into the next one, except
+     * on a board with the chip, which refuses it; that board also
+     * stores 2000 and later only, so an earlier year is out of range
+     * there.  A chip that fails for any other reason still leaves the
+     * software count set, since a board built with the driver and no
+     * chip on the pins has to be able to set its clock.  rtc_set() in
+     * a pin or timer handler is FREYA_ERR_HANDLER: writing the chip
+     * needs the I2C bus, which cannot be taken in interrupt context.
+     * Both are FREYA_ERR_UNSUPPORTED on a board whose kernel had no
+     * room for them, which is the Blue Pill; its clock still keeps
+     * file timestamps and still answers the date command. */
+    int      (*rtc_get)(freya_rtc_t *t);
+    int      (*rtc_set)(const freya_rtc_t *t);
 } freya_api_t;
 
 /*

@@ -10,12 +10,12 @@ ENTRY(app_main)
 
 MEMORY
 {
-    APP (rwx) : ORIGIN = 0x20001800, LENGTH = 8K
+    APP (rwx) : ORIGIN = 0x20001C00, LENGTH = 7K
 }
 
 SECTIONS
 {
-    .header 0x20001800 :
+    .header 0x20001C00 :
     {
         KEEP(*(.app_header))
     } > APP
@@ -59,7 +59,7 @@ SECTIONS
     __image_size__ = __image_end__ - ORIGIN(APP);
 
     ASSERT(__bss_end__ <= ORIGIN(APP) + LENGTH(APP),
-           "program does not fit the 8 KiB Freya program region")
+           "program does not fit the 7 KiB Freya program region")
 
     /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) *(.comment) }
 }

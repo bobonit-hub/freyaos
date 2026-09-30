@@ -18,7 +18,7 @@ ENTRY(app_main)
 MEMORY
 {
     APPFLASH (rx)  : ORIGIN = 0x0800C000, LENGTH = 24K
-    APPRAM   (rwx) : ORIGIN = 0x20001800, LENGTH = 8K
+    APPRAM   (rwx) : ORIGIN = 0x20001C00, LENGTH = 7K
 }
 
 SECTIONS
@@ -75,7 +75,7 @@ SECTIONS
     ASSERT(__data_load__ + SIZEOF(.data) <= ORIGIN(APPFLASH) + LENGTH(APPFLASH),
            "program does not fit the Freya program flash region")
     ASSERT(__bss_end__ <= ORIGIN(APPRAM) + LENGTH(APPRAM),
-           "program .data + .bss do not fit the 8 KiB Freya program RAM region")
+           "program .data + .bss do not fit the 7 KiB Freya program RAM region")
 
     /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) *(.comment) }
 }

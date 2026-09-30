@@ -1,0 +1,10 @@
+ 10            8 
+--::
+BAD DIGITS 0 
+-1            -1            -1 
+-1            -1            -1 
+-1 
+-1            -1 
+-1 
+?Illegal argument at line 510
+exit 1

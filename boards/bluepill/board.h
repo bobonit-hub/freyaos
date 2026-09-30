@@ -117,6 +117,23 @@
  * The key is generated on the PC either way. */
 #define BOARD_AEAD           0
 
+/* XTEA-CTR goes the same way, and it is the last cipher this board
+ * had: crypt() reports FREYA_ERR_UNSUPPORTED and the crypt command
+ * says so.  Nothing else in the kernel used it - the login password
+ * is not stored with it - so the Blue Pill simply has no cipher. */
+#define BOARD_CRYPT          0
+
+/* The 32-bit PDP-11 is 3.4 KiB of the extension, more than any other
+ * one thing this board does not need to boot or to run a program of
+ * its own.  vm_reset(), vm_step() and vm_run() report
+ * FREYA_ERR_UNSUPPORTED; the machine runs on the F4 boards. */
+#define BOARD_VM             0
+
+/* And so is the clock: rtc_get() and rtc_set() report
+ * FREYA_ERR_UNSUPPORTED.  The count itself is still kept, so file
+ * timestamps and the date command work as they always did. */
+#define BOARD_RTC_API        0
+
 /* --------------------------------------------------------------- ADC */
 /* ADC1 channels common to both supported boards and not kept by Freya.
  * The internal temperature sensor is channel 16 on the F1; Vref is 17. */

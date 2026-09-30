@@ -110,6 +110,15 @@ turns the square wave and the alarms off and leaves the 32 kHz pin high
 impedance. Until that write, a chip that has never been set may still
 drive its 32 kHz pin.
 
+A program reads and writes the same clock through `rtc_get()` and
+`rtc_set()` of the service table, which take a `freya_rtc_t` of the
+six fields. `rtc_set()` writes the chip first, exactly as the command
+does, so the time survives the next reset. Both report
+`FREYA_ERR_UNSUPPORTED` on the Blue Pill, whose kernel extension has
+no room for them; the software clock is still there and still stamps
+files. In BASIC the same clock is `DATE$` and `TIME$`
+([../basic/README.md](../basic/README.md)).
+
 ## What a transfer does
 
 The call does not return until the bytes have moved or the bus has had long

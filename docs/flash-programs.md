@@ -30,13 +30,13 @@ Larger installed programs retain the XIP behaviour described below.
 
 Today a Freya program is a RAM image: `load` copies the file from the card
 into the program region, zeroes its `.bss` and `run` branches into it. On the
-Blue Pill that region is 8 KiB, because 8 KiB is what a 20 KiB SRAM can spare
+Blue Pill that region is 7 KiB, because 7 KiB is what a 20 KiB SRAM can spare
 after the kernel's `.data`/`.bss`, a heap worth having and a 6 KiB stack. The
 64 KiB of flash, by contrast, is ~36 KiB used and the rest idle.
 
 This note describes making a program live in that idle flash instead: copied
 there once from the card, executed in place, surviving a power cycle. On the
-Blue Pill it raises the ceiling on program size from 8 KiB to around 24 KiB and
+Blue Pill it raises the ceiling on program size from 7 KiB to around 24 KiB and
 makes a program runnable with no card in the socket at all.
 
 ## What is already true
@@ -88,16 +88,16 @@ proposal is to split the flash 40/24 and reserve the top 24 KiB, pages 40 to
 0x08010000  +--------------------------------+
 
 0x20000000  +--------------------------------+
-            |  kernel .data + .bss (~4 KiB)  |
-            |  system heap (~2 KiB)          |
-0x20001800  +--------------------------------+
-            |  program RAM region (8 KiB)    |  .data + .bss only, for a
+            |  kernel .data + .bss (6.4 KiB) |
+            |  system heap (620 B)           |
+0x20001C00  +--------------------------------+
+            |  program RAM region (7 KiB)    |  .data + .bss only, for a
 0x20003800  +--------------------------------+  flash-resident program
             |  main stack (6 KiB)            |
 0x20005000  +--------------------------------+
 ```
 
-The RAM map does not change. For a flash-resident program the existing 8 KiB
+The RAM map does not change. For a flash-resident program the existing 7 KiB
 window stops holding the image and holds only its `.data` and `.bss`, which is
 the whole point: code and constants move to flash, and the RAM budget buys
 variables instead of instructions.
@@ -183,7 +183,7 @@ asymmetry is in `app_run()` with a comment saying why.
 MEMORY
 {
     APPFLASH (rx)  : ORIGIN = 0x0800A000, LENGTH = 24K
-    APPRAM   (rwx) : ORIGIN = 0x20001800, LENGTH = 8K
+    APPRAM   (rwx) : ORIGIN = 0x20001C00, LENGTH = 7K
 }
 ```
 

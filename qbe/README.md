@@ -48,9 +48,9 @@ function result.
 
 `--map file` writes every symbol with its offset, one `%08x name` per
 line, which is what a fault address is looked up in. Several `.s`
-files can be concatenated before assembling; `basic/rt.s` in front of
-the compiler output is how the BASIC image gets its `_start` at 0 and
-its system calls.
+files can be concatenated before assembling, which is how an image
+gets a hand-written `_start` at 0 and its system calls in front of the
+compiler output.
 
 A branch whose target is out of the 8-bit word range is relaxed into
 `jmp @#target`, and the assembler iterates until no offset changes,

@@ -1612,9 +1612,45 @@ static int cmd_status(int argc, char **argv)
     return 0;
 }
 
-/* The F4 images keep this command in the kernel extension.  The Blue
- * Pill linker leaves the section in the kernel, which still has room. */
+/* Every image keeps this command in the kernel extension.  The Blue
+ * Pill held it in the 48 KiB image while that had room; the cipher it
+ * no longer builds freed enough of the extension to take it. */
 #define DATE_TEXT __attribute__((noinline, section(".text.cmd_date")))
+
+/* Set the clock, the chip before the count.  The date command below and
+ * the rtc_set() of the program service table both come through here, so
+ * there is one range, one order of writes and one story about what a
+ * DS3231 does.  rtc_set() itself is the count and asks no questions.
+ *
+ * 0 the clock was set.  FREYA_ERR_ARG the fields are out of range, or
+ * the chip refused the date, and nothing changed.  Any other negative
+ * is a chip that did not answer; the count is set all the same, since a
+ * board built with the driver and no chip on the pins still has to be
+ * able to set its clock.
+ *
+ * It sits with the date command, and in the same section, so that it
+ * goes wherever that command goes: the kernel extension on the F4
+ * images, the kernel on the Blue Pill. */
+int DATE_TEXT rtc_apply(const rtc_time_t *t)
+{
+    int rc = 0;
+
+    /* The month is bounded because rtc_set() indexes a table of twelve
+     * with it, and the year at 1980 because that is where a FAT
+     * timestamp starts.  A day past the end of its month is left to the
+     * count, which carries it into the next one; a chip refuses it, and
+     * then nothing is stored at all. */
+    if (!t || t->year < FREYA_RTC_MIN_YEAR || t->year > FREYA_RTC_MAX_YEAR ||
+        t->mon < 1 || t->mon > 12 || t->day < 1 || t->day > 31 ||
+        t->hour > 23 || t->min > 59 || t->sec > 59)
+        return FREYA_ERR_ARG;
+#ifdef FREYA_RTC_DS3231
+    rc = ds3231_write(t);
+    if (rc == FREYA_ERR_ARG) return FREYA_ERR_ARG;
+#endif
+    rtc_set(t);
+    return rc;
+}
 
 static int DATE_TEXT cmd_date(int argc, char **argv)
 {
@@ -1622,9 +1658,7 @@ static int DATE_TEXT cmd_date(int argc, char **argv)
     const char *date_arg = NULL;
     const char *time_arg = NULL;
     char date_buf[16];
-#ifdef FREYA_RTC_DS3231
     int wr = 0;
-#endif
 
     if (argc == 2) {
         const char *p = argv[1];
@@ -1679,23 +1713,22 @@ static int DATE_TEXT cmd_date(int argc, char **argv)
             if (*p) p++;
             else if (i < 2) { s = 0; break; }
         }
-        if (y < 1980 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) {
+        /* Only that each number reaches its field; rtc_apply() below
+         * is what says which dates are allowed.  Without this a month
+         * of 268 would arrive as 12. */
+        if (y > 65535 || mo > 255 || d > 255 || h > 255 || mi > 255 || s > 255) {
             kprintf("date: value out of range\r\n");
             return -1;
         }
         t.year = (uint16_t)y; t.mon = (uint8_t)mo; t.day = (uint8_t)d;
         t.hour = (uint8_t)h;  t.min = (uint8_t)mi; t.sec = (uint8_t)s;
-#ifdef FREYA_RTC_DS3231
-        /* A date the chip cannot store leaves the software clock as it
-         * was.  Any other failure still sets that clock: a board built
-         * with the driver and no chip fitted has to be able to set it. */
-        wr = ds3231_write(&t);
+        /* One call for the range, the DS3231 and the count, shared
+         * with the rtc_set() a program calls. */
+        wr = rtc_apply(&t);
         if (wr == FREYA_ERR_ARG) {
             kprintf("date: value out of range\r\n");
             return -1;
         }
-#endif
-        rtc_set(&t);
     }
 #ifdef FREYA_RTC_DS3231
     else if (ds3231_read(&t) == 0) {
@@ -2448,7 +2481,9 @@ static int cmd_w1(int argc, char **argv)
 /* XTEA-CTR.  Key, nonce and data are hex, with no 0x and no spaces in
  * a word.  The same command decrypts.  The command and its helpers share
  * one section so the linker can put them in the kernel extension; the
- * 48 KiB image has no room for them. */
+ * 48 KiB image has no room for them.  A board without the code keeps
+ * the name and says so. */
+#if BOARD_CRYPT
 #define CRYPT_USAGE  "crypt [<key> <nonce> <hex>]"
 #define CRYPT_CMD_MAX  64
 #define CRYPT_TEXT __attribute__((section(".text.cmd_crypt")))
@@ -2508,6 +2543,7 @@ static int cmd_crypt(int argc, char **argv)
     kprintf("\r\n");
     return 0;
 }
+#endif
 
 /* ------------------------------------------------------------ aead */
 /* Ascon-AEAD128.  The key and the nonce are hex, with no 0x and no
@@ -2687,14 +2723,6 @@ static int AEAD_TEXT cmd_aead(int argc, char **argv)
         return aead_file(1, 2, argc, argv);
     return aead_file(0, 1, argc, argv);
 }
-#else
-static int KEXT cmd_aead(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-    kprintf("aead unsupported on this board\r\n");
-    return -1;
-}
 #endif
 
 /* ------------------------------------------------ compress, decompress */
@@ -2853,15 +2881,6 @@ static int cmd_decompress(int argc, char **argv)
 {
     return lz_file("decompress", 1, argc, argv);
 }
-#else
-static int KEXT cmd_compress_unsupported(int argc, char **argv)
-{
-    (void)argc; (void)argv;
-    kprintf("compress unsupported on this board\r\n");
-    return -1;
-}
-#define cmd_compress   cmd_compress_unsupported
-#define cmd_decompress cmd_compress_unsupported
 #endif
 
 static int cmd_cksum(int argc, char **argv)
@@ -3041,22 +3060,19 @@ typedef struct {
 } command_t;
 
 /* The help of the two file coders is placed by name so the linker can
- * keep it in the kernel extension beside the code: the Blue Pill's
- * 48 KiB image has no room left for two more strings. */
+ * keep it in the kernel extension beside the code. */
+#if BOARD_COMPRESS
 static const char s_help_compress[]
     __attribute__((section(".rodata.cmd_compress.help"))) =
     "compress([\"in\", \"out\"])";
 static const char s_help_decompress[]
     __attribute__((section(".rodata.cmd_decompress.help"))) =
     "decompress([\"in\", \"out\"])";
+#endif
 #if BOARD_AEAD
 static const char s_help_aead[]
     __attribute__((section(".rodata.cmd_aead.help"))) =
     "aead([\"-d\",] \"key\", \"nonce\", \"in\", \"out\")";
-#else
-/* The Blue Pill kernel image has a few dozen bytes left.  The long
- * signature stays with the command, which this board does not build. */
-static const char s_help_aead[] = "aead()";
 #endif
 
 static const command_t s_cmds[] = {
@@ -3109,10 +3125,19 @@ static const command_t s_cmds[] = {
     { "ping",     cmd_ping,     "ping(\"host\" [, timeout_ms])" },
     { "curl",     cmd_curl,     "curl([\"--basic\", \"user:password\",] [\"--compressed\",] [\"--data\", text,] [\"--output\", file,] [\"--user-agent\", text,] [\"--insecure\",] [\"--verbose\",] \"http[s]://...\")" },
     { "w1",       cmd_w1,       "w1([\"pin\" [, \"off\"|\"reset\"|\"search\"]])" },
+    /* A board that builds none of the cipher or the coder does not
+     * carry their names either: an entry and its help are bytes this
+     * board's extension does not have to spare. */
+#if BOARD_CRYPT
     { "crypt",    cmd_crypt,    "crypt([\"key\", \"nonce\", \"hex\"])" },
+#endif
+#if BOARD_AEAD
     { "aead",     cmd_aead,     s_help_aead },
+#endif
+#if BOARD_COMPRESS
     { "compress", cmd_compress, s_help_compress },
     { "decompress", cmd_decompress, s_help_decompress },
+#endif
     { "echo",     cmd_echo,     "echo([value [, ...]])" },
     { "sleep",    cmd_sleep,    "sleep(ms)" },
     { "yield",    cmd_yield,    "yield()" },

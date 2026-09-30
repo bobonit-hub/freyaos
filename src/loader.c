@@ -221,6 +221,68 @@ static void api_delay(uint32_t ms)
     (void)thread_sleep(ms);
 }
 
+/* The civil clock.  freya_rtc_t and rtc_time_t hold the same six
+ * fields; they are copied across rather than cast, so the program ABI
+ * does not pin down the kernel's own type.
+ *
+ * Both calls sit in the kernel extension, beside the date command and
+ * the DS3231 driver they belong with: the fixed 48 KiB boot image is
+ * full, and nothing a program calls is needed to boot.  The Blue
+ * Pill's extension is full too, and there they report
+ * FREYA_ERR_UNSUPPORTED; its clock still keeps file timestamps and
+ * still answers the date command. */
+#if BOARD_RTC_API
+#define RTC_TEXT __attribute__((noinline, section(".text.kext_rtc")))
+
+static int RTC_TEXT api_rtc_get(freya_rtc_t *t)
+{
+    rtc_time_t now;
+
+    if (!t) return FREYA_ERR_ARG;
+    rtc_get(&now);
+    t->year = now.year;
+    t->mon  = now.mon;
+    t->day  = now.day;
+    t->hour = now.hour;
+    t->min  = now.min;
+    t->sec  = now.sec;
+    return 0;
+}
+
+static int RTC_TEXT api_rtc_set(const freya_rtc_t *t)
+{
+    rtc_time_t set;
+
+    if (app_in_handler()) return FREYA_ERR_HANDLER;
+    if (!t) return FREYA_ERR_ARG;
+    set.year = t->year;
+    set.mon  = t->mon;
+    set.day  = t->day;
+    set.hour = t->hour;
+    set.min  = t->min;
+    set.sec  = t->sec;
+    /* The same call the date command makes, so the range and the
+     * DS3231 behave the same either way.  A chip that did not answer
+     * is not the program's problem: the clock was still set. */
+    return rtc_apply(&set) == FREYA_ERR_ARG ? FREYA_ERR_ARG : 0;
+}
+
+#else /* !BOARD_RTC_API */
+
+static int api_rtc_get(freya_rtc_t *t)
+{
+    (void)t;
+    return FREYA_ERR_UNSUPPORTED;
+}
+
+static int api_rtc_set(const freya_rtc_t *t)
+{
+    (void)t;
+    return FREYA_ERR_UNSUPPORTED;
+}
+
+#endif /* BOARD_RTC_API */
+
 /* The heap is not reentrant, so a handler that preempted the thread
  * inside it is refused rather than allowed to corrupt the free list. */
 static void *api_malloc(uint32_t size)
@@ -482,6 +544,8 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .decompress      = lz_decompress,
     .aead_encrypt    = aead_encrypt,
     .aead_decrypt    = aead_decrypt,
+    .rtc_get         = api_rtc_get,
+    .rtc_set         = api_rtc_set,
 };
 
 const freya_api_t *app_api(void)

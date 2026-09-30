@@ -8,6 +8,10 @@ of each instruction are the PDP-11 opcodes. A word is 32 bits, so the
 stack, the program counter and an index word step by 4. A byte is still
 8 bits. `samples/vm` adds two numbers on it.
 
+The machine is 3.4 KiB of kernel extension, which the Blue Pill has not
+got: there all three calls return `FREYA_ERR_UNSUPPORTED`. Ask with
+`FREYA_API_HAS(api, vm_run)` and then check the return.
+
 ## Calls
 
 ```c

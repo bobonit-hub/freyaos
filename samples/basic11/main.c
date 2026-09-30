@@ -177,6 +177,27 @@ int sys_unlink(const char *path)
     return g->unlink(path);
 }
 
+/* The clock a kernel older than these calls does not have, and the one
+ * the Blue Pill had no room for, both answer that there is no date. */
+int sys_clock(int *f)
+{
+    freya_rtc_t t;
+
+    if (!FREYA_API_HAS(g, rtc_get) || g->rtc_get(&t) != 0) return -1;
+    f[0] = (int)t.year;
+    f[1] = t.mon;
+    f[2] = t.day;
+    f[3] = t.hour;
+    f[4] = t.min;
+    f[5] = t.sec;
+    return 0;
+}
+
+void sys_sleep(uint32_t ms)
+{
+    g->delay_ms(ms);
+}
+
 /* ------------------------------------------------------------------ */
 
 static int parse_kib(const char *s, uint32_t *out)

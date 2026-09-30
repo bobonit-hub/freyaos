@@ -5,6 +5,9 @@ bytes, the nonce is 8, and the same call does both directions. It is
 arithmetic: nothing is kept between calls, and a handler may use it.
 The console drives the same call with `crypt`.
 
+The Blue Pill has no room for the cipher: there `crypt()` returns
+`FREYA_ERR_UNSUPPORTED` and the console has no `crypt` command.
+
 `samples/crypt` checks the published block vector, or encrypts a file
 on the card. Build it with `make` and run `run("crypt.bin")`.
 

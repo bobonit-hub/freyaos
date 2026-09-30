@@ -183,6 +183,10 @@ SECTIONS
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_api)
+        /* The clock calls of the program table, beside the date
+         * command: needed at run time, not to boot. */
+        *loader.o(.text.kext_rtc)
+        *loader.o(.text.kext_rtc.*)
         /* Optional DS3231.  A build that did not pass RTC=ds3231 has no
          * such object, and this wildcard then matches nothing. */
         *ds3231.o(.text .text.*)

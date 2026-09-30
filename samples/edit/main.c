@@ -29,14 +29,16 @@
 
 /*
  * The text is .bss inside the program region.  On the Blue Pill that
- * region is 8 KiB and also holds this program's code, so the buffer is
+ * region is 7 KiB and also holds this program's code, so the buffer is
  * what remains after the editor.  On the Black Pill the region is
  * 56 KiB.  A file that does not fit is refused whole; nothing is cut
  * off and shown as if it were complete.
  */
 #if defined(FREYA_BOARD_BLUEPILL)
-/* 3072 leaves a little of the 8 KiB region past the code and this buffer. */
-#define BUF_CAP     3072
+/* 2048 leaves a little of the 7 KiB region past the code and this buffer.
+ * It was 3072 while the region was 8 KiB, before the kernel took a
+ * kilobyte back for its own buffers. */
+#define BUF_CAP     2048
 #else
 #define BUF_CAP     (32 * 1024)
 #endif

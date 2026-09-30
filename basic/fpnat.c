@@ -16,8 +16,8 @@
  * word only ever decides a tie.  The digits printed are the correctly
  * rounded ones and a constant typed in is the nearest float.
  *
- * The FP11 in fp11.c faults on overflow and gives zero on underflow;
- * the same rules hold here.  A result that is infinite is a fault, so
+ * Overflow is a fault and underflow gives zero, the rules BASIC-11
+ * had on the PDP-11's FP11.  A result that is infinite is a fault, so
  * an infinity is never stored in a variable and a NaN cannot arise:
  * every operation that could produce one checks its operands first.
  */
@@ -153,6 +153,11 @@ void fp_div(fpac_t *a, const fpac_t *b)
 }
 
 void fp_from_int(fpac_t *d, int32_t v)
+{
+    *d = (float)v;
+}
+
+void fp_from_uint(fpac_t *d, uint32_t v)
 {
     *d = (float)v;
 }
