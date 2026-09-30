@@ -121,3 +121,100 @@ READY
 
 READY
 
+?Bad pin
+
+READY
+
+?Bad pin
+
+READY
+
+?Bad pin
+
+READY
+
+?Illegal argument
+
+READY
+
+?Type mismatch
+
+READY
+
+?Syntax error
+
+READY
+
+?Bad pin
+
+READY
+
+?Type mismatch
+
+READY
+
+?Bad pin
+
+READY
+
+?Illegal argument
+
+READY
+
+?Illegal argument
+
+READY
+
+?Illegal argument
+
+READY
+
+?Syntax error
+
+READY
+
+
+READY
+
+?Illegal argument
+
+READY
+
+?Undefined key
+
+READY
+
+?Illegal argument
+
+READY
+
+?Undefined line number
+
+READY
+
+?Bad pin
+
+READY
+
+?Syntax error
+
+READY
+
+?Syntax error
+
+READY
+
+?LOOP without DO
+
+READY
+
+P
+?DO without LOOP at line 20
+
+READY
+
+P
+?LOOP without DO at line 20
+
+READY
+

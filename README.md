@@ -145,8 +145,10 @@ Freya 3.2.0 "Poltergeist" for STM32F103C8T6
   flat, compacting string pool, written in C and compiled with GCC into
   an 18 KiB native program for the Cortex-M4F boards, whose numbers are
   the FPU's `float`, with `OLD`, `SAVE` and the file statements on the
-  card, and `DATE$`, `TIME$`, `TIME` and `SLEEP` on the clock
-  ([basic/README.md](basic/README.md)).
+  card, `DATE$`, `TIME$`, `TIME` and `SLEEP` on the clock, `PIN`,
+  `PWM` and `ADC` on the pins, and `ON TIMER` and `ON KEY` subroutines
+  called every so many milliseconds or when a debounced button is
+  pressed ([basic/README.md](basic/README.md)).
 * Keeps one program in a reserved area of its own internal flash and executes
   it in place from there. On the Blue Pill that raises the ceiling on program
   size from 8 KiB to 24 KiB; on the Black Pill the flash region is 320 KiB

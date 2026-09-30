@@ -2,7 +2,7 @@
  *
  * One translation unit: the arithmetic is included so that a Freya
  * program is one file.  There is no libc; everything below is written
- * against the ten system calls in bas.h.  The numbers are the C float
+ * against the system calls in bas.h.  The numbers are the C float
  * of fpnat.c, the single precision the FPU of a Cortex-M4F computes.
  *
  * Memory: the host hands bas_main() a heap.  It is cut into the
@@ -83,13 +83,14 @@ enum {
     T_FOR, T_TO, T_STEP, T_NEXT, T_GOTO, T_GOSUB, T_RETURN, T_ON,
     T_DIM, T_READ, T_DATA, T_RESTORE, T_DEF, T_FNEND, T_REM, T_STOP, T_END,
     T_RANDOMIZE, T_SLEEP, T_OPEN, T_CLOSE, T_AS, T_FILE, T_OUTPUT,
+    T_DO, T_LOOP, T_UNTIL, T_WHILE, T_TIMER, T_KEY, T_OFF,
     T_RUN, T_RUNNH, T_LIST, T_LISTNH, T_NEW, T_SCR, T_OLD, T_SAVE,
     T_REPLACE, T_UNSAVE, T_BYE, T_CLEAR, T_CONT, T_LENGTH, T_DEL,
     T_AND, T_OR, T_NOT,
     T_ABS, T_ATN, T_COS, T_EXP, T_INT, T_LOG10, T_LOG, T_PI, T_RND,
     T_SGN, T_SIN, T_SQR, T_TAN, T_TIME, T_LEN, T_ASC, T_CHRS, T_POS,
     T_SEGS, T_STRS, T_VAL, T_TRMS, T_LEFTS, T_RIGHTS, T_MIDS,
-    T_DATES, T_TIMES, T_FN, T_TAB,
+    T_DATES, T_TIMES, T_INKEYS, T_PIN, T_PWM, T_ADC, T_FN, T_TAB,
     T_LAST,
     T_NUM = 0xff                 /* followed by the bytes of a number */
 };
@@ -104,13 +105,14 @@ static const char *const keywords[] = {
     "FOR", "TO", "STEP", "NEXT", "GOTO", "GOSUB", "RETURN", "ON",
     "DIM", "READ", "DATA", "RESTORE", "DEF", "FNEND", "REM", "STOP", "END",
     "RANDOMIZE", "SLEEP", "OPEN", "CLOSE", "AS", "FILE", "OUTPUT",
+    "DO", "LOOP", "UNTIL", "WHILE", "TIMER", "KEY", "OFF",
     "RUN", "RUNNH", "LIST", "LISTNH", "NEW", "SCR", "OLD", "SAVE",
     "REPLACE", "UNSAVE", "BYE", "CLEAR", "CONT", "LENGTH", "DEL",
     "AND", "OR", "NOT",
     "ABS", "ATN", "COS", "EXP", "INT", "LOG10", "LOG", "PI", "RND",
     "SGN", "SIN", "SQR", "TAN", "TIME", "LEN", "ASC", "CHR$", "POS",
     "SEG$", "STR$", "VAL", "TRM$", "LEFT$", "RIGHT$", "MID$",
-    "DATE$", "TIME$", "FN", "TAB",
+    "DATE$", "TIME$", "INKEY$", "PIN", "PWM", "ADC", "FN", "TAB",
 };
 
 /* ------------------------------------------------------------------ */
@@ -120,7 +122,7 @@ enum {
     E_SYNTAX = 1, E_LINE, E_NUMBER, E_DIVZERO, E_OVERFLOW, E_SUBSCRIPT,
     E_STRLEN, E_MEMORY, E_NEXT, E_RETURN, E_DATA, E_ARG, E_FILE, E_EOF,
     E_FUNC, E_TYPE, E_NEST, E_REDIM, E_CHANNEL, E_CONT, E_LONGLINE, E_DEF,
-    E_CLOCK,
+    E_CLOCK, E_PIN, E_BUSY, E_IO, E_LOOP, E_DO, E_KEYS, E_KEY,
     E_LAST,
     /* Not an error and not printed: the program ended, or Ctrl-C
      * stopped it, while a DEF ... FNEND body was running, and the C
@@ -137,7 +139,8 @@ static const char *const messages[] = {
     "Bad file", "End of file", "Undefined function", "Type mismatch",
     "Too many nested loops", "Redimensioned array", "Bad channel",
     "Cannot continue", "Line too long", "DEF without FNEND",
-    "No clock",
+    "No clock", "Bad pin", "Pin in use", "Device error",
+    "LOOP without DO", "DO without LOOP", "Too many keys", "Undefined key",
 };
 
 static jmp_buf err_jb;
@@ -162,7 +165,10 @@ void fp_fault(int code)
 #define TMP_BYTES  2048          /* scratch for intermediate strings */
 #define MAXSTR     255
 #define NFOR       16
+#define NDO        16
 #define NGOSUB     32
+#define NKEY       8             /* ON KEY definitions in one program */
+#define DEBOUNCE_MS 20u          /* a key has to hold still this long */
 #define NFNDEF     26           /* DEF FNx definitions in one program */
 #define NFNARG     4            /* parameters of one */
 #define NFN        6            /* function calls inside one another */
@@ -204,9 +210,39 @@ typedef struct {
     const uint8_t *line;
 } for_t;
 
+/* A GOSUB frame.  src is 0 for a GOSUB the program made, or the event
+ * source, 1 + EV_*, whose handler this is; sleep says the RETURN goes
+ * back into a SLEEP that the event interrupted. */
 typedef struct {
     const uint8_t *tp, *line;
+    uint32_t deadline;           /* of that SLEEP */
+    uint8_t src, sleep;
 } gosub_t;
+
+/* A DO loop: where the body starts, and the LOOP that is its end,
+ * which is the loop's identity, as the variable is a FOR's. */
+typedef struct {
+    const uint8_t *tp, *line;    /* the DO statement */
+    const uint8_t *loop, *loopline;
+} do_t;
+
+/* An event source: the timer, or a key, which is a pin with a button
+ * on it.  A source with a handler and enabled is polled between
+ * statements; when it has fired it is pending until its handler can
+ * be called, which is not while that handler is running. */
+typedef struct {
+    uint32_t line;               /* the handler, 0 when there is none */
+    uint8_t enabled, pending, busy;
+    /* the timer */
+    uint32_t period, due;
+    /* a key */
+    uint8_t pin, active;         /* the level that is a press */
+    uint8_t stable, last;        /* what it is, and the newest sample */
+    uint32_t since;              /* when the newest sample first read so */
+} event_t;
+
+#define EV_TIMER   0
+#define EV_KEY     1             /* EV_KEY + k is key k */
 
 /* A DEF, found in the program text, which the definition points into:
  *
@@ -263,8 +299,16 @@ static int fn_depth;
 
 static for_t forstk[NFOR];
 static int nfor;
+static do_t dostk[NDO];
+static int ndo;
 static gosub_t gosubstk[NGOSUB];
 static int ngosub;
+static event_t events[1 + NKEY];  /* the timer, then the keys */
+static int nkeys;
+static const uint8_t *stmt_tp;   /* the statement being executed */
+static int sleep_resume;         /* the next statement is a SLEEP to go on with */
+static int handler_done;         /* a handler has just returned */
+static uint32_t sleep_deadline;  /* of the SLEEP running, or to go on with */
 static chan_t chans[NCHAN];
 static int cur_out;              /* channel PRINT writes to */
 
@@ -463,9 +507,29 @@ static void clear_vars(void)
     arena_top = arena_lo;
     pool_top = pool_lo;
     nfor = 0;
+    ndo = 0;
     ngosub = 0;
     fn_depth = 0;
     data_line = NULL;
+}
+
+/* No events: what RUN and NEW start with. */
+static void events_reset(void)
+{
+    mem_set(events, 0, sizeof events);
+    nkeys = 0;
+    sleep_resume = 0;
+    handler_done = 0;
+}
+
+/* The handlers are not running any more: after an error, or ^C. */
+static void events_unwind(void)
+{
+    int i;
+
+    for (i = 0; i < 1 + NKEY; i++) events[i].busy = 0;
+    sleep_resume = 0;
+    handler_done = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -595,6 +659,7 @@ static void new_program(void)
     prog_end = prog_lo;
     defs_valid = 0;
     clear_vars();
+    events_reset();
     cont_line = NULL;
 }
 
@@ -807,10 +872,11 @@ static int at_end(void)
 {
     int c = peek();
 
-    return c == 0 || c == '\\' || c == ':' || c == T_ELSE;
+    return c == 0 || c == '\\' || c == ':' || c == T_ELSE || c == T_REM;
 }
 
-/* Skip the rest of the statement, honouring quotes. */
+/* Skip the rest of the statement, honouring quotes.  A comment ends
+ * the line, whatever is in it. */
 static void skip_stmt(void)
 {
     while (*tp && *tp != '\\' && *tp != ':' && *tp != T_ELSE) {
@@ -820,6 +886,10 @@ static void skip_stmt(void)
             if (!*tp) return;
         } else if (*tp == T_NUM)
             tp += NUMLEN;
+        else if (*tp == T_REM) {
+            while (*tp) tp++;
+            return;
+        }
         tp++;
     }
 }
@@ -1061,6 +1131,157 @@ static void put_digits(char *d, int v, int n)
     }
 }
 
+/* ------------------------------------------------------------------ */
+/* Pins: PIN, PWM and ADC, the shell's pin, pwm and adc as functions   */
+
+/* The string is the word, in either case; the word is upper case. */
+static int str_is(const val_t *v, const char *w)
+{
+    uint32_t i;
+
+    for (i = 0; i < v->len && w[i]; i++)
+        if (to_upper(v->s[i]) != w[i]) return 0;
+    return i == v->len && !w[i];
+}
+
+/* "PB0", "pb0" and "B0" are the same pin, as they are at the shell's
+ * prompt.  Only the shape is checked here; the host says whether the
+ * board has that pin and whether a program may have it. */
+static int pin_name(const val_t *v)
+{
+    const uint8_t *s = v->s;
+    uint32_t n = v->len;
+    int port, num = 0;
+
+    if (n && to_upper(*s) == 'P') {
+        s++;
+        n--;
+    }
+    if (n < 2 || n > 3) error(E_PIN);
+    port = to_upper(*s++) - 'A';
+    if (port < 0 || port > 15) error(E_PIN);
+    while (--n) {
+        if (!is_digit(*s)) error(E_PIN);
+        num = num * 10 + (*s++ - '0');
+    }
+    if (num > 15) error(E_PIN);
+    return port * 16 + num;
+}
+
+/* What a pin call answered: the value, or the error it stands for. */
+static int pin_check(int rc)
+{
+    if (rc >= 0) return rc;
+    if (rc == SYS_EPIN) error(E_PIN);
+    if (rc == SYS_EBUSY) error(E_BUSY);
+    if (rc == SYS_EARG) error(E_ARG);
+    error(E_IO);
+    return 0;
+}
+
+/* The modes of the shell's pin command, in the order of SYS_PIN_*. */
+static const char *const pin_modes[] = {
+    "IN", "UP", "DOWN", "OUT", "OD", "ANALOG"
+};
+
+/* What is done to a pin after its mode: a level, or "TOGGLE". */
+static void pin_action(const val_t *a, int *op, int *level)
+{
+    if (a->str) {
+        if (!str_is(a, "TOGGLE")) error(E_ARG);
+        *op = 2;
+    } else {
+        *op = 1;
+        *level = !fp_iszero(&a->n);
+    }
+}
+
+/* PIN(P$) reads a pin.  PIN(P$, M$) sets its mode, PIN(P$, L) makes
+ * it a push-pull output at level L, PIN(P$, "TOGGLE") flips it, and
+ * PIN(P$, M$, L) does both.  Either way the value is what the pin
+ * reads afterwards, which is what it really is. */
+static void fn_pin(val_t *v)
+{
+    val_t a, act;
+    fpac_t n;
+    int pin, mode = -1, op = 0, level = 0, i;
+
+    eval_str(&a);
+    pin = pin_name(&a);
+    if (accept(',')) {
+        eval(&act);
+        if (act.str)
+            for (i = 0; i < (int)(sizeof pin_modes / sizeof pin_modes[0]); i++)
+                if (str_is(&act, pin_modes[i])) mode = i;
+        if (mode >= 0) {
+            if (accept(',')) {
+                eval(&act);
+                pin_action(&act, &op, &level);
+            }
+        } else
+            pin_action(&act, &op, &level);
+    }
+    expect(')');
+    if (mode >= 0) pin_check(sys_pin_mode(pin, mode));
+    else if (op) pin_check(sys_pin_mode(pin, SYS_PIN_OUT));
+    if (op == 1) pin_check(sys_pin_write(pin, level));
+    else if (op == 2) pin_check(sys_pin_toggle(pin));
+    fp_from_int(&n, pin_check(sys_pin_read(pin)));
+    num_val(v, &n);
+}
+
+/* PWM(P$, HZ, D) starts the channel on the pin at HZ hertz with a duty
+ * cycle of D percent, which may be fractional, and is HZ; PWM(P$) stops
+ * it and is 0.  Nothing else stops a channel: it runs on after END,
+ * until PWM(P$) or the end of the interpreter itself. */
+static void fn_pwm(val_t *v)
+{
+    val_t a;
+    fpac_t n, m;
+    int32_t hz = 0;
+    uint32_t duty = 0;
+    int pin;
+
+    eval_str(&a);
+    pin = pin_name(&a);
+    if (accept(',')) {
+        hz = eval_int();
+        expect(',');
+        eval_num(&n);
+        if (hz <= 0 || fp_isneg(&n)) error(E_ARG);
+        /* percent to ten-thousandths, to the nearest */
+        fp_from_int(&m, 100);
+        fp_mul(&n, &m);
+        fp_from_int(&m, 1);
+        fp_ldexp(&m, -1);
+        fp_add(&n, &m);
+        fp_from_int(&m, (int32_t)SYS_PWM_FULL + 1);
+        if (fp_cmp(&n, &m) >= 0) error(E_ARG);
+        duty = (uint32_t)fp_to_int(&n);
+    }
+    expect(')');
+    pin_check(sys_pwm(pin, (uint32_t)hz, duty));
+    fp_from_int(&n, hz);
+    num_val(v, &n);
+}
+
+/* ADC(S$): one raw 12-bit conversion, 0 to 4095, from a pin, or from
+ * "TEMP" or "VREF", the chip's own sources. */
+static void fn_adc(val_t *v)
+{
+    val_t a;
+    fpac_t n;
+    int source;
+
+    eval_str(&a);
+    if (str_is(&a, "TEMP")) source = SYS_ADC_TEMP;
+    else if (str_is(&a, "VREF")) source = SYS_ADC_VREF;
+    else source = pin_name(&a);
+    expect(')');
+    fp_from_int(&n, pin_check(sys_adc(source)));
+    num_val(v, &n);
+}
+
 static void function(int t, val_t *v)
 {
     val_t a, b;
@@ -1081,6 +1302,17 @@ static void function(int t, val_t *v)
          * but it steps in 2 ms, then 4, and so on. */
         fp_from_uint(&n, sys_ticks());
         num_val(v, &n);
+        return;
+    }
+    if (t == T_INKEYS) {
+        /* the key typed since the last one was taken, or "" */
+        i = sys_inkey();
+        if (i < 0) {
+            str_val(v, (const uint8_t *)"", 0);
+            return;
+        }
+        p = tmp_str(v, 1);
+        p[0] = (uint8_t)i;
         return;
     }
     if (t == T_DATES || t == T_TIMES) {
@@ -1119,6 +1351,9 @@ static void function(int t, val_t *v)
     }
     expect('(');
     switch (t) {
+    case T_PIN: fn_pin(v); return;
+    case T_PWM: fn_pwm(v); return;
+    case T_ADC: fn_adc(v); return;
     case T_LEN:
         eval_str(&a);
         expect(')');
@@ -1287,7 +1522,7 @@ static void primary(val_t *v)
         fn_call(v);
         return;
     }
-    if ((c >= T_ABS && c <= T_TIME) || (c >= T_LEN && c <= T_TIMES)) {
+    if ((c >= T_ABS && c <= T_TIME) || (c >= T_LEN && c <= T_ADC)) {
         function(c, v);
         return;
     }
@@ -1579,7 +1814,7 @@ static void fn_call(val_t *v)
     lval_t params[NFNARG], plv;
     val_t args[NFNARG], old[NFNARG];
     int n = 0, i, len, lvl, save_run, save_jumped, save_nfor, save_ngosub;
-    int save_out;
+    int save_out, save_ndo;
 
     tp++;                                /* past FN */
     len = fn_name(&name);
@@ -1639,6 +1874,7 @@ static void fn_call(val_t *v)
         save_run = running;
         save_jumped = jumped;
         save_nfor = nfor;
+        save_ndo = ndo;
         save_ngosub = ngosub;
         save_out = cur_out;
         save_tmp_lo = tmp_lo;
@@ -1655,6 +1891,7 @@ static void fn_call(val_t *v)
         fn_depth = lvl;
         tmp_lo = save_tmp_lo;
         nfor = save_nfor;                /* a jump may have left loops open */
+        ndo = save_ndo;
         ngosub = save_ngosub;
         cur_out = save_out;
         jumped = save_jumped;
@@ -2072,32 +2309,334 @@ static void st_next(void)
     } while (accept(','));
 }
 
+/* Remember where to come back to: the statement boundary at ret. */
+static void push_gosub(const uint8_t *ret, int src, int sleep)
+{
+    if (ngosub == NGOSUB) error(E_NEST);
+    gosubstk[ngosub].tp = ret;
+    gosubstk[ngosub].line = cur_line;
+    gosubstk[ngosub].src = (uint8_t)src;
+    gosubstk[ngosub].sleep = (uint8_t)sleep;
+    gosubstk[ngosub].deadline = sleep_deadline;
+    ngosub++;
+}
+
 static void st_gosub(void)
 {
     uint32_t n = parse_lineno();
 
-    if (ngosub == NGOSUB) error(E_NEST);
-    gosubstk[ngosub].tp = tp;
-    gosubstk[ngosub].line = cur_line;
-    ngosub++;
+    push_gosub(tp, 0, 0);
     goto_line(n);
 }
 
 static void st_return(void)
 {
+    gosub_t *f;
+
     if (ngosub == 0) error(E_RETURN);
-    ngosub--;
-    tp = gosubstk[ngosub].tp;
-    cur_line = gosubstk[ngosub].line;
+    f = &gosubstk[--ngosub];
+    tp = f->tp;
+    cur_line = f->line;
+    if (f->src) {
+        events[f->src - 1].busy = 0;
+        handler_done = 1;
+    }
+    if (f->sleep) {
+        sleep_resume = 1;
+        sleep_deadline = f->deadline;
+    }
     if (cur_line == imm_buf) running = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Events: ON TIMER(ms) GOSUB n, ON KEY(P$) GOSUB n                    */
+
+/* The key on a pin, or -1. */
+static int find_key(int pin)
+{
+    int k;
+
+    for (k = 0; k < nkeys; k++)
+        if (events[EV_KEY + k].pin == pin) return k;
+    return -1;
+}
+
+/* KEY(P$) at tp, the KEY token read: the pin, and the level a press
+ * is, which is low with a pull-up unless a second argument says 1. */
+static int parse_key(int *active)
+{
+    val_t a;
+    int pin;
+
+    expect('(');
+    eval_str(&a);
+    pin = pin_name(&a);
+    *active = 0;
+    if (accept(',')) *active = eval_int() != 0;
+    expect(')');
+    return pin;
+}
+
+/* ON TIMER(ms) GOSUB line, ON KEY(P$ [, level]) GOSUB line: the TIMER
+ * or KEY token is at tp. */
+static void st_on_event(int t)
+{
+    event_t *e;
+    const uint8_t *rec;
+    int32_t ms = 0;
+    int pin, active, k;
+    uint32_t line;
+
+    tp++;
+    if (t == T_TIMER) {
+        expect('(');
+        ms = eval_int();
+        expect(')');
+        if (ms <= 0) error(E_ARG);
+        e = &events[EV_TIMER];
+    } else {
+        pin = parse_key(&active);
+        k = find_key(pin);
+        if (k < 0) {
+            if (nkeys == NKEY) error(E_KEYS);
+            k = nkeys++;
+            mem_set(&events[EV_KEY + k], 0, sizeof events[0]);
+        }
+        e = &events[EV_KEY + k];
+        e->pin = (uint8_t)pin;
+        e->active = (uint8_t)active;
+    }
+    if (peek() != T_GOSUB) error(E_SYNTAX);
+    tp++;
+    line = parse_lineno();
+    rec = find_line(line);
+    if (rec >= prog_end || line_no(rec) != line) error(E_LINE);
+    e->line = line;
+    if (t == T_TIMER) {
+        e->period = (uint32_t)ms;
+        e->due = sys_ticks() + e->period;
+    }
+}
+
+/* Take a key's level as what it is now, so that only a change counts. */
+static void key_settle(event_t *e)
+{
+    int r = sys_pin_read(e->pin);
+
+    e->stable = e->last = (uint8_t)(r < 0 ? !e->active : r);
+    e->since = sys_ticks();
+}
+
+/* TIMER ON, TIMER OFF: the TIMER token has been read. */
+static void st_timer(void)
+{
+    event_t *e = &events[EV_TIMER];
+    int t = peek();
+
+    if (t != T_ON && t != T_OFF) error(E_SYNTAX);
+    tp++;
+    if (!e->line) error(E_ARG);
+    e->enabled = t == T_ON;
+    e->pending = 0;
+    e->due = sys_ticks() + e->period;
+}
+
+/* KEY(P$) ON, KEY(P$) OFF: the KEY token has been read.  ON puts the
+ * pull the press works against on the pin. */
+static void st_key(void)
+{
+    event_t *e;
+    int pin, active, k, t;
+
+    pin = parse_key(&active);
+    t = peek();
+    if (t != T_ON && t != T_OFF) error(E_SYNTAX);
+    tp++;
+    k = find_key(pin);
+    if (k < 0) error(E_KEY);
+    e = &events[EV_KEY + k];
+    e->pending = 0;
+    if (t == T_OFF) {
+        e->enabled = 0;
+        return;
+    }
+    pin_check(sys_pin_mode(pin, e->active ? SYS_PIN_IN_PULLDOWN : SYS_PIN_IN_PULLUP));
+    key_settle(e);
+    e->enabled = 1;
+}
+
+/* Call the handler of source i, to come back to ret. */
+static void dispatch(int i, const uint8_t *ret, int sleep)
+{
+    event_t *e = &events[i];
+
+    push_gosub(ret, 1 + i, sleep);
+    e->pending = 0;
+    e->busy = 1;
+    goto_line(e->line);
+}
+
+/* Between two statements of a running program: sample the sources,
+ * and call the handler of one that has fired, coming back to ret.
+ * Returns 1 when a handler was called.  A key counts as pressed when
+ * it has read the pressed level for DEBOUNCE_MS without a break, so
+ * the bounce of a switch is one press.  Right after a handler has
+ * returned nothing is called, so that the program gets a statement
+ * in between: a handler slower than its period would otherwise be
+ * called again the moment it returned, for ever. */
+static int poll_events(const uint8_t *ret, int sleep)
+{
+    event_t *e;
+    uint32_t now;
+    int i, r;
+
+    if (!running || cur_line == imm_buf || handler_done) return 0;
+    now = sys_ticks();
+    e = &events[EV_TIMER];
+    if (e->enabled && (int32_t)(now - e->due) >= 0) {
+        e->pending = 1;
+        e->due += e->period;
+        if ((int32_t)(now - e->due) >= 0) e->due = now + e->period;
+    }
+    for (i = 0; i < nkeys; i++) {
+        e = &events[EV_KEY + i];
+        if (!e->enabled) continue;
+        r = sys_pin_read(e->pin);
+        if (r < 0) continue;
+        if (r != e->last) {
+            e->last = (uint8_t)r;
+            e->since = now;
+        } else if (r != e->stable && now - e->since >= DEBOUNCE_MS) {
+            e->stable = (uint8_t)r;
+            if (r == e->active) e->pending = 1;
+        }
+    }
+    for (i = 0; i < 1 + nkeys; i++) {
+        e = &events[i];
+        if (e->pending && e->enabled && !e->busy) {
+            dispatch(i, ret, sleep);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* DO ... LOOP                                                        */
+
+/* The LOOP that closes the DO at tp, or an error.  It is found once,
+ * when the loop is entered, and is what the loop is known by. */
+static const uint8_t *find_loop(const uint8_t **line)
+{
+    int depth = 0;
+    const uint8_t *p = tp;
+    const uint8_t *rec = cur_line;
+
+    for (;;) {
+        while (*p) {
+            if (*p == '"') {
+                for (p++; *p && *p != '"'; p++)
+                    ;
+                if (!*p) break;
+            } else if (*p == T_NUM)
+                p += NUMLEN;
+            else if (*p == T_REM || *p == T_DATA)
+                break;
+            else if (*p == T_DO)
+                depth++;
+            else if (*p == T_LOOP) {
+                if (depth == 0) {
+                    *line = rec;
+                    return p;
+                }
+                depth--;
+            }
+            p++;
+        }
+        if (rec == imm_buf || next_rec(rec) >= prog_end) error(E_DO);
+        rec = next_rec(rec);
+        p = rec + 3;
+    }
+}
+
+/* WHILE cond or UNTIL cond at tp, if either: 1 to go on, 0 to stop,
+ * and -1 when there is no condition. */
+static int loop_cond(void)
+{
+    val_t v;
+    int t = peek(), go;
+
+    if (t != T_WHILE && t != T_UNTIL) return -1;
+    tp++;
+    eval(&v);
+    go = v.str ? v.len != 0 : !fp_iszero(&v.n);
+    return t == T_WHILE ? go : !go;
+}
+
+/* DO [WHILE cond | UNTIL cond].  Every iteration comes back here, so
+ * that the condition is asked again; the frame on top of the stack
+ * is this loop's when it is that return, or a jump to the DO. */
+static void st_do(void)
+{
+    do_t *d = NULL;
+    int go, i;
+
+    /* a loop left by a jump and entered again drops what was inside it */
+    for (i = ndo - 1; i >= 0 && !d; i--)
+        if (dostk[i].tp == stmt_tp) {
+            d = &dostk[i];
+            ndo = i + 1;
+        }
+    if (!d) {
+        if (ndo == NDO) error(E_NEST);
+        d = &dostk[ndo];
+        d->loop = find_loop(&d->loopline);
+        d->tp = stmt_tp;
+        d->line = cur_line;
+        ndo++;
+    }
+    go = loop_cond();
+    if (go == 0) {
+        /* past the LOOP and its condition */
+        ndo--;
+        tp = d->loop + 1;
+        cur_line = d->loopline;
+        skip_stmt();
+    }
+}
+
+/* LOOP [WHILE cond | UNTIL cond] */
+static void st_loop(void)
+{
+    const uint8_t *me = tp - 1;          /* the LOOP token */
+    do_t *d;
+    int go;
+
+    while (ndo > 0 && dostk[ndo - 1].loop != me) ndo--;
+    if (ndo == 0) error(E_LOOP);
+    d = &dostk[ndo - 1];
+    go = loop_cond();
+    if (go == 0) {
+        ndo--;
+        return;
+    }
+    tp = d->tp;                          /* the DO, which asks its own */
+    cur_line = d->line;
+    jumped = 1;
 }
 
 static void st_on(void)
 {
-    int32_t n = eval_int(), i = 1;
+    int32_t n, i = 1;
     int t = peek();
     uint32_t line;
 
+    if (t == T_TIMER || t == T_KEY) {
+        st_on_event(t);
+        return;
+    }
+    n = eval_int();
+    t = peek();
     if (t != T_GOTO && t != T_GOSUB) error(E_SYNTAX);
     tp++;
     for (;;) {
@@ -2105,10 +2644,7 @@ static void st_on(void)
         if (i == n) {
             if (t == T_GOSUB) {
                 skip_stmt();
-                if (ngosub == NGOSUB) error(E_NEST);
-                gosubstk[ngosub].tp = tp;
-                gosubstk[ngosub].line = cur_line;
-                ngosub++;
+                push_gosub(tp, 0, 0);
             }
             goto_line(line);
             return;
@@ -2300,6 +2836,7 @@ static void ready(void)
 static void run_program(void)
 {
     clear_vars();
+    events_reset();
     close_all();
     if (prog_end == prog_lo) {
         running = 0;
@@ -2406,20 +2943,24 @@ static void stop_message(const char *what)
  * long enough that the polling costs nothing. */
 #define SLEEP_SLICE 20u
 
-static void st_sleep(void)
+/* An event during the wait calls its handler, whose RETURN comes back
+ * to this statement with resume set, and the wait goes on to the
+ * deadline it had. */
+static void st_sleep(int resume)
 {
     fpac_t n;
     int32_t ms;
-    uint32_t left, slice;
+    uint32_t now, left, slice, deadline;
 
     eval_num(&n);
     ms = fp_to_int(&n);
     if (ms < 0) error(E_ARG);
-    left = (uint32_t)ms;
-    while (left) {
+    now = sys_ticks();
+    deadline = resume ? sleep_deadline : now + (uint32_t)ms;
+    while ((int32_t)(deadline - now) > 0) {
+        left = deadline - now;
         slice = left < SLEEP_SLICE ? left : SLEEP_SLICE;
         sys_sleep(slice);
-        left -= slice;
         if (sys_break()) {
             cont_tp = tp;
             cont_line = cur_line;
@@ -2428,14 +2969,19 @@ static void st_sleep(void)
             skip_line();
             return;
         }
+        sleep_deadline = deadline;
+        if (poll_events(stmt_tp, 1)) return;
+        now = sys_ticks();
     }
 }
 
 /* Execute one statement at tp. */
 static void statement(void)
 {
-    int t = peek();
+    int t = peek(), resume = sleep_resume;
 
+    sleep_resume = 0;
+    stmt_tp = tp;
     tmp_top = tmp_lo;
     switch (t) {
     case 0:
@@ -2447,6 +2993,7 @@ static void statement(void)
         skip_line();
         return;
     }
+    handler_done = 0;                   /* this statement is the one in between */
     if (t >= 0x80) tp++;
     switch (t) {
     case T_LET: st_let(); break;
@@ -2492,7 +3039,17 @@ static void statement(void)
         skip_line();
         return;
     case T_RANDOMIZE: st_randomize(); break;
-    case T_SLEEP: st_sleep(); break;
+    case T_SLEEP:
+        st_sleep(resume);
+        if (jumped) return;             /* an event took over */
+        break;
+    case T_DO: st_do(); break;
+    case T_LOOP:
+        st_loop();
+        if (jumped) return;
+        break;
+    case T_TIMER: st_timer(); break;
+    case T_KEY: st_key(); break;
     case T_OPEN: st_open(); break;
     case T_CLOSE: st_close(); break;
     case T_RUN:
@@ -2566,6 +3123,7 @@ static void run_body(const fndef_t *d)
             cont_line = NULL;            /* CONT cannot re-enter a body */
             error(E_HALT);
         }
+        if (poll_events(tp, sleep_resume)) sleep_resume = 0;
         if (jumped) {
             jumped = 0;
             continue;
@@ -2575,7 +3133,7 @@ static void run_body(const fndef_t *d)
             tp++;
             continue;
         }
-        if (c == T_ELSE) {
+        if (c == T_ELSE || c == T_REM) {
             skip_line();
             c = 0;
         }
@@ -2605,6 +3163,12 @@ static void execute(void)
             running = 0;
             return;
         }
+        /* An event's handler is called here, between statements, and
+         * its RETURN comes back to tp: a separator, the end of the line
+         * or the target of a jump, all places a statement may start.
+         * When that is a SLEEP an earlier event interrupted, the new
+         * frame carries the resumption on. */
+        if (poll_events(tp, sleep_resume)) sleep_resume = 0;
         if (jumped) {
             jumped = 0;
             continue;
@@ -2614,7 +3178,7 @@ static void execute(void)
             tp++;
             continue;
         }
-        if (c == T_ELSE) {
+        if (c == T_ELSE || c == T_REM) {     /* or a trailing ! comment */
             skip_line();
             c = 0;
         }
@@ -2710,8 +3274,10 @@ int bas_main(uint8_t *heap, uint32_t heap_size, uint32_t flags)
                 out_ch('\n');
             }
             nfor = 0;
+            ndo = 0;
             ngosub = 0;
             fn_depth = 0;
+            events_unwind();
             tmp_lo = tmp_base;
             running = 0;
             cont_line = NULL;

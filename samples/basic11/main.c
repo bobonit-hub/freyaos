@@ -15,7 +15,7 @@
  * run and the run ends when it does, with status 1 after an error;
  * otherwise the interpreter takes commands from the console until BYE.
  *
- * basic.c wants ten system calls and a setjmp; they are below, written
+ * basic.c wants its system calls and a setjmp; they are below, written
  * against the Freya API.  Ctrl-C is taken raw so that it stops the BASIC
  * program and returns to READY rather than ending this one.
  */
@@ -67,13 +67,42 @@ __asm__(
     ".size longjmp, . - longjmp\n"
 );
 
-/* Ctrl-C arrives as a key; anything else waiting stays for readline. */
+/* The keys typed while a program runs.  Ctrl-C among them stops it;
+ * the rest wait here for INKEY$, or for the next INPUT, and the
+ * oldest is dropped when there is no room. */
+#define NKEYBUF 16
+static uint8_t keybuf[NKEYBUF];
+static int keyhead, keycount;
+
+static void key_put(int c)
+{
+    if (keycount == NKEYBUF) {
+        keyhead = (keyhead + 1) % NKEYBUF;
+        keycount--;
+    }
+    keybuf[(keyhead + keycount++) % NKEYBUF] = (uint8_t)c;
+}
+
+static int key_get(void)
+{
+    int c;
+
+    if (!keycount) return -1;
+    c = keybuf[keyhead];
+    keyhead = (keyhead + 1) % NKEYBUF;
+    keycount--;
+    return c;
+}
+
+/* Everything the console has: Ctrl-C is the break, the rest is kept. */
 static void poll_break(void)
 {
-    if (g->kbhit()) {
+    while (g->kbhit()) {
         int c = g->getc_timeout(0);
 
+        if (c < 0) break;
         if (c == 0x03) s_break = 1;
+        else key_put(c);
     }
 }
 
@@ -109,8 +138,9 @@ int sys_readline(char *buf, int max)
         return n;
     }
     for (;;) {
-        int c = g->getc();
+        int c = key_get();
 
+        if (c < 0) c = g->getc();
         if (c < 0) return -1;
         if (c == '\r' || c == '\n') break;
         if (c == 0x03) {
@@ -196,6 +226,90 @@ int sys_clock(int *f)
 void sys_sleep(uint32_t ms)
 {
     g->delay_ms(ms);
+}
+
+int sys_inkey(void)
+{
+    poll_break();
+    return key_get();
+}
+
+/* The pins, on the same calls the shell's pin, pwm and adc commands
+ * make.  The first three FREYA_ERR_* codes are the SYS_E* codes;
+ * everything else the API can answer, a timeout, a bus error, a call
+ * a kernel this old does not have, is a device error to BASIC. */
+static int pin_rc(int rc)
+{
+    if (rc >= 0 || rc == FREYA_ERR_PIN || rc == FREYA_ERR_BUSY || rc == FREYA_ERR_ARG)
+        return rc;
+    return SYS_EIO;
+}
+
+int sys_pin_mode(int pin, int mode)
+{
+    if (!FREYA_API_HAS(g, pin_toggle)) return SYS_EIO;
+    return pin_rc(g->pin_mode(pin, mode));
+}
+
+int sys_pin_read(int pin)
+{
+    if (!FREYA_API_HAS(g, pin_toggle)) return SYS_EIO;
+    return pin_rc(g->pin_read(pin));
+}
+
+int sys_pin_write(int pin, int level)
+{
+    if (!FREYA_API_HAS(g, pin_toggle)) return SYS_EIO;
+    return pin_rc(g->pin_write(pin, level));
+}
+
+int sys_pin_toggle(int pin)
+{
+    if (!FREYA_API_HAS(g, pin_toggle)) return SYS_EIO;
+    return pin_rc(g->pin_toggle(pin));
+}
+
+/* pwm_open() hands out a handle, and the same one again for a pin that
+ * is already open, so the handles of the channels this program started
+ * are kept by pin for PWM(P$) to close with.  The kernel closes them
+ * all when the run ends. */
+#define NPWM 8
+
+static struct {
+    int pin, handle;
+} pwms[NPWM];
+static int npwm;
+
+int sys_pwm(int pin, uint32_t hz, uint32_t duty)
+{
+    int i, rc;
+
+    if (!FREYA_API_HAS(g, pwm_freq)) return SYS_EIO;
+    for (i = 0; i < npwm && pwms[i].pin != pin; i++)
+        ;
+    if (hz == 0) {
+        if (i == npwm) return SYS_EARG;             /* not running */
+        rc = g->pwm_close(pwms[i].handle);
+        pwms[i] = pwms[--npwm];
+        return pin_rc(rc);
+    }
+    rc = g->pwm_open(pin, hz, duty);
+    if (rc < 0) return pin_rc(rc);
+    if (i == npwm) {
+        if (npwm == NPWM) {
+            g->pwm_close(rc);
+            return SYS_EBUSY;
+        }
+        pwms[npwm].pin = pin;
+        pwms[npwm++].handle = rc;
+    }
+    return 0;
+}
+
+int sys_adc(int source)
+{
+    if (!FREYA_API_HAS(g, adc_read)) return SYS_EIO;
+    return pin_rc(g->adc_read(source));
 }
 
 /* ------------------------------------------------------------------ */
