@@ -1,0 +1,26 @@
+[package]
+name = "rustdemo"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# A Freya program is a static library: the Makefile links it with
+# apps/common/app_start.c, which supplies the program header, and the
+# board's linker script.
+[lib]
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+[dependencies]
+freya = { path = "../../rust/freya" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = true
+
+[profile.dev]
+opt-level = "s"
+panic = "abort"

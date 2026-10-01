@@ -161,6 +161,28 @@ echo "================= altair ================="
 $CC $CFLAGS -O2 -DFREYA_APP_XIP tests/host_altair_test.c -o "$OUT/hostaltair"
 "$OUT/hostaltair" || status=1
 
+# The Rust bindings: samples/rustdemo built unchanged for the host
+# against rust/freya, and run against a service table that captures what
+# it prints.  Needs cargo; without it the case is skipped, as the
+# Makefile skips the Rust samples.
+echo
+echo "================= rust ================="
+CARGO=${CARGO:-$(command -v cargo || ls "$HOME/.cargo/bin/cargo" 2>/dev/null || true)}
+if [ -n "$CARGO" ]; then
+    if "$CARGO" build --quiet --release --manifest-path samples/rustdemo/Cargo.toml \
+            --target-dir "$OUT/rust"; then
+        # shellcheck disable=SC2086
+        $CC $CFLAGS tests/host_rust_test.c "$OUT/rust/release/librustdemo.a" \
+            -o "$OUT/hostrust"
+        "$OUT/hostrust" || status=1
+    else
+        echo "  FAIL  samples/rustdemo does not build for the host"
+        status=1
+    fi
+else
+    echo "  skipped: cargo not found"
+fi
+
 # The exit status rule: how a program's code, a Ctrl-C and a fault each
 # become the number the shell reports as '$?'.
 echo

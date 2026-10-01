@@ -1,0 +1,18 @@
+[package]
+name = "freya"
+version = "3.2.0"
+edition = "2024"
+description = "Rust bindings to the Freya program ABI (include/freya_api.h)"
+license-file = "../../LICENSE"
+publish = false
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = ["panic-handler", "global-alloc"]
+# Print a panic and end the run with status 101.
+panic-handler = []
+# The kernel heap as the global allocator, for the `alloc` crate.
+global-alloc = []

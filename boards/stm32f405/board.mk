@@ -16,3 +16,7 @@ BOOTLOADER_HINT := USB DFU (hold BOOT0, tap NRST)
 DFU_VID    := 0x0483
 DFU_PID    := 0xDF11
 DFU_DEVICE := 0xFFFF
+
+# Rust programs: cargo builds them for this target (see rust/README.md).
+RUST_TARGET    := thumbv7em-none-eabihf
+RUST_CPU       := cortex-m4

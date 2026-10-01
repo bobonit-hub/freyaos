@@ -523,6 +523,15 @@ large for a board's program RAM region is built there as the flash image
 alone — which on the Blue Pill is what happens to `forth`, whose
 interpreter is 8 KiB on its own.
 
+A program can also be written in Rust. `rust/freya` holds the bindings to
+the service table, and `samples/rustdemo` is a complete program built with
+them. Cargo builds the program as a static library, and it is linked with
+the same `app_start.c` and linker scripts as a C program, so it comes out as
+the same `.bin` and `.xip.bin`. `make rust` builds the Rust samples, and
+`make` includes them whenever `cargo` is installed. The bindings check their
+own layout against `freya_api.h` when they build. See
+[rust/README.md](rust/README.md).
+
 Single-precision `float` compiles for both boards. The Black Pill uses its
 FPU. The Blue Pill has none, so the program is linked with `src/softfp.c`,
 the add, subtract, multiply, divide, compare and integer-conversion helpers
@@ -958,7 +967,8 @@ is measured rather than guessed).
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `aead`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic11` |
+| `rust/freya/` | Rust bindings to the program ABI, checked against `freya_api.h` when they build ([rust/README.md](rust/README.md)) |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `aead`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic11`, and `rustdemo` in Rust |
 | `qbe/` | QBE target and cproc patch for the virtual machine, and `as.py`, the assembler that makes an image |
 | `basic/` | BASIC-11 style interpreter for the FPU boards: the interpreter, its `float` arithmetic, the PC build it is tested on |
 | `tests/` | host side tests |
@@ -1005,6 +1015,13 @@ control structure, defining words, string literals, recursion, a source
 file read through `include`, and each way the interpreter can fail. The
 same binary talks to a terminal with `-i`, which is the quickest way to
 try the language without a board.
+
+The `rustdemo` sample is built for the host the same way, against the
+Rust bindings, and run in a child process for each case, so that `exit()`
+and a panic end it as they would on a board. The cases cover the console,
+the heap, a file, a timer handler, a thread, a kernel table too short for a
+call, `exit()` from a handler, and the panic status. The case is skipped
+when `cargo` is not installed.
 
 The `altair` sample is tested the same way. The 8080's flags, `DAA`,
 timing, memory map, ports, loaders and tapes are always checked. The

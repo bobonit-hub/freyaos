@@ -16,3 +16,7 @@ BOOTLOADER_KEXT = stm32flash -w $(BUILD)/$(TARGET)-kext.bin -v -S $$addr \
 BOOTLOADER_CMD  = stm32flash -w $(FLASH_IMAGE) -v -g 0x08000000 \
                              $(if $(PORT),$(PORT),/dev/ttyUSB0)
 BOOTLOADER_HINT := USART1 ROM loader (set BOOT0 high, tap NRST)
+
+# Rust programs: cargo builds them for this target (see rust/README.md).
+RUST_TARGET    := thumbv7m-none-eabi
+RUST_CPU       := cortex-m3

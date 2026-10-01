@@ -3,6 +3,7 @@
 #   make                    build the kernel image and the example programs
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
 #   make BOARD=stm32f405    build for the STM32F405xx (8 MHz crystal)
+#   make rust               build the Rust samples (needs cargo; see rust/README.md)
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
 #   make FIRMWARE_VERSION=3.1.1
 #                           override the firmware version
@@ -175,8 +176,9 @@ SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # whole of the Blue Pill's RAM window before its dictionary is counted, and
 # the Altair's 8080 memory fills the Black Pill's RAM window by itself.
 # altair16 on the Blue Pill keeps its 16 KiB in the top of program flash,
-# so the interpreter runs from flash too.
-XIP_ONLY_bluepill  := forth altair16
+# so the interpreter runs from flash too.  rustdemo carries core::fmt and
+# the heap behind alloc, 12 KiB, which is past that window too.
+XIP_ONLY_bluepill  := forth altair16 rustdemo
 XIP_ONLY_blackpill := altair
 XIP_ONLY_stm32f405 := altair
 XIP_ONLY  := $(XIP_ONLY_$(BOARD))
@@ -192,6 +194,32 @@ APP_BINS   += $(patsubst %,$(BUILD)/apps/%.xip.bin,$(APPS))
 SMPL_BINS  += $(patsubst %,$(BUILD)/samples/%.xip.bin,$(SAMPLES))
 else ifneq ($(XIP_ONLY),)
 $(error $(XIP_ONLY): needs a flash image, but '$(BOARD)' keeps no program in flash)
+endif
+
+# Rust samples, one Cargo package each under samples/, built against the
+# bindings in rust/freya (see rust/README.md).  Cargo builds a static
+# library for the board's RUST_TARGET; it is linked with app_start.c and
+# the same linker scripts as a C program, so the header, the .bin and the
+# .xip.bin come out the same way.  Without cargo they are left out and
+# everything else still builds.
+#
+# LLVM builds some addresses into movw/movt pairs where gcc would use a
+# literal pool word.  An installed image's table moves only words, so
+# when the loader copies the image to RAM those pairs keep pointing at
+# the flash copy.  That copy is the same bytes and stays in place for
+# the whole run, so the code they reach and the constants they read are
+# still right; they are just reached in flash.
+RUST_SAMPLES := rustdemo
+CARGO     ?= $(or $(shell command -v cargo 2>/dev/null),$(wildcard $(HOME)/.cargo/bin/cargo))
+RUST_LIBDIR := $(BUILD)/rust/$(RUST_TARGET)/release
+RUST_FLAGS  := -C target-cpu=$(RUST_CPU)
+ifneq ($(CARGO),)
+SMPL_BINS += $(patsubst %,$(BUILD)/samples/%.bin,$(filter-out $(XIP_ONLY),$(RUST_SAMPLES)))
+ifneq ($(APP_XIP_LD),)
+SMPL_BINS += $(patsubst %,$(BUILD)/samples/%.xip.bin,$(RUST_SAMPLES))
+endif
+else ifneq ($(filter all samples rust,$(or $(MAKECMDGOALS),all)),)
+$(info Rust samples skipped: cargo not found (see rust/README.md))
 endif
 
 # One user program to store in the board's program flash region when the
@@ -231,7 +259,7 @@ $(error PROGRAM=$(PROGRAM): that sample does not fit '$(BOARD)')
 endif
 ifneq ($(filter $(PROGRAM),$(APPS)),)
 PROGRAM_BIN := $(BUILD)/apps/$(PROGRAM).xip.bin
-else ifneq ($(filter $(PROGRAM),$(SAMPLES)),)
+else ifneq ($(filter $(PROGRAM),$(SAMPLES) $(RUST_SAMPLES)),)
 PROGRAM_BIN := $(BUILD)/samples/$(PROGRAM).xip.bin
 else
 PROGRAM_BIN := $(PROGRAM)
@@ -257,7 +285,7 @@ else
 FLASH_IMAGE := $(BUILD)/$(TARGET).bin
 endif
 
-.PHONY: all apps samples size clean flash bootloader openocd image test dfu
+.PHONY: all apps samples rust size clean flash bootloader openocd image test dfu
 .SECONDARY:
 
 all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size
@@ -364,6 +392,36 @@ $(BUILD)/samples/%.xip.bin: $(BUILD)/samples/%.xip.elf tools/xip_image.py
 $(BUILD)/samples/%.bin: $(BUILD)/samples/%.elf
 	@$(OBJCOPY) -O binary $< $@
 	@echo "  BIN   $@"
+
+# ------------------------------------------------------------ Rust samples
+rust: $(foreach s,$(RUST_SAMPLES),$(filter $(BUILD)/samples/$(s).bin $(BUILD)/samples/$(s).xip.bin,$(SMPL_BINS)))
+ifeq ($(CARGO),)
+	@echo "cargo not found: install Rust with rustup and the $(RUST_TARGET) target" >&2; exit 1
+endif
+
+# Cargo decides whether the library is stale, so it is always asked.
+$(RUST_LIBDIR)/lib%.a: FORCE | $(BUILD)
+	@echo "  CARGO $*"
+	@FREYA_BOARD=$(BOARD) FREYA_CC=$(CC) RUSTFLAGS="$(RUST_FLAGS)" \
+	 $(CARGO) build --quiet --release --target $(RUST_TARGET) \
+	   --manifest-path $(SMPL_DIR)/$*/Cargo.toml --target-dir $(abspath $(BUILD)/rust)
+
+RUST_ELFS     := $(patsubst %,$(BUILD)/samples/%.elf,$(RUST_SAMPLES))
+RUST_XIP_ELFS := $(patsubst %,$(BUILD)/samples/%.xip.elf,$(RUST_SAMPLES))
+
+$(RUST_ELFS): $(BUILD)/samples/%.elf: $(RUST_LIBDIR)/lib%.a $(APP_DIR)/common/app_start.c $(APP_LD)
+	@mkdir -p $(@D)
+	@echo "  RUST  $@"
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_LD) \
+	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments -Wl,--gc-sections -Wl,-z,noexecstack \
+	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
+
+$(RUST_XIP_ELFS): $(BUILD)/samples/%.xip.elf: $(RUST_LIBDIR)/lib%.a $(APP_DIR)/common/app_start.c $(APP_XIP_LD)
+	@mkdir -p $(@D)
+	@echo "  RUST  $@"
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
+	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments -Wl,--gc-sections -Wl,-z,noexecstack \
+	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
 
 # A sample in several files keeps main.c as the one the rule compiles,
 # and main.c includes the rest; this makes a change to any of them count.
