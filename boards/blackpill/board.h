@@ -127,15 +127,15 @@
 /* Ascon-AEAD128 in the kernel extension.  The key comes from the PC. */
 #define BOARD_AEAD           1
 
-/* XTEA-CTR in the kernel extension: crypt() and the crypt command. */
-#define BOARD_CRYPT          1
-
 /* The 32-bit PDP-11 in the kernel extension: vm_reset(), vm_step()
  * and vm_run(). */
 #define BOARD_VM             1
 
 /* The civil clock in the program table: rtc_get() and rtc_set(). */
 #define BOARD_RTC_API        1
+
+/* Float values in the shell: 3.5, float(), sin(), cos() and pi(). */
+#define BOARD_SHELL_FLOAT    1
 
 /* --------------------------------------------------------------- ADC */
 /* ADC1 channels common to both supported boards and not kept by Freya.

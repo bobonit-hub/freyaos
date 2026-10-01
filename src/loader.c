@@ -439,6 +439,17 @@ static int api_console_raw(int on)
 /* The table is a few hundred bytes.  The Blue Pill kernel image has no
  * room left for the three virtual-machine pointers, so the whole table
  * lives in the kernel extension on both boards. */
+/* XTEA has been removed from every board.  Its slot keeps its place, so
+ * the calls after it stay where programs expect them, and it reports that
+ * there is no cipher. */
+__attribute__((noinline, section(".text.kext_script")))
+static int api_crypt_removed(const void *key, const void *nonce, uint32_t off,
+                             const void *in, void *out, int len)
+{
+    (void)key; (void)nonce; (void)off; (void)in; (void)out; (void)len;
+    return FREYA_ERR_UNSUPPORTED;
+}
+
 static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .size            = sizeof(freya_api_t),
     .version         = FREYA_ABI_VERSION,
@@ -518,7 +529,7 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .spi_transfer    = spi_transfer,
     .spi_write       = spi_write,
     .spi_read        = spi_read,
-    .crypt           = crypt_apply,
+    .crypt           = api_crypt_removed,
     .console_raw     = api_console_raw,
     .power           = board_power,
     .adc_read        = adc_read,
@@ -583,6 +594,24 @@ void app_unload(void)
     g_app.data_src = 0;
     g_app.data_start = 0;
     g_app.data_end = 0;
+    g_app.ram_end = 0;
+}
+
+/* How much of RAM from FREYA_APP_LOAD_ADDR a program may use: the
+ * window, or for a program that starts no threads the window and, where
+ * they follow it, the thread stacks. */
+static uint32_t app_room(uint32_t flags)
+{
+    return (flags & FREYA_APP_F_NOTHREADS) ? FREYA_APP_NOTHREADS_SIZE
+                                           : FREYA_APP_REGION_SIZE;
+}
+
+/* In the extension: the 48 KiB image has no room for it. */
+__attribute__((noinline, section(".text.kext_script")))
+int app_holds_thread_stacks(void)
+{
+    return g_app.loaded &&
+           g_app.ram_end > FREYA_APP_LOAD_ADDR + FREYA_APP_REGION_SIZE;
 }
 
 _Static_assert(__builtin_offsetof(freya_app_header_t, flags) ==
@@ -651,10 +680,12 @@ static void set_app_name(const freya_app_header_t *hdr)
 
 #define APP_RAM_END  (FREYA_APP_LOAD_ADDR + FREYA_APP_REGION_SIZE)
 
-/* True if [start, end) lies inside the program RAM region. */
-static int in_app_ram(uint32_t start, uint32_t end)
+/* True if [start, end) lies inside the RAM a program with these header
+ * flags may use. */
+static int in_app_ram(uint32_t start, uint32_t end, uint32_t flags)
 {
-    return end >= start && start >= FREYA_APP_LOAD_ADDR && end <= APP_RAM_END;
+    return end >= start && start >= FREYA_APP_LOAD_ADDR &&
+           end <= FREYA_APP_LOAD_ADDR + app_room(flags);
 }
 
 /*
@@ -718,7 +749,7 @@ static int check_xip_header(const freya_app_header_t *hdr, uint32_t want,
     }
     if (hdr->data_end > hdr->data_start) {
         uint32_t len = hdr->data_end - hdr->data_start;
-        if (!in_app_ram(hdr->data_start, hdr->data_end) ||
+        if (!in_app_ram(hdr->data_start, hdr->data_end, hdr->flags) ||
             hdr->data_src < base || len > want ||
             hdr->data_src > base + want - len) {
             kprintf("%s: .data (0x%08x -> 0x%08x, %u B) is out of bounds\r\n",
@@ -727,10 +758,10 @@ static int check_xip_header(const freya_app_header_t *hdr, uint32_t want,
         }
     }
     if (hdr->bss_end > hdr->bss_start &&
-        !in_app_ram(hdr->bss_start, hdr->bss_end)) {
+        !in_app_ram(hdr->bss_start, hdr->bss_end, hdr->flags)) {
         kprintf("%s: .bss (0x%08x .. 0x%08x) does not fit the %u KiB "
                 "program RAM region\r\n", who, hdr->bss_start, hdr->bss_end,
-                (unsigned)(FREYA_APP_REGION_SIZE / 1024));
+                (unsigned)(app_room(hdr->flags) / 1024));
         return -1;
     }
     return 0;
@@ -782,7 +813,7 @@ static int app_load_flash(void)
 {
     const freya_app_header_t *hdr = app_flash_header();
     const freya_app_header_t *run_hdr = hdr;
-    uint32_t ram_used_end, copy_addr, delta;
+    uint32_t ram_used_end, ram_end, copy_end, copy_addr, delta;
     uint8_t *copy;
 
     if (!hdr) {
@@ -800,8 +831,17 @@ static int app_load_flash(void)
     ram_used_end = MAX(hdr->data_end, hdr->bss_end);
     if (ram_used_end < FREYA_APP_LOAD_ADDR)
         ram_used_end = FREYA_APP_LOAD_ADDR;
-    if (hdr->image_size <= FREYA_APP_REGION_SIZE) {
-        copy_addr = (APP_RAM_END - hdr->image_size) & ~3UL;
+    ram_end = ram_used_end;
+    /* The copy goes to the top of the window when it fits there.  Only
+     * when it does not does a program that starts no threads take the
+     * thread stacks for it, because the shell cannot run a script while
+     * a program holds them. */
+    copy_end = APP_RAM_END;
+    if (hdr->image_size > FREYA_APP_REGION_SIZE ||
+        ram_used_end > ((copy_end - hdr->image_size) & ~3UL))
+        copy_end = FREYA_APP_LOAD_ADDR + app_room(hdr->flags);
+    if (hdr->image_size <= copy_end - FREYA_APP_LOAD_ADDR) {
+        copy_addr = (copy_end - hdr->image_size) & ~3UL;
         if (ram_used_end <= copy_addr) {
             freya_app_header_t *ram_hdr;
 
@@ -821,6 +861,7 @@ static int app_load_flash(void)
             __dsb();
             __isb();
             run_hdr = ram_hdr;
+            ram_end = copy_addr + hdr->image_size;
         }
     }
 
@@ -835,6 +876,7 @@ static int app_load_flash(void)
     g_app.data_src   = run_hdr->data_src;
     g_app.data_start = run_hdr->data_start;
     g_app.data_end   = run_hdr->data_end;
+    g_app.ram_end    = ram_end;
     strncpy(g_app.path, APP_FLASH_PATH, sizeof(g_app.path) - 1);
     set_app_name(run_hdr);
     return 0;
@@ -848,7 +890,7 @@ int app_load(const char *path)
     uint8_t *region = (uint8_t *)FREYA_APP_LOAD_ADDR;
     char abs[FAT_MAX_PATH];
     int fd, n;
-    uint32_t size, want;
+    uint32_t size, want, room;
     uint32_t done = 0;
 
     if (g_app.running) return -1;
@@ -902,12 +944,13 @@ int app_load(const char *path)
     want = hdr.image_size;
     if (want == 0 || want > size) want = size;
 
-    if (want > FREYA_APP_REGION_SIZE ||
-        hdr.bss_end > FREYA_APP_LOAD_ADDR + FREYA_APP_REGION_SIZE ||
+    room = app_room(hdr.flags);
+    if (want > room ||
+        hdr.bss_end > FREYA_APP_LOAD_ADDR + room ||
         hdr.entry < FREYA_APP_LOAD_ADDR ||
-        hdr.entry >= FREYA_APP_LOAD_ADDR + FREYA_APP_REGION_SIZE) {
+        hdr.entry >= FREYA_APP_LOAD_ADDR + room) {
         kprintf("load: image does not fit the %u KiB program region\r\n",
-                (unsigned)(FREYA_APP_REGION_SIZE / 1024));
+                (unsigned)(room / 1024));
         fs_fd_close(fd);
         return -1;
     }
@@ -938,10 +981,11 @@ int app_load(const char *path)
     g_app.image_size = done;
     g_app.bss_start  = hdr.bss_start;
     g_app.bss_size   = (hdr.bss_end > hdr.bss_start) ? hdr.bss_end - hdr.bss_start : 0;
-    g_app.flags      = 0;
+    g_app.flags      = hdr.flags & FREYA_APP_F_NOTHREADS;
     g_app.data_src   = 0;
     g_app.data_start = 0;
     g_app.data_end   = 0;
+    g_app.ram_end    = MAX(FREYA_APP_LOAD_ADDR + done, hdr.bss_end);
     strncpy(g_app.path, abs, sizeof(g_app.path) - 1);
     set_app_name(&hdr);
 

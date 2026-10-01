@@ -50,6 +50,14 @@ stack. The main thread keeps the shell's stack. The Blue Pill has room
 for two of those threads; the Black Pill has room for four. A thread that
 writes past the bottom of its stack ends the run.
 
+A program that starts no threads can say so with `FREYA_APP_F_NOTHREADS`
+in its header: list it in `NOTHREADS` in the Makefile, which compiles it
+with `-DFREYA_APP_NOTHREADS` and lets the linker script allow more RAM.
+`thread_create()` then returns `FREYA_ERR_UNSUPPORTED`. On the Blue Pill
+the two thread stacks follow the program RAM window, so such a program
+may use them: 9 KiB instead of 7 (`FREYA_APP_NOTHREADS_SIZE`). On the F4
+boards they are below the window and the size does not change.
+
 `thread_exit()` does not return. Called from a thread the program
 created, it ends that thread. Called from the main thread, it ends the
 run the way returning from `app_main` does. `thread_sleep(0)` and

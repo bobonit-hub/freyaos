@@ -80,10 +80,8 @@ SECTIONS
      * Threads, the switch, the console commands that talk to them, and
      * the SPI master and the cipher.  Claimed before .text so the
      * wildcard below does not take them.  The extension is 55 KiB so
-     * SPI, XTEA, the virtual machine and the shell variables fit beside
+     * SPI, the virtual machine and the shell variables fit beside
      * the scheduler.  The last page of flash is system settings.
-     * Float helpers for the variables live here too: the 48 KiB image
-     * has no room for them.
      * A call across the two images is an ordinary branch.
      */
     .kext :
@@ -101,9 +99,6 @@ SECTIONS
         *board.o(.text.board_adc_read)
         *shell.o(.text.cmd_adc)
         *shell.o(.text.pin_fail*)
-        /* XTEA is not built here either.  crypt() is a stub of a
-         * dozen bytes in the kernel image, and the command that says
-         * so is .text.kext_script, already claimed above. */
         /* Ascon is not built here.  The two service calls are a dozen
          * bytes and stay in the kernel image; the command that says so
          * is .text.kext_script, already claimed above. */
@@ -138,7 +133,6 @@ SECTIONS
         *shell.o(.text.cmd_meminfo)
         *xmodem.o(.text .text.*)
         *xmodem.o(.rodata .rodata.*)
-        *softfp.o(.text .text.*)
         /* The date command and the clock setter beside it.  They
          * were in the 48 KiB image while it had room; the cipher this
          * board no longer builds left enough space here for them. */
@@ -160,7 +154,6 @@ SECTIONS
         *shell.o(.rodata.cmd_compress*)
         *shell.o(.rodata.cmd_decompress*)
         *shell.o(.rodata.shell_poll_runtime*)
-        *softfp.o(.rodata .rodata.*)
         *shell.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_script*)
         *loader.o(.rodata.kext_api)

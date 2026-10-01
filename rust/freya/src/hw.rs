@@ -396,16 +396,6 @@ pub fn adc_vref() -> Result<u16> {
 
 /* ------------------------------------------------------------ ciphers */
 
-/// XTEA-CTR in place.  `off` is the index of `buf[0]` in the whole
-/// message.  The same call encrypts and decrypts.
-pub fn crypt(key: &[u8; 16], nonce: &[u8; 8], off: u32, buf: &mut [u8]) -> Result<()> {
-    require!(crypt);
-    let n = len(buf)?;
-    let p = buf.as_mut_ptr() as *mut c_void;
-    check(unsafe { (raw().crypt)(key.as_ptr() as *const c_void, nonce.as_ptr() as *const c_void, off, p, p, n) })
-        .map(drop)
-}
-
 /// Ascon-AEAD128: the ciphertext of `input` followed by the 16-byte tag
 /// into `out`, which needs `input.len() + 16` bytes.  Returns that length.
 pub fn aead_encrypt(key: &[u8; 16], nonce: &[u8; 16], ad: &[u8], input: &[u8], out: &mut [u8]) -> Result<usize> {

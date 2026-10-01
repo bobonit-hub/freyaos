@@ -39,12 +39,14 @@ make                   # Black Pill: build/blackpill/samples/forth.bin and .xip.
 make BOARD=bluepill    # Blue Pill:  build/bluepill/samples/forth.xip.bin only
 ```
 
-The interpreter is 8 KiB of code, which is the whole of the Blue Pill's
-8 KiB program RAM region before a single dictionary byte is counted, so
-on that board Forth is a flash resident program and the Makefile builds
+The interpreter is 8 KiB of code, more than the Blue Pill's 7 KiB
+program RAM region before a single dictionary byte is counted, so on
+that board Forth is a flash resident program and the Makefile builds
 the `.xip.bin` alone. The RAM window then holds nothing but the
 dictionary and the stacks, which is the arrangement the flash region
-exists for.
+exists for. Forth starts no threads, so it is built with
+`FREYA_APP_F_NOTHREADS` and its window is 9 KiB: the two thread stacks
+that follow the 7 KiB are its RAM too.
 
 ```
 freya: run("forth.bin")              Black Pill, from the card
@@ -69,7 +71,7 @@ builds for both:
 
 | | Black Pill | Blue Pill (flash image) |
 |---|---|---|
-| dictionary | 43008 B | 7168 B |
+| dictionary | 43008 B | 8192 B |
 | data stack | 128 cells | 48 cells |
 | return stack | 128 cells | 48 cells |
 | input line | 200 B | 128 B |

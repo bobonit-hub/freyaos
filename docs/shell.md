@@ -8,6 +8,11 @@ and to a script run with `source`. The commands themselves are listed in
 
 A value is an integer, a float, a byte, a bool, empty, none, an immutable
 heap-backed string, an auto array, or a dict.
+The Blue Pill shell has no floats. There a decimal literal such as
+`7.5`, `float()`, `sin()`, `cos()`, `pi()`, `%f`, `int` of decimal text
+and reading a decimal number from a file all fail with `floats are not
+supported on this board`, and everything below about floats applies to
+the F4 boards only. Programs on the Blue Pill still have `float`.
 An expression produces one value. Typed on its own, it is printed:
 `3 + 2` prints `5`, `"Sun"` prints `"Sun"`, and `(2 + 2) % 10` prints
 `4`. Console commands use function syntax: `help()`, `sysinfo()`,

@@ -1,6 +1,6 @@
 [package]
 name = "freya"
-version = "3.2.0"
+version = "3.3.0"
 edition = "2024"
 description = "Rust bindings to the Freya program ABI (include/freya_api.h)"
 license-file = "../../LICENSE"

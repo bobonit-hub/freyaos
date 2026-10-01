@@ -38,8 +38,15 @@ typedef uint32_t ucell_t;
 #define LINE_SIZE   200
 #define PAD_SIZE    128
 #elif defined(FREYA_APP_XIP)
-/* The whole 7 KiB window less the stacks, the line and the pad. */
-#define DICT_SIZE   6144u
+/* The whole window less the stacks, the line and the pad.  forth starts
+ * no threads, so the Makefile builds it with FREYA_APP_NOTHREADS and the
+ * window is FREYA_APP_NOTHREADS_SIZE: 9 KiB, the two thread stacks
+ * included. */
+#ifdef FREYA_APP_NOTHREADS
+#define DICT_SIZE   (FREYA_APP_NOTHREADS_SIZE - 1024u)
+#else
+#define DICT_SIZE   (FREYA_APP_REGION_SIZE - 1024u)
+#endif
 #define DS_CELLS    48
 #define RS_CELLS    48
 #define LINE_SIZE   128

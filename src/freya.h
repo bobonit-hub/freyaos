@@ -30,7 +30,7 @@
  * build does not change it.  The build may override the firmware version;
  * a source build always has one of its own.  Keep both in
  * major.minor.patch form. */
-#define FREYA_OS_VERSION        "3.2.0"
+#define FREYA_OS_VERSION        "3.3.0"
 #ifndef FREYA_FIRMWARE_VERSION
 #define FREYA_FIRMWARE_VERSION  "3.1.1"
 #endif
@@ -403,17 +403,6 @@ int      cmd_curl(int argc, char **argv);
 int      adc_read(int source);             /* raw 12-bit value, or error */
 int      adc_lookup(int source);           /* hardware channel, or PIN   */
 
-/* --------------------------------------------------------------- XTEA */
-/*
- * XTEA, 32 rounds, CTR.  crypt_block() encrypts one 8-byte block.
- * crypt_apply() is that cipher as a keystream: the same call encrypts
- * and decrypts, and off is the first byte's position in the message.
- * Neither keeps the key.  A handler may call them.
- */
-int      crypt_block(const void *key, const void *in, void *out);
-int      crypt_apply(const void *key, const void *nonce, uint32_t off,
-                     const void *in, void *out, int len);
-
 /* ---------------------------------------------------------- heatshrink */
 /*
  * LZSS, the heatshrink stream at an 8-bit window and a 4-bit lookahead
@@ -565,6 +554,7 @@ typedef struct {
     uint32_t data_src;       /* relocated .data initialiser, XIP only   */
     uint32_t data_start;
     uint32_t data_end;
+    uint32_t ram_end;        /* first RAM byte past the program's own   */
     /* The last run, which outlives the image: these survive an unload so
      * that 'status' can still say what happened. */
     int      last_status;    /* freya_exit_status(), 0 .. 255           */
@@ -577,6 +567,10 @@ typedef struct {
 extern app_state_t g_app;
 
 int  app_load(const char *path);
+/* 1 while the loaded program's RAM runs on into the thread stacks, which
+ * a FREYA_APP_F_NOTHREADS program may do.  The shell keeps its scratch
+ * there, so it must not touch it then. */
+int  app_holds_thread_stacks(void);
 int  app_run(int argc, char **argv);
 void app_unload(void);
 #ifdef FREYA_APP_FLASH_ADDR

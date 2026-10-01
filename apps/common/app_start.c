@@ -10,7 +10,8 @@
  * Linked with app_flash.ld and compiled with -DFREYA_APP_XIP the result is
  * stored in the program flash region.  The loader copies and relocates it
  * into RAM when it fits, and the three .data addresses describe its
- * initialised data.
+ * initialised data.  Compiled with -DFREYA_APP_NOTHREADS it also marks
+ * a program that starts no threads.
  */
 #include "freya_api.h"
 
@@ -29,16 +30,25 @@ extern char __data_load__[];
 extern char __data_start__[];
 extern char __data_end__[];
 #define HDR_LOAD_ADDR   FREYA_APP_FLASH_ADDR
-#define HDR_FLAGS       FREYA_APP_F_XIP
+#define HDR_XIP         FREYA_APP_F_XIP
 #define HDR_DATA_SRC    ((uint32_t)(uintptr_t)__data_load__)
 #define HDR_DATA_START  ((uint32_t)(uintptr_t)__data_start__)
 #define HDR_DATA_END    ((uint32_t)(uintptr_t)__data_end__)
 #else
 #define HDR_LOAD_ADDR   FREYA_APP_LOAD_ADDR
-#define HDR_FLAGS       0UL
+#define HDR_XIP         0UL
 #define HDR_DATA_SRC    0UL
 #define HDR_DATA_START  0UL
 #define HDR_DATA_END    0UL
+#endif
+
+/* A program that starts no threads may use their stacks as RAM.  The
+ * Makefile passes the same choice to the linker script, which then
+ * allows FREYA_APP_NOTHREADS_SIZE instead of FREYA_APP_REGION_SIZE. */
+#ifdef FREYA_APP_NOTHREADS
+#define HDR_FLAGS       (HDR_XIP | FREYA_APP_F_NOTHREADS)
+#else
+#define HDR_FLAGS       HDR_XIP
 #endif
 
 __attribute__((section(".app_header"), used))

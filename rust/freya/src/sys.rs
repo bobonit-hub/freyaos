@@ -17,6 +17,8 @@ pub const FREYA_APP_MAGIC: u32 = 0x4159_5246;
 pub const FREYA_ABI_VERSION: u32 = 3;
 pub const FREYA_ABI_MIN_VERSION: u32 = 1;
 pub const FREYA_APP_F_XIP: u32 = 0x0000_0001;
+/// The program starts no threads and may use their stacks as RAM.
+pub const FREYA_APP_F_NOTHREADS: u32 = 0x0000_0002;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -156,12 +158,6 @@ pub const FREYA_SPI_MAX_LEN: c_int = 4096;
 pub const FREYA_ADC_MAX: c_int = 4095;
 pub const FREYA_ADC_TEMP: c_int = 0x100;
 pub const FREYA_ADC_VREF: c_int = 0x101;
-
-pub const FREYA_CRYPT_ROUNDS: c_int = 32;
-pub const FREYA_CRYPT_KEY_LEN: c_int = 16;
-pub const FREYA_CRYPT_NONCE_LEN: c_int = 8;
-pub const FREYA_CRYPT_BLOCK: c_int = 8;
-pub const FREYA_CRYPT_MAX_LEN: c_int = 4096;
 
 pub const FREYA_COMPRESS_WINDOW_BITS: c_int = 8;
 pub const FREYA_COMPRESS_LOOKAHEAD_BITS: c_int = 4;
@@ -429,6 +425,7 @@ pub struct freya_api_t {
     pub spi_write: unsafe extern "C" fn(bus: c_int, buf: *const c_void, len: c_int) -> c_int,
     pub spi_read: unsafe extern "C" fn(bus: c_int, buf: *mut c_void, len: c_int) -> c_int,
 
+    /// Once XTEA; removed from every board, always FREYA_ERR_UNSUPPORTED.
     pub crypt: unsafe extern "C" fn(
         key: *const c_void,
         nonce: *const c_void,

@@ -1,3 +1,50 @@
+# Freya 3.3.0 "Poltergeist"
+
+1 October 2026
+
+A Blue Pill program that starts no threads gets 9 KiB of RAM instead of
+7. The Blue Pill kernel no longer carries float arithmetic, and XTEA is
+gone from every board.
+
+The program ABI is still version 3.
+
+## What changed
+
+* A program can mark itself as starting no threads with
+  `FREYA_APP_F_NOTHREADS` in its header. On the Blue Pill the two 1 KiB
+  thread stacks follow the program RAM window, so such a program may use
+  them too: `FREYA_APP_NOTHREADS_SIZE` is 9 KiB there. On the F4 boards
+  the stacks are below the window, and the flag only refuses threads.
+  `thread_create()` returns `FREYA_ERR_UNSUPPORTED` to such a program.
+* A program opts in through `NOTHREADS` in the Makefile, which compiles
+  it with `-DFREYA_APP_NOTHREADS` and links it with a 9 KiB window.
+  forth is built that way, and its Blue Pill dictionary grew from 6144
+  to 8192 bytes.
+* The shell keeps its scratch in the thread stacks. While a program's RAM
+  reaches into them, a script it asks for with `shell_source_capture()`
+  gets `FREYA_ERR_BUSY` and the console calls allowed during a run are
+  refused; Ctrl-C still stops it. If the shell needs the scratch while
+  such a program is only loaded, it unloads the program and says so.
+  `run("forth.bin")` works as one command.
+* `meminfo` shows the 9 KiB window when such a program is loaded.
+* The Blue Pill shell has no float values. A decimal literal, `float()`,
+  `sin()`, `cos()`, `pi()`, `%f`, `int` of decimal text and a decimal
+  number read from a file report `floats are not supported on this
+  board`. `BOARD_SHELL_FLOAT` in the board header is the switch.
+  Programs still link `src/softfp.c` when they use `float`; no kernel
+  does any more. The Blue Pill kernel extension went from 53032 to 49528
+  bytes.
+* XTEA is removed from every board: `src/crypt.c`, the `crypt` command,
+  `samples/crypt` and `docs/crypt.md`. The `crypt` slot stays in the
+  service table so the calls after it do not move, and it returns
+  `FREYA_ERR_UNSUPPORTED`. The `FREYA_CRYPT_*` constants and the Rust
+  `crypt()` are gone. Ascon-AEAD128 is the cipher a program has, on the
+  F4 boards.
+* The Rust bindings have `FREYA_APP_F_NOTHREADS`, and the crate is
+  version 3.3.0.
+* `docs/bluepill-memory.md` lists the ways the Blue Pill's program
+  regions could grow, and which of them are done.
+
 # Freya 3.2.0 "Poltergeist"
 
 30 September 2026

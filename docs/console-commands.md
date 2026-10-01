@@ -54,7 +54,6 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `ping("host" [, timeout_ms])` | resolve and ping a host through the ESP32-C6 |
 | `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | make a bounded HTTP request through the ESP32-C6 |
 | `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one, check presence, or walk the ROMs |
-| `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts (not on the Blue Pill) |
 | `aead(["-d",] "key", "nonce", "in", "out")` | Ascon-AEAD128: seal a file, or open it with `-d` (not on the Blue Pill) |
 | `compress(["in", "out"])` | pack a file with heatshrink LZSS (not on the Blue Pill) |
 | `decompress(["in", "out"])` | unpack a file `compress` or the host tool wrote |
@@ -232,21 +231,6 @@ The pin is named the way `pin` names one. `search` prints every ROM and
 `off` puts the pin back to an input. A pin a *program* opened is closed
 when its run ends instead. Reading a thermometer is `samples/w1`.
 [docs/w1.md](w1.md) has the worked transcript.
-
-## crypt at the prompt
-
-`crypt` is the cipher with a prompt in front of it — the same `src/crypt.c`
-a program reaches through `api->crypt()`. With no arguments it names the
-cipher and prints the usage. Otherwise the key is 32 hex digits, the nonce
-is 16 and the data is one hex word, with no `0x`. The same command decrypts:
-
-```
-freya: crypt("000102030405060708090a0b0c0d0e0f", "4142434445464748", "0000000000000000")
-497df3d072612cb5
-```
-
-The Blue Pill builds no cipher and has no such command; `help` does not
-list it. A file is `samples/crypt`. [docs/crypt.md](crypt.md) is the call.
 
 ## aead at the prompt
 

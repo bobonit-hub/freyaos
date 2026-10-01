@@ -90,6 +90,9 @@
 #if defined(FREYA_BOARD_BLUEPILL)
 #define FREYA_APP_LOAD_ADDR      0x20001C00UL   /* 20 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE    (7U * 1024U)
+/* The two 1 KiB thread stacks follow the window, so a program that starts
+ * no threads (FREYA_APP_F_NOTHREADS) may run on into them. */
+#define FREYA_APP_NOTHREADS_SIZE (9U * 1024U)
 #define FREYA_SETTINGS_SIZE      1024U          /* last page of the 128 KiB */
 #define FREYA_SETTINGS_ADDR      (0x08020000UL - FREYA_SETTINGS_SIZE)
 #define FREYA_APP_FLASH_ADDR     0x0800C000UL
@@ -103,6 +106,8 @@
 #elif defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
 #define FREYA_APP_LOAD_ADDR      0x20010000UL   /* 128 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE    (56U * 1024U)
+/* The thread stacks are below the window here, not after it. */
+#define FREYA_APP_NOTHREADS_SIZE FREYA_APP_REGION_SIZE
 /* The kernel image occupies sectors 0..2 (48 KiB).  System settings are
  * the first 1 KiB of sector 3, which holds nothing else.  The program
  * region starts at sector 4 and runs to the kernel extension, a second
@@ -136,6 +141,11 @@
 
 /* header flags */
 #define FREYA_APP_F_XIP        0x00000001UL   /* stored in program flash */
+/* The program starts no threads, and its RAM may run on into the thread
+ * stacks: FREYA_APP_NOTHREADS_SIZE instead of FREYA_APP_REGION_SIZE.
+ * thread_create() reports FREYA_ERR_UNSUPPORTED to such a program.  A
+ * program built with -DFREYA_APP_NOTHREADS sets it (see app_start.c). */
+#define FREYA_APP_F_NOTHREADS  0x00000002UL
 
 /* Header located at offset 0 of the program image. */
 typedef struct {
@@ -149,7 +159,7 @@ typedef struct {
     uint32_t stack_need;   /* bytes of stack the program requires     */
     char     name[16];     /* informational, NUL padded               */
     /* ------------------------------------- appended in ABI 2 ------- */
-    uint32_t flags;        /* FREYA_APP_F_XIP                         */
+    uint32_t flags;        /* FREYA_APP_F_XIP, FREYA_APP_F_NOTHREADS  */
     uint32_t data_src;     /* flash address of the .data initialiser  */
     uint32_t data_start;   /* RAM destination of .data, absolute      */
     uint32_t data_end;
@@ -358,22 +368,6 @@ typedef struct {
 #define FREYA_ADC_MAX        4095
 #define FREYA_ADC_TEMP       0x100
 #define FREYA_ADC_VREF       0x101
-
-/* --------------------------------------------------------------- XTEA */
-/*
- * 32 rounds, a 16-byte key and an 8-byte block, used in CTR mode.  A
- * block is two big-endian words, which is the order the bytes have in
- * hex.  The nonce is the counter at byte 0, as a big-endian 64-bit
- * number, and each following block adds one.  A length past
- * FREYA_CRYPT_MAX_LEN is refused rather than split; the next piece is
- * the same call with off advanced by what was already done.  The same
- * call encrypts and decrypts.
- */
-#define FREYA_CRYPT_ROUNDS     32
-#define FREYA_CRYPT_KEY_LEN    16
-#define FREYA_CRYPT_NONCE_LEN  8
-#define FREYA_CRYPT_BLOCK      8
-#define FREYA_CRYPT_MAX_LEN    4096
 
 /* ---------------------------------------------------------- heatshrink */
 /*
@@ -731,7 +725,9 @@ typedef struct freya_api {
      * program's main thread it ends the run the way return would.
      * thread_sleep() returns 0, -1 if the run was asked to stop, or
      * FREYA_ERR_HANDLER from a handler.  thread_self() is the caller's
-     * id.  None of these may be called from a pin or timer handler. */
+     * id.  None of these may be called from a pin or timer handler.
+     * A program marked FREYA_APP_F_NOTHREADS gets FREYA_ERR_UNSUPPORTED
+     * from thread_create(). */
     int      (*thread_create)(const char *name, int priority,
                               freya_thread_fn fn, void *arg);
     void     (*thread_exit)(void);
@@ -754,12 +750,10 @@ typedef struct freya_api {
     int      (*spi_write)(int bus, const void *buf, int len);
     int      (*spi_read)(int bus, void *buf, int len);
 
-    /* appended: XTEA in CTR mode.  The key is FREYA_CRYPT_KEY_LEN
-     * bytes and the nonce is FREYA_CRYPT_NONCE_LEN.  off is the index
-     * of the first byte of this piece, so a longer message is split by
-     * the caller and the counter does not restart.  The same call
-     * encrypts and decrypts.  in and out may be the same buffer.
-     * Nothing is kept between calls, so a handler may use this. */
+    /* appended: once XTEA in CTR mode.  The cipher has been removed
+     * from every board; the slot keeps its place so the calls after it
+     * do not move, and it always returns FREYA_ERR_UNSUPPORTED.  Ascon
+     * (aead_encrypt, aead_decrypt) is the cipher a program has. */
     int      (*crypt)(const void *key, const void *nonce, uint32_t off,
                       const void *in, void *out, int len);
 
@@ -845,7 +839,9 @@ typedef struct freya_api {
      * it prints.  method and query are published as $method and $query
      * (query is at most FREYA_WEB_QUERY characters).  *out_len is the
      * captured byte count.  The return is the script status, 0 when it
-     * finished, or a negative FREYA_ERR_* when it was not run. */
+     * finished, or a negative FREYA_ERR_* when it was not run.  The
+     * interpreter keeps its state in the thread stacks, so a program
+     * whose RAM runs on into them gets FREYA_ERR_BUSY. */
     int      (*shell_source_capture)(const char *path, const char *method,
                                      const char *query, char *buf, int cap,
                                      int *out_len);

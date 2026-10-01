@@ -100,7 +100,9 @@ LDFLAGS   := $(CPUFLAGS) -nostdlib -T $(LDSCRIPT) \
 # are PB6 (SCL) and PB7 (SDA) on every board; INT/SQW, 32 kHz and RST
 # are not connected.  The software clock is built either way.
 RTC ?=
-CSRC      := $(filter-out $(SRC_DIR)/ds3231.c,$(wildcard $(SRC_DIR)/*.c))
+# src/softfp.c is for programs only (APP_SOFTFP below).  The FPU boards
+# have no use for it, and the Blue Pill shell has no float values.
+CSRC      := $(filter-out $(SRC_DIR)/ds3231.c $(SRC_DIR)/softfp.c,$(wildcard $(SRC_DIR)/*.c))
 ifeq ($(RTC),ds3231)
 CFLAGS    += -DFREYA_RTC_DS3231
 CSRC      += $(SRC_DIR)/ds3231.c
@@ -160,7 +162,7 @@ APP_GC     :=
 endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 crypt aead compress flashprobe threads vm \
+SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 aead compress flashprobe threads vm \
              basic11 altair altair16 httpd
 # A sample a board has no room for at all is not built there.  The 48 KiB
 # Altair keeps the 8080's RAM in the program region.  The Blue Pill's
@@ -182,6 +184,14 @@ XIP_ONLY_bluepill  := forth altair16 rustdemo
 XIP_ONLY_blackpill := altair
 XIP_ONLY_stm32f405 := altair
 XIP_ONLY  := $(XIP_ONLY_$(BOARD))
+# A program that starts no threads may run its RAM on into their stacks
+# (FREYA_APP_F_NOTHREADS): 9 KiB instead of 7 on the Blue Pill, where the
+# two stacks follow the window.  The F4 stacks are below it, so there the
+# flag only refuses threads.  forth spends the two kilobytes on its
+# dictionary.
+NOTHREADS := forth
+NOTHREADS_FLAGS := -DFREYA_APP_NOTHREADS -Wl,--defsym=__app_nothreads__=1
+nothreads  = $(if $(filter $(1),$(NOTHREADS)),$(NOTHREADS_FLAGS))
 SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(filter-out $(XIP_ONLY),$(SAMPLES)))
 
 # A board that reserves part of its flash for a program image supplies a
@@ -350,13 +360,13 @@ apps: $(APP_BINS)
 
 $(BUILD)/apps/%.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_LD) | $(BUILD)
 	@echo "  APP   $@"
-	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_LD) \
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' $(call nothreads,$*) -nostdlib -T $(APP_LD) \
 	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments $(APP_GC) \
 	       $(APP_DIR)/common/app_start.c $< $(APP_SOFTFP) -lgcc -o $@
 
 $(BUILD)/apps/%.xip.elf: $(APP_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_XIP_LD) | $(BUILD)
 	@echo "  APP   $@"
-	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' $(call nothreads,$*) -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
 	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments $(APP_GC) \
 	       $(APP_DIR)/common/app_start.c $< $(APP_SOFTFP) -lgcc -o $@
 
@@ -374,14 +384,14 @@ samples: $(SMPL_BINS)
 $(BUILD)/samples/%.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_LD) | $(BUILD)
 	@mkdir -p $(@D)
 	@echo "  SMPL  $@"
-	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_LD) \
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' $(call nothreads,$*) -nostdlib -T $(APP_LD) \
 	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments $(APP_GC) \
 	       $(APP_DIR)/common/app_start.c $< $(APP_SOFTFP) -lgcc -o $@
 
 $(BUILD)/samples/%.xip.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_XIP_LD) | $(BUILD)
 	@mkdir -p $(@D)
 	@echo "  SMPL  $@"
-	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' $(call nothreads,$*) -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
 	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments $(APP_GC) \
 	       $(APP_DIR)/common/app_start.c $< $(APP_SOFTFP) -lgcc -o $@
 
@@ -412,14 +422,14 @@ RUST_XIP_ELFS := $(patsubst %,$(BUILD)/samples/%.xip.elf,$(RUST_SAMPLES))
 $(RUST_ELFS): $(BUILD)/samples/%.elf: $(RUST_LIBDIR)/lib%.a $(APP_DIR)/common/app_start.c $(APP_LD)
 	@mkdir -p $(@D)
 	@echo "  RUST  $@"
-	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -nostdlib -T $(APP_LD) \
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' $(call nothreads,$*) -nostdlib -T $(APP_LD) \
 	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments -Wl,--gc-sections -Wl,-z,noexecstack \
 	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
 
 $(RUST_XIP_ELFS): $(BUILD)/samples/%.xip.elf: $(RUST_LIBDIR)/lib%.a $(APP_DIR)/common/app_start.c $(APP_XIP_LD)
 	@mkdir -p $(@D)
 	@echo "  RUST  $@"
-	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
+	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' $(call nothreads,$*) -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
 	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments -Wl,--gc-sections -Wl,-z,noexecstack \
 	       $(APP_DIR)/common/app_start.c $< -lgcc -o $@
 

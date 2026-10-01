@@ -558,7 +558,9 @@ static int cmd_meminfo(int argc, char **argv)
     uint32_t flash_total = mcu_flash_kib() * 1024UL;
     uint32_t heap_total, heap_used, heap_free, heap_big, heap_blocks;
     uint32_t stack_total = (uint32_t)((uint8_t *)__stack_top - (uint8_t *)__stack_limit);
-    uint32_t app_total = FREYA_APP_REGION_SIZE;
+    /* A program that starts no threads may have their stacks too. */
+    uint32_t app_total = (g_app.loaded && (g_app.flags & FREYA_APP_F_NOTHREADS))
+                         ? FREYA_APP_NOTHREADS_SIZE : FREYA_APP_REGION_SIZE;
 
     (void)argc; (void)argv;
     heap_stats(&heap_total, &heap_used, &heap_free, &heap_big, &heap_blocks);
@@ -636,7 +638,7 @@ static int cmd_meminfo(int argc, char **argv)
         uint32_t data_sz2 = g_app.data_end - g_app.data_start;
 
         if (g_app.load_addr >= FREYA_APP_LOAD_ADDR &&
-            g_app.load_addr < FREYA_APP_LOAD_ADDR + FREYA_APP_REGION_SIZE) {
+            g_app.load_addr < FREYA_APP_LOAD_ADDR + app_total) {
             kprintf("     %s (copied from flash): image %u B, data %u B + "
                     "bss %u B\r\n", g_app.name[0] ? g_app.name : g_app.path,
                     g_app.image_size, data_sz2, g_app.bss_size);
@@ -1921,6 +1923,8 @@ int KEXT shell_source_capture(const char *path, const char *method,
         return FREYA_ERR_ARG;
     if (strlen(query) > FREYA_WEB_QUERY || strlen(method) > 8)
         return FREYA_ERR_ARG;
+    /* The interpreter's scratch is in the thread stacks. */
+    if (app_holds_thread_stacks()) return FREYA_ERR_BUSY;
     n = ksnprintf(line, (int)sizeof line,
                   "set method \"%s\"\nset query \"%s\"", method, query);
     if (n < 0 || n >= (int)sizeof line) return FREYA_ERR_ARG;
@@ -2476,74 +2480,6 @@ static int cmd_w1(int argc, char **argv)
     }
     return 0;
 }
-
-/* ------------------------------------------------------------ crypt */
-/* XTEA-CTR.  Key, nonce and data are hex, with no 0x and no spaces in
- * a word.  The same command decrypts.  The command and its helpers share
- * one section so the linker can put them in the kernel extension; the
- * 48 KiB image has no room for them.  A board without the code keeps
- * the name and says so. */
-#if BOARD_CRYPT
-#define CRYPT_USAGE  "crypt [<key> <nonce> <hex>]"
-#define CRYPT_CMD_MAX  64
-#define CRYPT_TEXT __attribute__((section(".text.cmd_crypt")))
-
-static int CRYPT_TEXT crypt_hexval(int c)
-{
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return -1;
-}
-
-/* exact > 0 requires that many bytes.  exact == 0 takes up to max. */
-static int CRYPT_TEXT
-crypt_parse_hex(const char *s, uint8_t *out, int max, int exact)
-{
-    int n = 0;
-
-    while (s[0]) {
-        int hi, lo;
-
-        if (n >= max) return -1;
-        hi = crypt_hexval((unsigned char)s[0]);
-        lo = s[1] ? crypt_hexval((unsigned char)s[1]) : -1;
-        if (hi < 0 || lo < 0) return -1;
-        out[n++] = (uint8_t)((hi << 4) | lo);
-        s += 2;
-    }
-    if (exact && n != exact) return -1;
-    return n;
-}
-
-static int cmd_crypt(int argc, char **argv)
-{
-    uint8_t key[FREYA_CRYPT_KEY_LEN];
-    uint8_t nonce[FREYA_CRYPT_NONCE_LEN];
-    uint8_t buf[CRYPT_CMD_MAX];
-    int n, i, rc;
-
-    if (argc == 1) {
-        kprintf("XTEA-CTR, 16-byte key, 8-byte nonce\r\nusage: %s\r\n",
-                CRYPT_USAGE);
-        return 0;
-    }
-    if (argc != 4) return usage(CRYPT_USAGE);
-    if (crypt_parse_hex(argv[1], key, FREYA_CRYPT_KEY_LEN,
-                        FREYA_CRYPT_KEY_LEN) < 0 ||
-        crypt_parse_hex(argv[2], nonce, FREYA_CRYPT_NONCE_LEN,
-                        FREYA_CRYPT_NONCE_LEN) < 0)
-        return usage(CRYPT_USAGE);
-    n = crypt_parse_hex(argv[3], buf, CRYPT_CMD_MAX, 0);
-    if (n <= 0) return usage(CRYPT_USAGE);
-
-    rc = crypt_apply(key, nonce, 0, buf, buf, n);
-    if (rc != 0) return -1;
-    for (i = 0; i < n; i++) kprintf("%02x", buf[i]);
-    kprintf("\r\n");
-    return 0;
-}
-#endif
 
 /* ------------------------------------------------------------ aead */
 /* Ascon-AEAD128.  The key and the nonce are hex, with no 0x and no
@@ -3128,9 +3064,6 @@ static const command_t s_cmds[] = {
     /* A board that builds none of the cipher or the coder does not
      * carry their names either: an entry and its help are bytes this
      * board's extension does not have to spare. */
-#if BOARD_CRYPT
-    { "crypt",    cmd_crypt,    "crypt([\"key\", \"nonce\", \"hex\"])" },
-#endif
 #if BOARD_AEAD
     { "aead",     cmd_aead,     s_help_aead },
 #endif
@@ -3503,6 +3436,16 @@ static int KEXT vfail(const char *msg)
     return -1;
 }
 
+/* A board whose extension has no room for float arithmetic sets
+ * BOARD_SHELL_FLOAT to 0.  No value is then ever a float, and every test
+ * for one is a constant the compiler folds away with the code behind it. */
+#define is_flt(t)  (BOARD_SHELL_FLOAT && (t) == V_FLT)
+
+static int KEXT no_float(void)
+{
+    return vfail("floats are not supported on this board");
+}
+
 static const char *KEXT str_text(const shell_str_t *s)
 {
     return s ? s->text : "";
@@ -3686,7 +3629,7 @@ static void KEXT val_text(const val_t *v, char *out, int size)
         return;
     }
     if (type_wide(v->type)) ksnprintf(out, size, "%d", (int)v->i);
-    else if (v->type == V_FLT) ftoa(out, size, v->f);
+    else if (is_flt(v->type)) ftoa(out, size, v->f);
     else if (v->type == V_BOOL) ksnprintf(out, size, v->i ? "true" : "false");
     else if (v->type == V_EMPTY) ksnprintf(out, size, "empty");
     else if (v->type == V_NIL) ksnprintf(out, size, "none");
@@ -3737,7 +3680,7 @@ static int KEXT is_ref(int type)
 
 static int KEXT scalar_ok(int type)
 {
-    return type == V_INT || type == V_FLT || type == V_STR ||
+    return type == V_INT || is_flt(type) || type == V_STR ||
            type == V_BYTE || type == V_BOOL || type == V_EMPTY ||
            type == V_NIL;
 }
@@ -3747,7 +3690,7 @@ static void KEXT cell_from_val(cell_t *c, const val_t *v)
     memset(c, 0, sizeof *c);
     c->type = v->type;
     if (type_hold_i(v->type)) c->u.i = v->i;
-    else if (v->type == V_FLT) c->u.f = v->f;
+    else if (is_flt(v->type)) c->u.f = v->f;
     else if (v->type == V_STR) c->u.s = v->s;
 }
 
@@ -3758,7 +3701,7 @@ static void KEXT cell_to_val(const cell_t *c, val_t *v)
     v->f = 0.f;
     v->s = NULL;
     if (type_hold_i(c->type)) v->i = c->u.i;
-    else if (c->type == V_FLT) v->f = c->u.f;
+    else if (is_flt(c->type)) v->f = c->u.f;
     else if (c->type == V_STR) {
         v->s = c->u.s;
         str_retain(v->s);
@@ -3768,7 +3711,7 @@ static void KEXT cell_to_val(const cell_t *c, val_t *v)
 static int KEXT cell_cmp(const cell_t *a, const cell_t *b)
 {
     if (a->type == V_STR) return strcmp(str_text(a->u.s), str_text(b->u.s));
-    if (a->type == V_FLT) return (a->u.f > b->u.f) - (a->u.f < b->u.f);
+    if (is_flt(a->type)) return (a->u.f > b->u.f) - (a->u.f < b->u.f);
     if (a->type == V_EMPTY || a->type == V_NIL) return 0;
     return (a->u.i > b->u.i) - (a->u.i < b->u.i);
 }
@@ -3870,7 +3813,7 @@ static int KEXT dict_grow(coll_t *c, uint32_t count)
 
 static uint32_t KEXT array_width(int type)
 {
-    if (type == V_INT || type == V_FLT) return 4;
+    if (type == V_INT || is_flt(type)) return 4;
     if (type == V_STR) return (uint32_t)sizeof(shell_str_t *);
     return 1;
 }
@@ -3883,7 +3826,7 @@ static void KEXT array_load(const coll_t *c, uint32_t idx, cell_t *v)
     memset(v, 0, sizeof *v);
     v->type = c->et;
     if (c->et == V_INT) memcpy(&v->u.i, p, sizeof v->u.i);
-    else if (c->et == V_FLT) memcpy(&v->u.f, p, sizeof v->u.f);
+    else if (is_flt(c->et)) memcpy(&v->u.f, p, sizeof v->u.f);
     else if (c->et == V_STR) memcpy(&v->u.s, p, sizeof v->u.s);
     else if (type_hold_i(c->et)) v->u.i = *p;
 }
@@ -3901,7 +3844,7 @@ static void KEXT array_store(coll_t *c, uint32_t idx, const cell_t *v)
         str_release(old);
         memcpy(p, &v->u.s, sizeof v->u.s);
     } else if (c->et == V_INT) memcpy(p, &v->u.i, sizeof v->u.i);
-    else if (c->et == V_FLT) memcpy(p, &v->u.f, sizeof v->u.f);
+    else if (is_flt(c->et)) memcpy(p, &v->u.f, sizeof v->u.f);
     else if (type_hold_i(c->et)) *p = (uint8_t)v->u.i;
 }
 
@@ -4055,7 +3998,7 @@ static int KEXT dict_put(coll_t *c, const cell_t *key, const cell_t *val)
 
     if (!scalar_ok(key->type) || !scalar_ok(val->type))
         return vfail("type mismatch");
-    if (key->type == V_FLT && key->u.f != key->u.f) return vfail("bad expression");
+    if (is_flt(key->type) && key->u.f != key->u.f) return vfail("bad expression");
     if (c->n == 0) {
         c->kt = key->type;
         c->vt = val->type;
@@ -4220,7 +4163,7 @@ static int KEXT var_copy(const char *name, int nlen, char *out, int size)
     v.f = 0.f;
     v.s = NULL;
     if (type_hold_i(slot->type)) v.i = slot->u.i;
-    else if (slot->type == V_FLT) v.f = slot->u.f;
+    else if (is_flt(slot->type)) v.f = slot->u.f;
     else if (slot->type == V_STR) v.s = slot->u.s;
     val_text(&v, out, size);
     return 0;
@@ -4246,7 +4189,7 @@ static void KEXT var_list(void)
             kprintf("%s = empty\r\n", s_var[i].name);
         else if (s_var[i].type == V_NIL)
             kprintf("%s = none\r\n", s_var[i].name);
-        else if (s_var[i].type == V_FLT) {
+        else if (is_flt(s_var[i].type)) {
             ftoa(buf, (int)sizeof buf, s_var[i].u.f);
             kprintf("%s = %s\r\n", s_var[i].name, buf);
         } else if (is_ref(s_var[i].type)) {
@@ -4284,7 +4227,7 @@ static int KEXT load_var(const char *name, int nlen, val_t *out)
         return 0;
     }
     if (type_hold_i(slot->type)) out->i = slot->u.i;
-    else if (slot->type == V_FLT) out->f = slot->u.f;
+    else if (is_flt(slot->type)) out->f = slot->u.f;
     else if (slot->type == V_STR) {
         out->s = slot->u.s;
         str_retain(out->s);
@@ -4341,7 +4284,7 @@ enum {
 
 static int KEXT apply_num(int op, val_t *a, const val_t *b)
 {
-    int flt = (a->type == V_FLT || b->type == V_FLT);
+    int flt = (is_flt(a->type) || is_flt(b->type));
     int32_t ia, ib, ir;
     float fa, fb;
 
@@ -4482,6 +4425,7 @@ static int KEXT format_step(val_t *dst, const val_t *arg)
         }
         else if (*f == 'f') {
             float fv;
+            if (!BOARD_SHELL_FLOAT) return no_float();
             if (arg->type == V_STR || arg->type == V_EMPTY ||
                 arg->type == V_NIL || arg->type == V_BOOL || is_ref(arg->type))
                 return vfail("bad format");
@@ -4492,7 +4436,7 @@ static int KEXT format_step(val_t *dst, const val_t *arg)
             if (arg->type == V_STR || arg->type == V_EMPTY ||
                 arg->type == V_NIL || arg->type == V_BOOL || is_ref(arg->type))
                 return vfail("bad format");
-            if (arg->type == V_FLT) {
+            if (is_flt(arg->type)) {
                 if (arg->f > 2147483647.f || arg->f < -2147483648.f)
                     return vfail("integer overflow");
                 n = (int32_t)arg->f;
@@ -4634,12 +4578,20 @@ extern uint8_t __worker_stacks[];
 
 static uint32_t s_scratch_runs = 0xffffffffu;
 
-static shell_scratch_t *shell_scratch(void)
+static shell_scratch_t * KEXT shell_scratch(void)
 {
     shell_scratch_t *p = (shell_scratch_t *)(void *)SCRATCH_BYTES;
 
     /* A running program owns these bytes as thread stacks. */
     if (g_app.running) return p;
+    /* A loaded program that starts no threads may own them as its RAM.
+     * The shell needs them now, so that program is gone. */
+    if (app_holds_thread_stacks()) {
+        kprintf("%s unloaded: the shell needs the RAM it was using\r\n",
+                g_app.name[0] ? g_app.name : g_app.path);
+        app_unload();
+        s_scratch_runs = 0xffffffffu;
+    }
     if (s_scratch_runs != g_app.runs) {
         memset(p, 0, sizeof *p);
         s_scratch_runs = g_app.runs;
@@ -4846,7 +4798,7 @@ static int KEXT arg_get(int idx, val_t *out)
     out->type = a->type;
     if (is_ref(a->type)) out->i = a->u.i;
     else if (type_hold_i(a->type)) out->i = a->u.i;
-    else if (a->type == V_FLT) out->f = a->u.f;
+    else if (is_flt(a->type)) out->f = a->u.f;
     else if (a->type == V_STR) out->s = a->u.s;
     return 0;
 }
@@ -4877,7 +4829,7 @@ static void KEXT val_arg(fn_arg_t *a, const val_t *v)
 {
     a->type = v->type;
     if (is_ref(v->type) || type_hold_i(v->type)) a->u.i = v->i;
-    else if (v->type == V_FLT) a->u.f = v->f;
+    else if (is_flt(v->type)) a->u.f = v->f;
     else if (v->type == V_STR) a->u.s = v->s;
 }
 
@@ -4894,7 +4846,7 @@ static int KEXT ret_one(val_t *out, const fn_arg_t *a)
         return 0;
     }
     if (type_hold_i(a->type)) out->i = a->u.i;
-    else if (a->type == V_FLT) out->f = a->u.f;
+    else if (is_flt(a->type)) out->f = a->u.f;
     else if (a->type == V_STR) {
         out->s = a->u.s;
         str_retain(out->s);
@@ -5041,7 +4993,7 @@ static int KEXT conv_int(const fn_arg_t *a, val_t *out)
     }
     if (a->type == V_EMPTY || a->type == V_NIL || is_ref(a->type))
         return vfail("not a number");
-    if (a->type == V_FLT) {
+    if (is_flt(a->type)) {
         rc = flt_to_i32(a->u.f, &n);
         if (i32_fail(rc) != 0) return -1;
         out->i = n;
@@ -5050,6 +5002,7 @@ static int KEXT conv_int(const fn_arg_t *a, val_t *out)
     if (hex_prefix(str_text(a->u.s))) rc = parse_i32(str_text(a->u.s), 16, &n);
     else if (strchr(str_text(a->u.s), '.') != NULL) {
         float f;
+        if (!BOARD_SHELL_FLOAT) return no_float();
         rc = parse_f32(str_text(a->u.s), &f);
         if (rc == 0) rc = flt_to_i32(f, &n);
     } else rc = parse_i32(str_text(a->u.s), 10, &n);
@@ -5060,8 +5013,9 @@ static int KEXT conv_int(const fn_arg_t *a, val_t *out)
 
 static int KEXT conv_float(const fn_arg_t *a, val_t *out)
 {
+    if (!BOARD_SHELL_FLOAT) return no_float();
     out->type = V_FLT;
-    if (a->type == V_FLT) {
+    if (is_flt(a->type)) {
         out->f = a->u.f;
         return 1;
     }
@@ -5094,7 +5048,7 @@ static int KEXT conv_str(const fn_arg_t *a, val_t *out)
     if (is_ref(a->type)) v.i = a->u.i;
     else if (a->type == V_INT || a->type == V_BYTE || a->type == V_BOOL)
         v.i = a->u.i;
-    else if (a->type == V_FLT) v.f = a->u.f;
+    else if (is_flt(a->type)) v.f = a->u.f;
     else if (a->type == V_STR) {
         out->type = V_STR;
         out->s = a->u.s;
@@ -5125,7 +5079,7 @@ static int KEXT conv_hex(const fn_arg_t *a, val_t *out)
         out->i = n;
         return 1;
     }
-    if (a->type == V_FLT) {
+    if (is_flt(a->type)) {
         rc = flt_to_i32(a->u.f, &n);
         if (i32_fail(rc) != 0) return -1;
     } else n = a->u.i;
@@ -5165,7 +5119,7 @@ static int KEXT conv_bool(const fn_arg_t *a, val_t *out)
         out->i = a->u.i ? 1 : 0;
         return 1;
     }
-    if (a->type == V_FLT) {
+    if (is_flt(a->type)) {
         if (a->u.f != a->u.f) return vfail("not a number");
         out->i = (a->u.f == 0.f) ? 0 : 1;
         return 1;
@@ -5236,7 +5190,8 @@ static int KEXT conv_sincos(const fn_arg_t *a, int cos, val_t *out)
 {
     float x, y;
 
-    if (a->type == V_FLT) x = a->u.f;
+    if (!BOARD_SHELL_FLOAT) return no_float();
+    if (is_flt(a->type)) x = a->u.f;
     else if (a->type == V_INT || a->type == V_BYTE) x = (float)a->u.i;
     else return vfail("bad expression");
     if (shell_sincos(x, cos, &y) != 0) return vfail("not a number");
@@ -5686,7 +5641,7 @@ static void KEXT cell_from_arg(cell_t *c, const fn_arg_t *a)
     memset(c, 0, sizeof *c);
     c->type = a->type;
     if (type_hold_i(a->type)) c->u.i = a->u.i;
-    else if (a->type == V_FLT) c->u.f = a->u.f;
+    else if (is_flt(a->type)) c->u.f = a->u.f;
     else if (a->type == V_STR) c->u.s = a->u.s;
 }
 
@@ -5978,6 +5933,7 @@ static int KEXT file_num(const char *s, val_t *out)
         s++;
     }
     if (!digits) return -1;
+    if (dot && !BOARD_SHELL_FLOAT) return -3;
     if (dot) {
         float f = (float)ip + (float)frac / (float)scale;
         out->type = V_FLT;
@@ -6052,6 +6008,7 @@ static int KEXT file_read_num(int fd, val_t *out)
     buf[n] = '\0';
     rc = file_num(buf, out);
     if (rc == -2) return vfail("integer overflow");
+    if (rc == -3) return no_float();
     if (rc != 0) {
         if (file_back(fd, mark) != 0) return -1;
         out->type = V_EMPTY;
@@ -6165,13 +6122,13 @@ static int KEXT file_write(fn_arg_t *args, int argc, val_t *out)
             if (str_len(args[i].u.s) > 2147483647U)
                 return vfail("integer overflow");
             len = (int)str_len(args[i].u.s);
-        } else if (args[i].type == V_INT || args[i].type == V_FLT ||
+        } else if (args[i].type == V_INT || is_flt(args[i].type) ||
                    args[i].type == V_BOOL) {
             val_t v;
 
             memset(&v, 0, sizeof v);
             v.type = args[i].type;
-            if (args[i].type == V_FLT) v.f = args[i].u.f;
+            if (is_flt(args[i].type)) v.f = args[i].u.f;
             else v.i = args[i].u.i;
             val_text(&v, text, (int)sizeof text);
             p = text;
@@ -7262,6 +7219,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
 
     if (nlen == 2 && strncmp(name, "pi", 2) == 0) {
         if (argc != 0) return vfail("bad expression");
+        if (!BOARD_SHELL_FLOAT) return no_float();
         out->type = V_FLT;
         out->f = shell_pi();
         return 1;
@@ -7330,7 +7288,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         if (args[2].type == V_INT) {
             if (args[2].u.i < 0 || args[2].u.i > 100) return vfail("bad expression");
             duty = (uint32_t)args[2].u.i * 100U;
-        } else if (args[2].type == V_FLT) {
+        } else if (is_flt(args[2].type)) {
             float d = args[2].u.f;
             if (d < 0.f || d > 100.f) return vfail("bad expression");
             duty = (uint32_t)(d * 100.f + 0.5f);
@@ -7421,7 +7379,7 @@ static int KEXT cmd_as_fn(const char *name, fn_arg_t *args, int argc, val_t *out
         memset(&v, 0, sizeof v);
         v.type = args[i].type;
         if (type_hold_i(v.type) || is_ref(v.type)) v.i = args[i].u.i;
-        else if (v.type == V_FLT) v.f = args[i].u.f;
+        else if (is_flt(v.type)) v.f = args[i].u.f;
         val_text(&v, text, (int)sizeof text);
         n = (int)strlen(text) + 1;
         if (used + n > LINE_MAX) return vfail("string too long");
@@ -7786,6 +7744,7 @@ static int KEXT parse_primary(const char **pp, val_t *out)
             *pp = s;
             return 0;
         }
+        if (!BOARD_SHELL_FLOAT) return no_float();
         {
             float ip = 0.f, scale = 0.1f;
             int saw = 0, seen_dot = 0;
@@ -7870,7 +7829,7 @@ static int KEXT parse_unary(const char **pp, val_t *out)
             }
             return 0;
         }
-        if (out->type == V_FLT) {
+        if (is_flt(out->type)) {
             if (op == '-') out->f = -out->f;
             return 0;
         }
@@ -8033,7 +7992,9 @@ static int KEXT values_equal(const val_t *a, const val_t *b)
         if (a->type != b->type) return 0;
         return strcmp(str_text(a->s), str_text(b->s)) == 0;
     }
-    if (type_wide(a->type) && type_wide(b->type)) return a->i == b->i;
+    /* Without floats every value left here is an integer. */
+    if (!BOARD_SHELL_FLOAT || (type_wide(a->type) && type_wide(b->type)))
+        return a->i == b->i;
     {
         float x = type_wide(a->type) ? (float)a->i : a->f;
         float y = type_wide(b->type) ? (float)b->i : b->f;
@@ -8050,7 +8011,7 @@ static int KEXT values_order(const val_t *a, const val_t *b, int *cmp)
         a->type == V_BOOL || b->type == V_BOOL ||
         is_ref(a->type) || is_ref(b->type))
         return -1;
-    if (type_wide(a->type) && type_wide(b->type)) {
+    if (!BOARD_SHELL_FLOAT || (type_wide(a->type) && type_wide(b->type))) {
         *cmp = (a->i > b->i) - (a->i < b->i);
         return 0;
     }
@@ -8115,7 +8076,7 @@ static void KEXT var_store(shell_var_t *slot, const fn_arg_t *a)
     else if (slot->type == V_STR) str_release(slot->u.s);
     slot->type = a->type;
     if (is_ref(a->type) || type_hold_i(a->type)) slot->u.i = a->u.i;
-    else if (a->type == V_FLT) slot->u.f = a->u.f;
+    else if (is_flt(a->type)) slot->u.f = a->u.f;
     else if (a->type == V_STR) slot->u.s = a->u.s;
 }
 
@@ -9511,6 +9472,11 @@ void shell_poll_runtime(void)
                 strncmp(argv[0], "stop(", 5) != 0 &&
                 strncmp(argv[0], "help(", 5) != 0) {
                 kprintf("%s: a program is running - stop it first\r\n", argv[0]);
+                return;
+            }
+            if (app_holds_thread_stacks()) {
+                kprintf("%s: the program is using the shell's RAM - "
+                        "Ctrl-C stops it\r\n", argv[0]);
                 return;
             }
             hist_push(s_poll_line);

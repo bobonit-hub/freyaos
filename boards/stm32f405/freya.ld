@@ -16,7 +16,7 @@
  *   0x0800C000 .. 0x0800C3FF   system settings, two copies        (1 KiB)
  *   0x0800C400 .. 0x0800FFFF   rest of sector 3, unused
  *   0x08010000 .. 0x080DFFFF   program flash region, sectors 4..10 (832 KiB)
- *   0x080E0000 .. 0x080FFFFF   kernel extension (threads, SPI, XTEA,
+ *   0x080E0000 .. 0x080FFFFF   kernel extension (threads, SPI, Ascon,
  *                                  SPI flash, LittleFS, shell)    (128 KiB)
  *
  * The extension is a separate image.  It sits in sector 11 so that writing
@@ -73,7 +73,7 @@ SECTIONS
      * Threads, the switch, the console commands that talk to them, and
      * the SPI master and the cipher.  Claimed before .text so the
      * wildcard below does not take them.  The 48 KiB image has no room
-     * left for SPI or XTEA.
+     * left for SPI or the cipher.
      * A call across the two images is an ordinary branch.
      */
     .kext :
@@ -96,8 +96,6 @@ SECTIONS
         *board.o(.text.board_adc_read)
         *shell.o(.text.cmd_adc)
         *shell.o(.text.pin_fail*)
-        *shell.o(.text.cmd_crypt)
-        *crypt.o(.text .text.*)
         /* Ascon-AEAD128.  The 48 KiB image has no room for it. */
         *shell.o(.text.cmd_aead)
         *aead.o(.text .text.* .rodata .rodata.*)
@@ -171,8 +169,6 @@ SECTIONS
         *adc.o(.rodata .rodata.*)
         *shell.o(.rodata.cmd_adc*)
         *shell.o(.rodata.pin_fail*)
-        *shell.o(.rodata.cmd_crypt*)
-        *crypt.o(.rodata .rodata.*)
         *shell.o(.rodata.cmd_aead*)
         *shell.o(.rodata.cmd_compress*)
         *shell.o(.rodata.cmd_decompress*)

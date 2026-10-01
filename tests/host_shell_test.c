@@ -24,6 +24,14 @@ static int  checks, fails;
 static int  s_mounted;
 static int  s_installed;
 static int  s_erased;
+/* The middle value of a multiple return: a float where the shell has
+ * floats, an integer where it has not. */
+#if BOARD_SHELL_FLOAT
+#define T_MID "2.5"
+#else
+#define T_MID "25"
+#endif
+
 static int  s_unloaded;
 static int  s_stop_requested;
 static int  s_rebooted;
@@ -580,6 +588,12 @@ int thread_stop_name(const char *name)
         return FREYA_ERR_BUSY;
     return FREYA_ERR_ARG;
 }
+/* The loader's own test, so the shell can be checked against it. */
+int app_holds_thread_stacks(void)
+{
+    return g_app.loaded &&
+           g_app.ram_end > FREYA_APP_LOAD_ADDR + FREYA_APP_REGION_SIZE;
+}
 void app_unload(void)
 {
     s_unloaded = 1;
@@ -1043,25 +1057,6 @@ int main(void)
     rc = run("ping()");
     expect_rc("ping needs a host", rc, FREYA_EXIT_FAIL);
     expect_has("ping prints its usage", "usage: ping");
-    rc = run("help crypt");
-    expect_rc("help crypt succeeds", rc, 0);
-    expect_exact("help crypt shows call syntax",
-                 "crypt([\"key\", \"nonce\", \"hex\"])\r\n");
-    rc = run("crypt");
-    expect_rc("crypt with no arguments succeeds", rc, 0);
-    expect_has("crypt names the cipher", "XTEA-CTR");
-    rc = run("crypt 000102030405060708090a0b0c0d0e0f "
-             "4142434445464748 0000000000000000");
-    expect_rc("crypt of the published vector succeeds", rc, 0);
-    expect_exact("crypt prints the published ciphertext",
-                 "497df3d072612cb5\r\n");
-    rc = run("crypt 000102030405060708090A0B0C0D0E0F "
-             "4142434445464748 497df3d072612cb5");
-    expect_rc("crypt decrypts with the same command", rc, 0);
-    expect_exact("crypt restores the zeros", "0000000000000000\r\n");
-    rc = run("crypt 00 4142434445464748 00");
-    expect_rc("a short key fails", rc, FREYA_EXIT_FAIL);
-    expect_has("a short key prints the usage", "usage: crypt");
     rc = run("help aead");
     expect_rc("help aead succeeds", rc, 0);
 #if BOARD_AEAD
@@ -1122,7 +1117,7 @@ int main(void)
 
     rc = run("sysinfo");
     expect_rc("sysinfo succeeds", rc, 0);
-    expect_has("sysinfo reports the OS version", "Freya 3.2.0");
+    expect_has("sysinfo reports the OS version", "Freya 3.3.0");
     expect_has("sysinfo reports the firmware version", "firmware   : 3.1.1");
 #if defined(FREYA_BOARD_BLUEPILL)
     expect_has("sysinfo names the board", "Blue Pill");
@@ -1754,10 +1749,17 @@ int main(void)
     expect_exact("bitwise not", "-1\r\n");
 
     rc = run("set x 1 / 2");
+#if BOARD_SHELL_FLOAT
     rc = run("set x 7.5 / 2");
     expect_rc("float division succeeds", rc, 0);
     rc = run("echo $x");
     expect_exact("float division", "3.75\r\n");
+#else
+    rc = run("set x 7.5 / 2");
+    expect_rc("a float literal fails on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("a float literal says floats are not supported",
+               "floats are not supported");
+#endif
 
     rc = run("set s \"hello\" + \" \" + \"there\"");
     expect_rc("string concatenation succeeds", rc, 0);
@@ -1794,8 +1796,10 @@ int main(void)
     expect_exact("/= is false", "no\r\n");
     rc = run("if $s == \"8 hello there\"; echo yes; else; echo no; end");
     expect_exact("strings compare with ==", "yes\r\n");
+#if BOARD_SHELL_FLOAT
     rc = run("if 1 == 1.0; echo yes; else; echo no; end");
     expect_exact("an integer matches the same float", "yes\r\n");
+#endif
 
     rc = run("loop $n; echo .; end");
     expect_rc("loop of a variable succeeds", rc, 0);
@@ -1803,7 +1807,9 @@ int main(void)
 
     rc = run("set");
     expect_has("set lists the integer", "n = 8\r\n");
+#if BOARD_SHELL_FLOAT
     expect_has("set lists the float", "x = 3.75\r\n");
+#endif
     expect_has("set lists the string", "s = \"8 hello there\"\r\n");
 
     rc = run("unset s");
@@ -1857,6 +1863,7 @@ int main(void)
     rc = run("unset a");
     rc = run("unset b");
 
+#if BOARD_SHELL_FLOAT
     rc = run("set a array(1.5, 0.25, 2.0)");
     rc = run("set a[8] 4.5; set n len($a); echo $n; echo $a[8]");
     expect_rc("a float array grows past eight elements", rc, 0);
@@ -1870,6 +1877,7 @@ int main(void)
     expect_exact("sort orders floats", "[0.25, 1.5, 2]\r\n");
     rc = run("unset a");
     rc = run("unset b");
+#endif
 
     rc = run("set a array(\"c\", \"a\", \"b\")");
     rc = run("set s \"0123456789abcdef\" + \"0123456789abcdef\" + "
@@ -2012,8 +2020,10 @@ int main(void)
     rc = run("if $n < 2; echo hi; else; echo lo; end");
     expect_rc("if of < succeeds", rc, 0);
     expect_exact("< is false", "lo\r\n");
+#if BOARD_SHELL_FLOAT
     rc = run("if 1.5 > 1; echo y; else; echo n; end");
     expect_exact("a float compares with an integer", "y\r\n");
+#endif
     rc = run("if $n >< 8; echo y; else; echo n; end");
     expect_exact(">< is false when the numbers match", "n\r\n");
     rc = run("if $n >< 1; echo y; else; echo n; end");
@@ -2042,7 +2052,11 @@ int main(void)
     expect_has("division by zero is named", "division by zero");
     rc = run("set n 1.5 & 1");
     expect_rc("a float bit operation fails", rc, FREYA_EXIT_FAIL);
+#if BOARD_SHELL_FLOAT
     expect_has("bit operations want an integer", "not an integer");
+#else
+    expect_has("the float is refused first", "floats are not supported");
+#endif
 
     printf("functions\n");
     rc = run("fn");
@@ -2073,6 +2087,41 @@ int main(void)
     run("unset s");
     run("unset t");
 
+    /* A program that starts no threads may hold the thread stacks, where
+     * the interpreter keeps its scratch.  A call needs the scratch, so
+     * the shell unloads that program first and says so. */
+    g_app.loaded = 1;
+    g_app.flags = FREYA_APP_F_NOTHREADS;
+    g_app.ram_end = FREYA_APP_LOAD_ADDR + FREYA_APP_REGION_SIZE + 4U;
+    memcpy(g_app.name, "forth", 6);
+    s_unloaded = 0;
+    rc = run("set n add(2, 3); echo $n");
+    expect_rc("a call beside a program holding the thread stacks succeeds",
+              rc, 0);
+    expect_has("the shell says it unloaded that program", "forth unloaded");
+    expect_has("the call still returns its value", "5\r\n");
+    if (s_unloaded && !g_app.loaded) pass("the program holding the stacks was unloaded");
+    else fail("the program holding the stacks was not unloaded");
+
+    /* While such a program runs, its RAM must not be touched at all, so
+     * a script it asks for is refused. */
+    {
+        char cap[32];
+        int got = -1;
+
+        g_app.loaded = 1;
+        g_app.running = 1;
+        rc = shell_source_capture("/x.sh", "GET", "", cap, (int)sizeof cap, &got);
+        expect_rc("a script is refused to a program holding the thread stacks",
+                  rc, FREYA_ERR_BUSY);
+        expect_rc("nothing was captured", got, 0);
+        g_app.running = 0;
+        g_app.loaded = 0;
+    }
+    g_app.flags = 0;
+    g_app.ram_end = 0;
+    g_app.name[0] = '\0';
+
     rc = run("fn narg; return $0; end");
     rc = run("set n narg()");
     rc = run("echo $n");
@@ -2099,14 +2148,14 @@ int main(void)
     rc = run("echo $n");
     expect_exact("no return leaves 0", "0\r\n");
 
-    rc = run("fn id; if $1 /= 0; return 1, 2.5, \"ok\"; else; return 0, 0, \"no\"; end; end");
+    rc = run("fn id; if $1 /= 0; return 1, " T_MID ", \"ok\"; else; return 0, 0, \"no\"; end; end");
     expect_rc("a function may return several values", rc, 0);
     rc = run("set a, b, c id(1)");
     expect_rc("set stores each returned value", rc, 0);
     rc = run("echo $a");
     expect_exact("the first value is an integer", "1\r\n");
     rc = run("echo $b");
-    expect_exact("the second value is a float", "2.5\r\n");
+    expect_exact("the second value keeps its type", T_MID "\r\n");
     rc = run("echo $c");
     expect_exact("the third value is a string", "ok\r\n");
     rc = run("set a, b, c id(0)");
@@ -2119,7 +2168,7 @@ int main(void)
     rc = run("set a, b id(1)");
     expect_rc("fewer names than values succeeds", rc, 0);
     rc = run("echo $b");
-    expect_exact("the second name took the float", "2.5\r\n");
+    expect_exact("the second name took the middle value", T_MID "\r\n");
 
     rc = run("fn add; return 7, 8; end");
     rc = run("fn narg; return 1, add(); end");
@@ -2231,8 +2280,10 @@ int main(void)
     expect_rc("pwm start succeeds", rc, 0);
     rc = run("echo $n");
     expect_exact("pwm returns the rate", "1000\r\n");
+#if BOARD_SHELL_FLOAT
     rc = run("set n pwm(\"PB6\", 1000, 7.5)");
     expect_rc("pwm accepts a fractional duty", rc, 0);
+#endif
     rc = run("set n pwm(\"PB6\")");
     expect_rc("pwm stop succeeds", rc, 0);
     rc = run("echo $n");
@@ -2249,6 +2300,7 @@ int main(void)
     rc = run("set n int(\"-42\")");
     rc = run("echo $n");
     expect_exact("int keeps a leading minus", "-42\r\n");
+#if BOARD_SHELL_FLOAT
     rc = run("set n int(1.9)");
     rc = run("echo $n");
     expect_exact("int truncates a float toward zero", "1\r\n");
@@ -2258,6 +2310,12 @@ int main(void)
     rc = run("set n int(\"1.9\")");
     rc = run("echo $n");
     expect_exact("int of float text truncates", "1\r\n");
+#else
+    rc = run("set n int(\"1.9\")");
+    expect_rc("int of decimal text fails on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("int of decimal text says floats are not supported",
+               "floats are not supported");
+#endif
     rc = run("set n int(\"0x10\")");
     rc = run("echo $n");
     expect_exact("int parses a 0x string", "16\r\n");
@@ -2271,6 +2329,7 @@ int main(void)
     rc = run("echo $n");
     expect_exact("int accepts the most negative integer", "-2147483648\r\n");
 
+#if BOARD_SHELL_FLOAT
     rc = run("set x float(\"1.5\")");
     expect_rc("float of text succeeds", rc, 0);
     rc = run("echo $x");
@@ -2284,13 +2343,20 @@ int main(void)
     rc = run("set x float(\"0x10\")");
     rc = run("echo $x");
     expect_exact("float of a hex string is that integer", "16\r\n");
+#else
+    rc = run("set x float(2)");
+    expect_rc("float() fails on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("float() says floats are not supported", "floats are not supported");
+#endif
 
     rc = run("set s str(255)");
     rc = run("echo $s");
     expect_exact("str renders an integer", "255\r\n");
+#if BOARD_SHELL_FLOAT
     rc = run("set s str(1.5)");
     rc = run("echo $s");
     expect_exact("str renders a float", "1.5\r\n");
+#endif
     rc = run("set s str(\"ab\")");
     rc = run("echo $s");
     expect_exact("str leaves a string as it is", "ab\r\n");
@@ -2310,12 +2376,14 @@ int main(void)
     rc = run("set n hex($s)");
     rc = run("echo $n");
     expect_exact("hex of that text is the same integer", "-1\r\n");
+#if BOARD_SHELL_FLOAT
     rc = run("set s hex(255.9)");
     rc = run("echo $s");
     expect_exact("hex truncates a float first", "ff\r\n");
     rc = run("set n int(float(hex(\"10\")))");
     rc = run("echo $n");
     expect_exact("int, float and hex compose", "16\r\n");
+#endif
 
     rc = run("set n int(\"zz\")");
     expect_rc("int of junk fails", rc, FREYA_EXIT_FAIL);
@@ -2348,9 +2416,11 @@ int main(void)
     expect_rc("byte() succeeds", rc, 0);
     rc = run("echo $b");
     expect_exact("byte() keeps 255", "255\r\n");
+#if BOARD_SHELL_FLOAT
     rc = run("set b byte(1.9)");
     rc = run("echo $b");
     expect_exact("byte() truncates toward zero", "1\r\n");
+#endif
     rc = run("set b byte(\"0x10\")");
     rc = run("echo $b");
     expect_exact("byte() parses a hex string", "16\r\n");
@@ -2373,8 +2443,10 @@ int main(void)
     expect_exact("bitwise not of a byte is an integer", "-1\r\n");
     rc = run("if 1b == 1; echo yes; else; echo no; end");
     expect_exact("a byte matches the same integer", "yes\r\n");
+#if BOARD_SHELL_FLOAT
     rc = run("if 1b == 1.0; echo yes; else; echo no; end");
     expect_exact("a byte matches the same float", "yes\r\n");
+#endif
     rc = run("if 1b < 2; echo yes; else; echo no; end");
     expect_exact("a byte orders with an integer", "yes\r\n");
     rc = run("set s \"%d\" 65b");
@@ -2449,9 +2521,11 @@ int main(void)
     rc = run("set b bool(2)");
     rc = run("echo $b");
     expect_exact("bool of a nonzero integer is true", "true\r\n");
+#if BOARD_SHELL_FLOAT
     rc = run("set b bool(0.0)");
     rc = run("echo $b");
     expect_exact("bool of zero float is false", "false\r\n");
+#endif
     rc = run("set b bool(\"true\")");
     rc = run("echo $b");
     expect_exact("bool of the text true", "true\r\n");
@@ -2565,6 +2639,7 @@ int main(void)
     rc = run("set n srand(1.5)");
     expect_rc("srand refuses a float", rc, FREYA_EXIT_FAIL);
     printf("trigonometry\n");
+#if BOARD_SHELL_FLOAT
     rc = run("set x pi()");
     expect_rc("pi() succeeds", rc, 0);
     rc = run("echo $x");
@@ -2601,6 +2676,14 @@ int main(void)
     rc = run("set x pi(1)");
     expect_rc("pi takes no argument", rc, FREYA_EXIT_FAIL);
     expect_has("pi wants nothing", "bad expression");
+#else
+    rc = run("set x pi()");
+    expect_rc("pi() fails on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("pi() says floats are not supported", "floats are not supported");
+    rc = run("set x sin(0)");
+    expect_rc("sin() fails on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("sin() says floats are not supported", "floats are not supported");
+#endif
     rc = run("fn sin; return 1; end");
     expect_rc("sin cannot be defined", rc, FREYA_EXIT_FAIL);
     expect_has("fn refuses sin", "bad name");
@@ -2725,7 +2808,9 @@ int main(void)
     expect_rc("time wants six fields", rc, FREYA_EXIT_FAIL);
     rc = run("set n year(1.5)");
     expect_rc("a field refuses a float", rc, FREYA_EXIT_FAIL);
+#if BOARD_SHELL_FLOAT
     expect_has("a field wants an integer", "bad expression");
+#endif
     rc = run("fn now; return 1; end");
     expect_rc("now cannot be defined", rc, FREYA_EXIT_FAIL);
     expect_has("fn refuses now", "bad name");
@@ -2894,8 +2979,13 @@ int main(void)
     rc = run("set n write($x, \"1.5\")");
     rc = run("set n seek($x, \"set\", 0)");
     rc = run("set x read($x, \"*n\")");
+#if BOARD_SHELL_FLOAT
     rc = run("echo $x");
     expect_exact("read *n of a decimal is a float", "1.5\r\n");
+#else
+    expect_rc("read *n of a decimal fails on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("read *n of a decimal says floats are not supported", "floats are not supported");
+#endif
 
     rc = run("set x open(\"/n.txt\", \"w\")");
     rc = run("set n write($x, \"ab\")");

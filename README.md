@@ -6,7 +6,7 @@ metal on the STM32F411CEU6 "Black Pill", the STM32F103C8T6 "Blue Pill",
 and the STM32F405xx.
 No HAL and no CMSIS: Freya brings the chip up itself. LittleFS, on the SPI flash, is the one vendored library. Freya
 talks to the hardware through its own register definitions, and lives
-entirely in internal flash. This is release 3.2.0, "Poltergeist". The notes
+entirely in internal flash. This is release 3.3.0, "Poltergeist". The notes
 are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 Freya gives you a serial console, a real FAT filesystem on an SD card, and the
@@ -25,7 +25,7 @@ cycle and needs no card at all.
  |_|  |_|  \___|\__, |\__,_|
                  __/ |
                 |___/
-Freya 3.2.0 "Poltergeist" for STM32F411CEU6
+Freya 3.3.0 "Poltergeist" for STM32F411CEU6
 96 MHz, power-on reset. Type 'help()'.
 
 [boot] clocks     : HSE 25 MHz crystal + PLL, sysclk 96 MHz, flash 3 WS
@@ -45,7 +45,7 @@ freya:
 | Crystal | 25 MHz | 8 MHz | 8 MHz |
 | Flash | 512 KiB | 128 KiB | 1 MiB |
 | SRAM | 128 KiB | 20 KiB | 128 KiB |
-| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM, or 24 KiB flash | 56 KiB RAM, or 832 KiB flash |
+| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash |
 | Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` |
 
 Everything a board needs lives in `boards/<board>`: its register header, its
@@ -58,7 +58,7 @@ The Blue Pill boots the same way, on three quarters of the clock and a fifth of
 the RAM:
 
 ```
-Freya 3.2.0 "Poltergeist" for STM32F103C8T6
+Freya 3.3.0 "Poltergeist" for STM32F103C8T6
 72 MHz, power-on reset. Type 'help'.
 
 [boot] clocks     : HSE 8 MHz crystal + PLL, sysclk 72 MHz, flash 2 WS
@@ -119,11 +119,6 @@ Freya 3.2.0 "Poltergeist" for STM32F103C8T6
   cryptography and credentials stay on the C6. While Wi-Fi is on the C6
   owns SPI2; turning it off returns the bus to the SPI API
   ([docs/network.md](docs/network.md)).
-* Encrypts and decrypts with XTEA in CTR mode. The key is 16 bytes and the
-  nonce is 8; the same call does both, and a message longer than 4096 bytes
-  is handed over in pieces. `crypt` at the console and `samples/crypt` do
-  the same thing. The Blue Pill has room for no cipher at all
-  ([docs/crypt.md](docs/crypt.md)).
 * Compresses and decompresses with heatshrink LZSS, the stream the host
   `heatshrink -w 8 -l 4` writes. A program hands over a buffer;
   `compress` and `decompress` at the console stream a file of any size.
@@ -255,7 +250,7 @@ make clean
 
 `RTC=ds3231` and `FIRMWARE_VERSION=` combine with `BOARD=`. Leave `RTC`
 unset and the driver is left out of the image. The banner and the first
-line of `sysinfo()` print the OS version from this documentation, 3.2.0
+line of `sysinfo()` print the OS version from this documentation, 3.3.0
 "Poltergeist"; `FIRMWARE_VERSION` does not change that. The firmware
 version defaults to the value hardcoded in `src/freya.h`; an override must
 have `major.minor.patch` numeric form. `sysinfo()` prints that firmware
@@ -390,14 +385,13 @@ are in [docs/console-commands.md](docs/console-commands.md).
 | `ping("host" [, timeout_ms])` | resolve and ping a host through the ESP32-C6 |
 | `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | bounded HTTP request through the ESP32-C6 |
 | `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one and talk to it |
-| `crypt(["key", "nonce", "hex"])` | XTEA-CTR: the same call encrypts and decrypts (not on the Blue Pill) |
 | `aead(["-d",] "key", "nonce", "in", "out")` | Ascon-AEAD128: seal a file, or open it with `-d` (not on the Blue Pill) |
 | `compress(["in", "out"])` | pack a file with heatshrink LZSS (not on the Blue Pill) |
 | `decompress(["in", "out"])` | unpack a file `compress` or the host tool wrote (not on the Blue Pill) |
 | `sleep(ms)` | wait that many milliseconds; Ctrl-C returns early |
 | `yield()` | let a script thread run |
 | `source("file"\|"@flash")` | run a shell script from a file, or from program flash |
-| `set`, `unset`, `$name` | integer, float, string, array and dict variables |
+| `set`, `unset`, `$name` | integer, float (not on the Blue Pill), string, array and dict variables |
 | `fn`, `return` | a function of 0..32 arguments and 1..32 values |
 | `if` / `else` / `end`, `loop <count\|condition>` | run commands when a status is 0, or repeat them |
 | `uptime()`, `led("on"\|"off"\|"blink")`, `echo([value [, ...]])`, `clear()`, `reboot()` | the usual small change |
@@ -496,8 +490,7 @@ minimal starting point, `samples/log` writes one line at each log level,
 pin one (`samples/irq/README.md`), `samples/pwm` fades an LED and sweeps a
 servo (`samples/pwm/README.md`), `samples/i2c` scans a bus, `samples/spi`
 loops SPI back to itself (`samples/spi/README.md`), `samples/w1`
-reads a 1-Wire thermometer (`samples/w1/README.md`), `samples/crypt`
-checks XTEA-CTR and encrypts a file (`samples/crypt/README.md`),
+reads a 1-Wire thermometer (`samples/w1/README.md`),
 `samples/compress` packs and unpacks a file with heatshrink
 (`samples/compress/README.md`),
 `samples/flashprobe`
@@ -558,7 +551,7 @@ The service table (`include/freya_api.h`) gives a program console I/O and
 `open`, `read`, `write`, `seek`, `close`, `unlink`, `mkdir`, `rename`,
 `opendir`, `readdir`, `closedir`, the exit status of the run before it:
 `exit`, `last_exit`, `exit_reason_str`, the pins, the timers, PWM and the
-interrupts, XTEA in CTR mode (`crypt`), Ascon-AEAD128 (`aead_encrypt`,
+interrupts, Ascon-AEAD128 (`aead_encrypt`,
 `aead_decrypt`), heatshrink LZSS (`compress`,
 `decompress`), the civil clock (`rtc_get`, `rtc_set`, which also
 writes the DS3231 when one is fitted; not on the Blue Pill, whose
@@ -728,7 +721,9 @@ function; `add(2, 3)` in an expression passes up to 32 arguments.
 `return` leaves from anywhere in the body with 1 to 32 values, and a
 call used as one value yields the first. `int`, `float`, `byte`, `bool`, `str` and `hex` convert a
 value between an integer, a byte (0 to 255, written `65b`), a bool
-(`true` and `false`), a float, text and hexadecimal.
+(`true` and `false`), a float, text and hexadecimal. The Blue Pill shell
+has no floats: there `7.5`, `float()`, `sin()`, `cos()`, `pi()` and `%f`
+say `floats are not supported on this board`.
 `empty` is the empty value and `none` is a different value with no number. `rand()` is
 the ANSI C 1989 example generator, 0 to 32767, and `srand(seed)` sets
 its state. `pi()` is the circle constant, and `sin(angle)` and
@@ -773,8 +768,8 @@ On the Blue Pill 7 KiB is all a 20 KiB SRAM can spare for a program, while
 most of the 128 KiB of flash sits idle. So the board reserves 24 KiB
 from page 48 through page 71 for one program image. The next 55 KiB holds the
 kernel extension (the thread scheduler, the shell's script interpreter,
-its variables and functions, XMODEM, the SPI master, the cipher and the
-virtual machine), which is flashed as its own image. The size register on
+its variables and functions, XMODEM and the SPI master), which is flashed
+as its own image. The size register on
 these parts often still reads 64 KiB; the region runs through the 128 KiB
 anyway. The F4 boards put the same commands to a different use: their
 region is every sector between the kernel and the kernel extension, 320 KiB
@@ -830,6 +825,18 @@ every app and sample both ways from the same objects: `hello.bin` to `load`,
 spends the 7 KiB RAM window entirely on its variables, and gets 24 KiB
 for code instead of 7 KiB. On the Black Pill the RAM window is still 56 KiB and
 the flash image may be up to 320 KiB; on the STM32F405, 832 KiB.
+
+A program that starts no threads may have their stacks too. On the Blue
+Pill the two 1 KiB thread stacks follow the window, so such a program gets
+9 KiB of RAM instead of 7. It is listed in `NOTHREADS` in the Makefile,
+which sets `FREYA_APP_F_NOTHREADS` in its header and lets the linker
+script allow the larger window; forth is built that way. `thread_create()`
+returns `FREYA_ERR_UNSUPPORTED` to it. The shell keeps its scratch in the
+same stacks, so while such a program's RAM reaches into them a script it
+asks for is refused, and if the shell needs the scratch while the program
+is only loaded it unloads the program. `run("forth.bin")` works as one
+command. On the F4 boards the thread stacks are below the window, so the
+flag only refuses threads.
 
 Executing from flash needs nothing special — an address in `0x0800xxxx` is
 fetchable exactly the way one in `0x2000xxxx` is. Writing to flash does: neither
@@ -906,7 +913,7 @@ heap takes whatever `.bss` leaves behind:
 
 ```
 0x08000000  +--------------------------------+
-            |  Freya kernel (~47.5 KiB used) |  48 KiB, pages 0..47
+            |  Freya kernel (~47.9 KiB used) |  48 KiB, pages 0..47
 0x0800C000  +--------------------------------+
             |  program flash region          |  24 KiB, pages 48..71
             |                                |  installed from the card
@@ -921,8 +928,8 @@ heap takes whatever `.bss` leaves behind:
 0x20001C00  +--------------------------------+  are 6.4 KiB of it
             |  user program region (7 KiB)   |  image + .bss loaded from
 0x20003800  +--------------------------------+  card, or just .data + .bss
-            |  thread stacks, 2 x 1 KiB      |
-0x20004000  +--------------------------------+
+            |  thread stacks, 2 x 1 KiB      |  or the RAM of a program
+0x20004000  +--------------------------------+  that starts no threads
             |  shell stack (2560 B)          |  the program's main thread
 0x20004A00  +--------------------------------+
             |  interrupt stack (1536 B)      |
@@ -952,7 +959,6 @@ is measured rather than guessed).
 | `src/i2c.c` | I2C master, on the buses the board header names |
 | `src/ds3231.c` | optional DS3231 clock, built with `RTC=ds3231`; SCL is PB6, SDA is PB7 |
 | `src/w1.c` | 1-Wire master, standard speed, on a pin a program names |
-| `src/crypt.c` | XTEA in CTR mode, for a program and for `crypt`; not built into the Blue Pill |
 | `src/aead.c`, `third_party/ascon/` | Ascon-AEAD128, for a program and for `aead`; not built into the STM32F103. Keys come from `tools/aead` |
 | `src/lz.c`, `third_party/heatshrink/` | heatshrink LZSS, for a program and for `compress` / `decompress`; not built into the Blue Pill |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
@@ -968,7 +974,7 @@ is measured rather than guessed).
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
 | `rust/freya/` | Rust bindings to the program ABI, checked against `freya_api.h` when they build ([rust/README.md](rust/README.md)) |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `crypt`, `aead`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic11`, and `rustdemo` in Rust |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `aead`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic11`, and `rustdemo` in Rust |
 | `qbe/` | QBE target and cproc patch for the virtual machine, and `as.py`, the assembler that makes an image |
 | `basic/` | BASIC-11 style interpreter for the FPU boards: the interpreter, its `float` arithmetic, the PC build it is tested on |
 | `tests/` | host side tests |
@@ -979,7 +985,6 @@ is measured rather than guessed).
 | `docs/spi.md` | the SPI master API, the pins, and the `spi` command |
 | `docs/network.md` | ESP32-C6 wiring, Wi-Fi commands and the asynchronous network API |
 | `docs/w1.md` | the 1-Wire master API, the pin, and the `w1` command |
-| `docs/crypt.md` | the XTEA-CTR API and the `crypt` command |
 | `docs/aead.md` | the Ascon-AEAD128 API, the `aead` command and `tools/aead` |
 | `docs/compress.md` | the heatshrink API and the `compress` / `decompress` commands |
 | `docs/sd-slot.txt` | SD slot wiring for the Blue Pill and the Black Pill |
@@ -1060,11 +1065,6 @@ PB13/PB14/PB15 on either board. The 1-Wire
 ROM search and its CRC-8 get the same treatment, against device ids planted
 on the host: that walk is the part that would be quietly wrong.
 
-XTEA is checked the same way. `src/crypt.c` is compiled unchanged and the
-published block vector pins the 32 rounds and the big-endian words. CTR is
-then checked against that block: a split message, a counter that carries,
-and a piece that starts in the middle of a block.
-
 Ascon-AEAD128 is checked against the NIST SP 800-232 known answers.
 `src/aead.c` and the reference in `third_party/ascon` are compiled
 unchanged, an empty message, a byte with associated data and a 16-byte
@@ -1120,7 +1120,6 @@ the kernel compares them at boot, and this compares them at build time.
 79 checks, 0 failures     forth
 26 checks, 0 failures     exit status
 168 checks, 0 failures    pins, timers, PWM, I2C, 1-Wire and SPI
-42 checks, 0 failures     XTEA
 136 checks, 0 failures    PDP-11 virtual machine
 330204 checks, 0 failures BASIC float floating point; 11 programs natively
 39 checks, 0 failures     program image layout
@@ -1154,7 +1153,8 @@ ALL TESTS PASSED
   and erases each unit again afterwards. The kernel's region is a build-time
   constant, not whatever the probe found.
 * On the Blue Pill the 20 KiB of SRAM is the real limit, not the 128 KiB of
-  flash: a RAM program gets 7 KiB rather than 56, and the heap is a few
+  flash: a RAM program gets 7 KiB rather than 56 (9 KiB if it starts no
+  threads), and the heap is a few
   hundred bytes instead of sixty KiB. Installing a program into flash is the answer to the
   first half of that, not the second — such a program gets 24 KiB of code, but
   the heap is still small and the main thread still uses the shell stack.

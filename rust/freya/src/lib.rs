@@ -51,7 +51,7 @@ mod thread;
 
 pub use fs::{Dir, DirEntry, File, FsError, OpenFlags, SeekFrom};
 pub use hw::{
-    adc_read, adc_temp, adc_vref, aead_decrypt, aead_encrypt, compress, crypt, decompress,
+    adc_read, adc_temp, adc_vref, aead_decrypt, aead_encrypt, compress, decompress,
     w1_crc, Edge, I2c, Mode, Pin, Pwm, Spi, SpiMode, Timer, TimerId, W1,
 };
 pub use thread::{spawn, thread_exit, thread_self, thread_sleep, thread_yield, ThreadId};

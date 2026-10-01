@@ -116,9 +116,8 @@ header points at.
   closed when dropped. Also `adc_read`, `adc_temp` and `adc_vref`.
 * **Threads.** `spawn(c"name", priority, f)`, `thread_sleep`,
   `thread_yield`, `thread_self` and `thread_exit`.
-* **Ciphers and compression.** `crypt` (XTEA-CTR, in place),
-  `aead_encrypt` and `aead_decrypt` (Ascon-AEAD128), `compress` and
-  `decompress` (heatshrink).
+* **Ciphers and compression.** `aead_encrypt` and `aead_decrypt`
+  (Ascon-AEAD128), `compress` and `decompress` (heatshrink).
 * **Everything else.** Wi-Fi, sockets, TLS, the web service, the script
   runner, settings and the PDP-11 go through `api.raw()`. That's the C table
   exactly as `sys::freya_api_t` declares it, plus every constant from the

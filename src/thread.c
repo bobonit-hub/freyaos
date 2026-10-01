@@ -259,6 +259,8 @@ int thread_create(const char *name, int priority, freya_thread_fn fn, void *arg)
 
     if (app_in_handler()) return FREYA_ERR_HANDLER;
     if (!g_app.running || !s_current) return FREYA_ERR_HANDLER;
+    /* Such a program may be using the stacks as its own RAM. */
+    if (g_app.flags & FREYA_APP_F_NOTHREADS) return FREYA_ERR_UNSUPPORTED;
     if (!fn || !name_ok(name)) return FREYA_ERR_ARG;
     if (priority < FREYA_PRIO_MIN || priority > FREYA_PRIO_MAX)
         return FREYA_ERR_ARG;

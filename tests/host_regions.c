@@ -19,6 +19,7 @@ int main(void)
 {
     printf("app_load_addr %lu\n",   (unsigned long)FREYA_APP_LOAD_ADDR);
     printf("app_region_size %lu\n", (unsigned long)FREYA_APP_REGION_SIZE);
+    printf("app_nothreads_size %lu\n", (unsigned long)FREYA_APP_NOTHREADS_SIZE);
     printf("abi_version %lu\n",     (unsigned long)FREYA_ABI_VERSION);
     printf("hdr_v1_size %lu\n",     (unsigned long)FREYA_APP_HDR_V1_SIZE);
     printf("hdr_v2_size %lu\n",     (unsigned long)FREYA_APP_HDR_V2_SIZE);

@@ -223,7 +223,7 @@ the middle of the heap's or FAT's own bookkeeping, or spin on a bus — so
 **the kernel refuses them from a handler** rather than let a program corrupt
 the card or the heap: `malloc()` returns `NULL`, the file calls return an
 error, `api->log()` writes to the console instead of the card, and an I2C,
-SPI, 1-Wire or ADC call returns `FREYA_ERR_HANDLER`. `w1_crc()` and `crypt()` are arithmetic and may be called. `compress()` and `decompress()`
+SPI, 1-Wire or ADC call returns `FREYA_ERR_HANDLER`. `w1_crc()` is arithmetic and may be called. `compress()` and `decompress()`
 allocate and run for a while, and are refused with `FREYA_ERR_HANDLER`.
 `pin_irq_attach`, `pin_irq_detach`, `timer_open` and `timer_close`
 are refused too, with `FREYA_ERR_HANDLER`: they rearrange the tables the

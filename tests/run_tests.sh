@@ -237,7 +237,7 @@ $CC $CFLAGS -c src/shell.c -o "$OUT/shell_host.o" \
     -D__kernel_flash_end=freya_test_kernel_flash_end
 # shellcheck disable=SC2086
 $CC $CFLAGS $HS_CFLAGS -Ithird_party/ascon tests/host_shell_test.c \
-    "$OUT/shell_host.o" src/print.c src/crypt.c src/cksum.c src/lz.c src/aead.c \
+    "$OUT/shell_host.o" src/print.c src/cksum.c src/lz.c src/aead.c \
     third_party/ascon/aead.c $HS_SRC -o "$OUT/hostshell"
 "$OUT/hostshell" || status=1
 
@@ -309,14 +309,6 @@ echo "================= pins, timers, PWM, ADC, I2C, 1-Wire and SPI ============
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_irq_test.c -o "$OUT/hostirq"
 "$OUT/hostirq" || status=1
-
-# XTEA in CTR mode.  The published block vector, and the counter a
-# split message has to keep, compiled unchanged from src/crypt.c.
-echo
-echo "================= XTEA ================="
-# shellcheck disable=SC2086
-$CC $CFLAGS tests/host_crypt_test.c src/crypt.c -o "$OUT/hostcrypt"
-"$OUT/hostcrypt" || status=1
 
 # heatshrink.  The stream the host tool writes, round trips, the bound,
 # and every refusal, compiled unchanged from src/lz.c and the library.
@@ -548,6 +540,33 @@ else
     check "the RAM image is still linked for the RAM region" \
           "$(macro app_load_addr)" "$(fld "$ram" 8)"
     check "the RAM image does not set the XIP flag" 0 "$(fld "$ram" 48)"
+
+    # A program that starts no threads may run on into their stacks.  On
+    # the Blue Pill they follow the RAM window; on the F4 boards they are
+    # below it, so there the larger size is the window itself.
+    check "the kernel and the header agree on the program RAM window" \
+          "$(macro app_region_size)" \
+          "$(( $(sym "$kelf" __app_ram_end) - $(sym "$kelf" __app_ram_start) ))"
+    if [ "$BOARD" = bluepill ]; then
+        check "the thread stacks follow the program RAM window" \
+              "$(sym "$kelf" __app_ram_end)" "$(sym "$kelf" __worker_stacks)"
+        check "a program without threads may use the window and their stacks" \
+              "$(( $(macro app_load_addr) + $(macro app_nothreads_size) ))" \
+              "$(( $(sym "$kelf" __worker_stacks) + \
+                   $(sym "$kelf" __worker_count) * $(sym "$kelf" __worker_stack_size) ))"
+    else
+        check "a program without threads has the same window" \
+              "$(macro app_region_size)" "$(macro app_nothreads_size)"
+    fi
+    check "hello does not say it starts no threads" 0 "$(( $(fld "$bin" 48) & 2 ))"
+    forth="build/$BOARD/samples/forth.xip.bin"
+    check "forth says it starts no threads" 2 "$(( $(fld "$forth" 48) & 2 ))"
+    check "forth's .bss fits the window a program without threads has" \
+          1 "$(( $(fld "$forth" 24) <= $(macro app_load_addr) + $(macro app_nothreads_size) ))"
+    if [ "$BOARD" = bluepill ]; then
+        check "forth's .bss runs on into the thread stacks" \
+              1 "$(( $(fld "$forth" 24) > $(macro app_load_addr) + $(macro app_region_size) ))"
+    fi
 
     # Simulate the loader's exact relocation pass.  flashprobe contains the
     # program-flash base both as a pointer and as a numeric safety boundary;
