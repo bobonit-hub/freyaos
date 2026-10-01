@@ -114,7 +114,8 @@ void app_abort_trampoline(void)
 {
     irq_disable();                      /* current may not be the shell yet */
     g_app.running = 0;                  /* close the window for a second kill */
-    g_app_stop_reason = FREYA_STOP_CTRLC;
+    if (g_app_stop_reason != FREYA_STOP_EXIT)   /* exit() from a handler */
+        g_app_stop_reason = FREYA_STOP_CTRLC;
     freya_longjmp(s_return_ctx, 1);
 }
 
@@ -316,9 +317,13 @@ static int api_should_stop(void) { return s_stop_requested; }
 
 static void api_yield(void)
 {
+    /* A handler cannot unwind the run from interrupt context; once it
+     * returns, the stop is taken in thread mode. */
+    if (s_in_handler) return;
     if (s_stop_requested) {
         irq_disable();
-        g_app_stop_reason = FREYA_STOP_CTRLC;
+        if (g_app_stop_reason != FREYA_STOP_EXIT)
+            g_app_stop_reason = FREYA_STOP_CTRLC;
         freya_longjmp(s_return_ctx, 1);
     }
     thread_yield();
@@ -328,6 +333,16 @@ static void api_yield(void)
  * status is settled, so exit(-1) and exit(255) end up alike. */
 static void api_exit(int code)
 {
+    /* From a pin or timer handler, unwinding straight into the shell would
+     * leave the core in handler mode for good.  The handler is unwound out
+     * of its interrupt instead, and the stop it requests ends the run from
+     * thread mode, still as an exit. */
+    if (s_in_handler) {
+        s_exit_code = code;
+        g_app_stop_reason = FREYA_STOP_EXIT;
+        app_request_stop();
+        app_handler_abort();
+    }
     irq_disable();
     s_exit_code = code;
     g_app_stop_reason = FREYA_STOP_EXIT;

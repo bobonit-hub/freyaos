@@ -229,10 +229,8 @@ fault_entry:
     ite   eq
     mrseq r0, msp
     mrsne r0, psp
-    /* A thread that used the FPU has s0-s15 and two words under r0. */
-    tst   lr, #0x10
-    it    eq
-    addeq r0, r0, #72
+    /* An extended (FPU) frame keeps r0-xPSR at the bottom, with s0-s15,
+     * FPSCR and a pad stacked above them, so r0 points at it either way. */
     b     freya_fault_handler
 
 /* PendSV lives in src/switch.S: it switches threads and aborts a run. */
