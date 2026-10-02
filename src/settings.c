@@ -4,7 +4,10 @@
  * Two copies.  Each begins with FREYA_SETTINGS_MAGIC.  The last named
  * field is followed by a checksum of every other byte in the copy.  The
  * name-to-offset map is fixed: autostart, loglevel, ramdump, cksum,
- * password.
+ * password, and on a board with the ESP32-C6 link syslog and
+ * syslog_server (the address word, then the port word, so one write sets
+ * both).  Those two come after the checksum word, in bytes the checksum
+ * covers, so they need no new layout.
  *
  * Every get or set reads both copies.  A copy is blank when it is still
  * erased, valid when the marker and the checksum agree, and corrupt
@@ -37,6 +40,10 @@ static const struct {
     { "ramdump",   FREYA_SET_RAMDUMP_OFF,   4 },
     { "cksum",     FREYA_SET_CKSUM_OFF,     4 },
     { "password",  FREYA_SET_PASSWORD_OFF,  FREYA_PASSWORD_LEN },
+#if BOARD_ESP_LINK
+    { "syslog",      FREYA_SET_SYSLOG_OFF,      4 },
+    { "syslog_server", FREYA_SET_SYSLOG_ADDR_OFF, 8 },  /* address, port */
+#endif
 };
 
 #ifdef FREYA_HOST

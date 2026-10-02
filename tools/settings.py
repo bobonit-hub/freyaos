@@ -3,7 +3,9 @@
 
 The layout matches include/freya_api.h.  Each copy is 64 bytes, starts
 with the marker, and stores a checksum of every other byte.  The names
-and offsets are fixed.
+and offsets are fixed.  The remote syslog fields come after the checksum
+word; the checksum has always covered those bytes, so a copy written
+before they existed is valid and reads them as erased.
 """
 import struct
 import sys
@@ -20,6 +22,8 @@ OFF_CKSUM = 16  # firmware control sum
 OFF_PASSWORD = 20
 PASSWORD_LEN = 8
 OFF_SUM = 28  # checksum of this copy
+OFF_SYSLOG = 32  # remote syslog on flag
+OFF_SYSLOG_SERVER = 36  # IPv4 address word, then UDP port word
 
 NAMES = {
     "autostart": (OFF_AUTOSTART, 4),
@@ -27,6 +31,8 @@ NAMES = {
     "ramdump": (OFF_RAMDUMP, 4),
     "cksum": (OFF_CKSUM, 4),
     "password": (OFF_PASSWORD, PASSWORD_LEN),
+    "syslog": (OFF_SYSLOG, 4),
+    "syslog_server": (OFF_SYSLOG_SERVER, 8),
 }
 
 
@@ -116,6 +122,18 @@ def self_test():
         sys.exit("settings: a single bad copy was not repaired")
     if not is_valid(one[:BLOCK]) or one[:BLOCK] != one[BLOCK:BLOCK * 2]:
         sys.exit("settings: repair did not rewrite both copies")
+    for name, (off, length) in NAMES.items():
+        if off + length > BLOCK or OFF_SUM < off + length <= OFF_SUM + 4 or \
+                off < OFF_SUM + 4 <= off + length:
+            sys.exit(f"settings: {name} overlaps the checksum or the copy")
+    kept = bytearray(area)
+    struct.pack_into("<II", kept, OFF_SYSLOG_SERVER, 0xC0A80001, 514)
+    seal(kept)
+    kept[BLOCK:BLOCK * 2] = kept[:BLOCK]
+    if stamp(kept, 0x22222222, None) != "ok" or \
+            struct.unpack_from("<II", kept, OFF_SYSLOG_SERVER) != \
+            (0xC0A80001, 514):
+        sys.exit("settings: a firmware stamp lost the syslog server")
     print("settings self-test ok")
 
 

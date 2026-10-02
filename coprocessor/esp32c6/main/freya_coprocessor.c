@@ -53,7 +53,7 @@ enum {
     OP_PING_RESULT, OP_SOCKET, OP_CLOSE, OP_SOCK_CONNECT, OP_BIND, OP_LISTEN,
     OP_ACCEPT, OP_SEND, OP_RECV, OP_SENDTO, OP_RECVFROM, OP_TLS_CONNECT,
     OP_HTTP_START, OP_HTTP_INFO, OP_HTTP_READ, OP_HTTP_CLOSE, OP_TERM,
-    OP_WEB
+    OP_WEB, OP_SYSLOG
 };
 
 typedef struct __attribute__((packed)) {
@@ -105,6 +105,8 @@ typedef struct {
 
 static const char *TAG = "freya-c6";
 static int sockets[MAX_SOCKETS] = { -1, -1, -1, -1 };
+/* Remote syslog sends from this socket, not from one of the four above. */
+static int syslog_fd = -1;
 static tls_slot_t tls_slots[MAX_SOCKETS];
 static wifi_ap_record_t *scan_records;
 static uint16_t scan_count;
@@ -314,6 +316,22 @@ static int endpoint(const uint8_t *data, uint16_t length, size_t offset,
     return 0;
 }
 
+/* OP_SYSLOG: server address and port, then one datagram. */
+static int syslog_send(const uint8_t *data, uint16_t length)
+{
+    struct sockaddr_in peer;
+
+    if (endpoint(data, length, 0, &peer) || length <= 6) return ARG;
+    if (syslog_fd < 0) {
+        syslog_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (syslog_fd < 0) return IO;
+        fcntl(syslog_fd, F_SETFL, fcntl(syslog_fd, F_GETFL) | O_NONBLOCK);
+    }
+    ssize_t n = sendto(syslog_fd, data + 6, length - 6, 0,
+                       (struct sockaddr *)&peer, sizeof(peer));
+    return n < 0 ? errno_status() : (int)n;
+}
+
 static esp_err_t http_event(esp_http_client_event_t *event)
 {
     if (event->event_id == HTTP_EVENT_ON_HEADER) {
@@ -498,6 +516,8 @@ static int dispatch(uint16_t op, const uint8_t *data, uint16_t length,
         return wifi_ensure_started() == ESP_OK ? 0 : IO;
     if (op == OP_WIFI_OFF) {
         for (int i = 0; i < MAX_SOCKETS; ++i) close_slot(i);
+        if (syslog_fd >= 0) close(syslog_fd);
+        syslog_fd = -1;
         esp_wifi_disconnect();
         if (wifi_started) esp_wifi_stop();
         wifi_started = false;
@@ -509,6 +529,7 @@ static int dispatch(uint16_t op, const uint8_t *data, uint16_t length,
         return term_server_handle(data, length, reply, reply_length);
     if (op == OP_WEB)
         return web_server_handle(data, length, reply, reply_length);
+    if (op == OP_SYSLOG) return syslog_send(data, length);
     if (op == OP_CREDENTIALS) return write_credentials(data, length);
     if (op == OP_CONNECT) {
         char ssid[33], password[65];

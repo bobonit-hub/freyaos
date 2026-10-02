@@ -815,6 +815,40 @@ int ping_start(const char *h, uint32_t t)
 int ping_result(freya_ping_result_t *r)
 { (void)r; return FREYA_ERR_UNSUPPORTED; }
 int net_poll(uint32_t timeout) { (void)timeout; return FREYA_ERR_UNSUPPORTED; }
+
+#if BOARD_ESP_LINK
+/* Remote syslog: the settings as plain variables.  The parser takes the
+ * one address the test uses; tests/host_syslog_test.c covers the real one. */
+static int s_syslog_on, s_syslog_writes;
+static uint32_t s_syslog_addr;
+static uint16_t s_syslog_port = FREYA_SYSLOG_PORT;
+int syslog_enabled(void) { return s_syslog_on; }
+uint32_t syslog_server(uint16_t *port)
+{
+    if (port) *port = s_syslog_port;
+    return s_syslog_addr;
+}
+int syslog_set_enabled(int on)
+{
+    if (on && !s_syslog_addr) return FREYA_ERR_ARG;
+    s_syslog_on = on;
+    s_syslog_writes++;
+    return 0;
+}
+int syslog_set_server(uint32_t addr, uint16_t port)
+{
+    s_syslog_addr = addr;
+    s_syslog_port = port;
+    s_syslog_writes++;
+    return 0;
+}
+int syslog_parse_ipv4(const char *s, uint32_t *addr)
+{
+    if (strcmp(s, "10.0.0.5") != 0) return -1;
+    *addr = 0x0A000005UL;
+    return 0;
+}
+#endif
 int cmd_curl(int argc, char **argv)
 { (void)argc; (void)argv; return FREYA_ERR_UNSUPPORTED; }
 
@@ -1057,6 +1091,42 @@ int main(void)
     rc = run("ping()");
     expect_rc("ping needs a host", rc, FREYA_EXIT_FAIL);
     expect_has("ping prints its usage", "usage: ping");
+#if BOARD_ESP_LINK
+    rc = run("help syslog");
+    expect_rc("help syslog succeeds", rc, 0);
+    expect_exact("help syslog shows the call",
+                 "syslog([\"on\"|\"off\"|\"server\", \"a.b.c.d\" [, port]])\r\n");
+    rc = run("syslog()");
+    expect_rc("syslog status succeeds", rc, 0);
+    expect_has("syslog starts off with no server",
+               "remote syslog is off, server not set (UDP");
+    rc = run("syslog(\"on\")");
+    expect_rc("syslog on with no server fails", rc, FREYA_EXIT_FAIL);
+    expect_has("syslog on asks for the server first", "set the server first");
+    if (s_syslog_writes == 0) pass("a refused syslog on writes nothing");
+    else fail("a refused syslog on writes nothing");
+    rc = run("syslog(\"server\", \"logs.lan\")");
+    expect_rc("a syslog hostname fails", rc, FREYA_EXIT_FAIL);
+    expect_has("a syslog hostname prints the usage", "usage: syslog");
+    rc = run("syslog(\"server\", \"10.0.0.5\", 70000)");
+    expect_rc("a syslog port over 65535 fails", rc, FREYA_EXIT_FAIL);
+    rc = run("syslog(\"server\", \"10.0.0.5\", 0)");
+    expect_rc("a syslog port of 0 fails", rc, FREYA_EXIT_FAIL);
+    rc = run("syslog(\"server\", \"10.0.0.5\")");
+    expect_rc("a syslog server is stored", rc, 0);
+    expect_has("the server takes the default port", "server 10.0.0.5:514");
+    rc = run("syslog(\"server\", \"10.0.0.5\", 5514)");
+    expect_rc("a syslog server with a port is stored", rc, 0);
+    expect_has("the server reports its port", "server 10.0.0.5:5514");
+    rc = run("syslog(\"on\")");
+    expect_rc("syslog on succeeds", rc, 0);
+    expect_has("syslog reports on", "remote syslog is on");
+    rc = run("syslog(\"off\")");
+    expect_rc("syslog off succeeds", rc, 0);
+    expect_has("syslog reports off", "remote syslog is off, server 10.0.0.5:5514");
+    rc = run("syslog(\"maybe\")");
+    expect_rc("a bad syslog action fails", rc, FREYA_EXIT_FAIL);
+#endif
     rc = run("help aead");
     expect_rc("help aead succeeds", rc, 0);
 #if BOARD_AEAD

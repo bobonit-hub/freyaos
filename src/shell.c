@@ -2977,6 +2977,63 @@ fail:
     kprintf("ping: error %d\r\n", rc);
     return -1;
 }
+
+#define SYSLOG_USAGE "syslog [\"on\"|\"off\"|\"server\", \"a.b.c.d\" [, port]]"
+
+static void KEXT print_syslog(void)
+{
+    uint16_t port;
+    uint32_t addr = syslog_server(&port);
+
+    kprintf("remote syslog is %s, server ", onoff(syslog_enabled()));
+    if (addr) {
+        print_ipv4(addr);
+        kprintf(":%u", port);
+    } else {
+        kprintf("not set");
+    }
+    kprintf(" (UDP, settings at 0x%08x)\r\n",
+            (unsigned)(FREYA_SETTINGS_ADDR + FREYA_SET_SYSLOG_OFF));
+}
+
+/* Remote syslog: the on flag and the server are system settings. */
+static int KEXT cmd_syslog(int argc, char **argv)
+{
+    uint32_t addr = 0, port = FREYA_SYSLOG_PORT;
+    int rc, on = 0, server;
+
+    if (argc == 1) {
+        print_syslog();
+        return 0;
+    }
+    server = strcmp(argv[1], "server") == 0;
+    if (server) {
+        if (argc < 3 || argc > 4 || syslog_parse_ipv4(argv[2], &addr) != 0 ||
+            !addr || addr == 0xFFFFFFFFUL ||
+            (argc == 4 && (str_to_u32(argv[3], &port) != 0 || !port ||
+                           port > 0xFFFFU)))
+            return usage(SYSLOG_USAGE);
+    } else if (argc != 2 || parse_onoff(argv[1], &on) != 0) {
+        return usage(SYSLOG_USAGE);
+    }
+    if (busy_running("syslog")) return -1;
+    if (!server && on && !syslog_server(NULL)) {
+        kprintf("syslog: set the server first: syslog(\"server\", \"a.b.c.d\")\r\n");
+        return -1;
+    }
+
+    kprintf("syslog: console input is dropped while flash is busy\r\n");
+    uart_drain_tx();
+    rc = server ? syslog_set_server(addr, (uint16_t)port)
+                : syslog_set_enabled(on);
+    uart_rx_flush();
+    if (rc != FLASH_OK) {
+        kprintf("syslog: %s\r\n", flash_err_str(rc));
+        return -1;
+    }
+    print_syslog();
+    return 0;
+}
 #else
 static int KEXT cmd_network_unsupported(int argc, char **argv)
 {
@@ -2995,8 +3052,9 @@ typedef struct {
     const char *help;
 } command_t;
 
-/* The help of the two file coders is placed by name so the linker can
- * keep it in the kernel extension beside the code. */
+/* The help of the two file coders, the cipher and remote syslog is placed
+ * by name so the linker can keep it in the kernel extension beside the
+ * code. */
 #if BOARD_COMPRESS
 static const char s_help_compress[]
     __attribute__((section(".rodata.cmd_compress.help"))) =
@@ -3009,6 +3067,11 @@ static const char s_help_decompress[]
 static const char s_help_aead[]
     __attribute__((section(".rodata.cmd_aead.help"))) =
     "aead([\"-d\",] \"key\", \"nonce\", \"in\", \"out\")";
+#endif
+#if BOARD_ESP_LINK
+static const char s_help_syslog[]
+    __attribute__((section(".rodata.cmd_syslog.help"))) =
+    "syslog([\"on\"|\"off\"|\"server\", \"a.b.c.d\" [, port]])";
 #endif
 
 static const command_t s_cmds[] = {
@@ -3059,6 +3122,9 @@ static const command_t s_cmds[] = {
     { "spi",      cmd_spi,      "spi([bus, hz [, mode] | bus, \"off\" | bus, \"x\", ...])" },
     { "wifi",     cmd_wifi,     "wifi([\"on\"|\"off\"|\"status\"|\"scan\"|\"connect\"|\"disconnect\"|\"credentials\", ...])" },
     { "ping",     cmd_ping,     "ping(\"host\" [, timeout_ms])" },
+#if BOARD_ESP_LINK
+    { "syslog",   cmd_syslog,   s_help_syslog },
+#endif
     { "curl",     cmd_curl,     "curl([\"--basic\", \"user:password\",] [\"--compressed\",] [\"--data\", text,] [\"--output\", file,] [\"--user-agent\", text,] [\"--insecure\",] [\"--verbose\",] \"http[s]://...\")" },
     { "w1",       cmd_w1,       "w1([\"pin\" [, \"off\"|\"reset\"|\"search\"]])" },
     /* A board that builds none of the cipher or the coder does not

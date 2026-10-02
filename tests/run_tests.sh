@@ -268,6 +268,18 @@ $CC $CFLAGS tests/host_settings_test.c src/settings.c src/cksum.c -o "$OUT/hosts
 "$OUT/hostsettings" || status=1
 
 echo
+echo "================= remote syslog ================="
+# Only the boards with the ESP32-C6 link build it.
+if [ "$BOARD" != bluepill ]; then
+    # shellcheck disable=SC2086
+    $CC $CFLAGS tests/host_syslog_test.c src/settings.c src/cksum.c src/print.c \
+        -o "$OUT/hostsyslog"
+    "$OUT/hostsyslog" || status=1
+else
+    echo "  --    the Blue Pill has no network, so no remote syslog"
+fi
+
+echo
 echo "================= network framing ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_esp_link_test.c src/string.c -o "$OUT/hostnetframe"
@@ -463,6 +475,12 @@ else
           "$(macro password_off)" 20
     check "the terminal password is eight bytes" \
           "$(macro password_len)" 8
+    check "the remote syslog flag follows the settings checksum" \
+          "$(macro syslog_off)" 32
+    check "the syslog server address follows the syslog flag" \
+          "$(macro syslog_addr_off)" 36
+    check "the syslog server port follows its address" \
+          "$(macro syslog_port_off)" 40
     check "the system settings are 128-byte aligned" \
           0 "$(( $(macro settings_addr) % 128 ))"
     check "the program flash region is 128-byte aligned" \

@@ -55,6 +55,10 @@
  * auto-start flag, the default log level, the ram-dump-on-BusFault flag,
  * the firmware control sum and the terminal password (eight bytes).  An
  * erased password, eight 0xFF bytes, leaves the terminal open.  The
+ * remote syslog fields follow the checksum word, in bytes that the copy's
+ * checksum has always covered, so a copy written before they existed is
+ * still valid and reads them as erased: the on flag, the server's IPv4
+ * address and its UDP port.  The
  * firmware sum covers the kernel image and the kernel extension; it lives
  * outside both, so those images do not include it.
  *
@@ -79,6 +83,9 @@
 #define FREYA_SET_CKSUM_OFF      16U            /* firmware control sum */
 #define FREYA_SET_PASSWORD_OFF   20U
 #define FREYA_SET_SUM_OFF        28U            /* checksum of this copy */
+#define FREYA_SET_SYSLOG_OFF     32U            /* remote syslog on flag */
+#define FREYA_SET_SYSLOG_ADDR_OFF 36U           /* server IPv4, host order */
+#define FREYA_SET_SYSLOG_PORT_OFF 40U           /* server UDP port */
 /* Names the rest of the kernel already uses.  Offsets are within one copy. */
 #define FREYA_AUTOSTART_ADDR     FREYA_SETTINGS_ADDR
 #define FREYA_AUTOSTART_SIZE     FREYA_SETTINGS_SIZE
@@ -135,7 +142,9 @@
     ((FREYA_SET_SUM_OFF + 4U) > FREYA_SETTINGS_BLOCK) || \
     ((FREYA_SET_PASSWORD_OFF + FREYA_PASSWORD_LEN) > FREYA_SET_SUM_OFF) || \
     (FREYA_SET_PASSWORD_OFF < (FREYA_SET_CKSUM_OFF + 4U)) || \
-    (FREYA_PASSWORD_OFF % 4U)
+    (FREYA_PASSWORD_OFF % 4U) || \
+    (FREYA_SET_SYSLOG_OFF < (FREYA_SET_SUM_OFF + 4U)) || \
+    ((FREYA_SET_SYSLOG_PORT_OFF + 4U) > FREYA_SETTINGS_BLOCK)
 #error "system settings copies do not fit in the reserved flash"
 #endif
 

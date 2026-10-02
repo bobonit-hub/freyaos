@@ -580,6 +580,7 @@ void app_unload(void);
 /* Auto-start slot words; erased flash reads 0xFFFFFFFF (flag off). */
 #define FREYA_AUTOSTART_MAGIC  0x31415946UL   /* 'F','Y','A','1' */
 #define FREYA_RAMDUMP_MAGIC    0x50444D52UL   /* 'R','M','D','P' */
+#define FREYA_SYSLOG_MAGIC     0x474C5953UL   /* 'S','Y','L','G' */
 #define FREYA_SCRIPT_MAGIC 0x54524353UL   /* 'S','C','R','T' */
 /* Text follows the header and is ended by a NUL.  'length' is the
  * text, not counting that NUL. */
@@ -659,6 +660,25 @@ void        klog(int level, const char *fmt, ...);
 int         log_get_level(void);
 int         log_set_level(int level);          /* persists when flash allows */
 const char *log_level_str(int level);
+
+/* ------------------------------------------------------ remote syslog */
+#if BOARD_ESP_LINK
+/* klog() lines as RFC 3164 datagrams to one IPv4 server, over UDP through
+ * the ESP32-C6.  The flag, the address and the port are system settings.
+ * An erased port is FREYA_SYSLOG_PORT; an erased address is no server. */
+#define FREYA_SYSLOG_PORT  514U
+int      syslog_enabled(void);
+uint32_t syslog_server(uint16_t *port);         /* 0 when none is set     */
+int      syslog_set_enabled(int on);            /* 0 = FLASH_OK, FREYA_ERR_ARG
+                                                 * to turn on with no server */
+int      syslog_set_server(uint32_t addr, uint16_t port);   /* 0 = FLASH_OK */
+int      syslog_parse_ipv4(const char *s, uint32_t *addr);  /* 0 when valid */
+void     syslog_send(int level, const rtc_time_t *t, const char *msg, int len);
+void     syslog_flush(void);                    /* queued lines, if any    */
+/* One ESP_OP_SYSLOG request (address, port, datagram), waited for.
+ * FREYA_ERR_AGAIN when the link is carrying another request. */
+int      net_syslog_send(const void *req, uint16_t len);
+#endif
 
 /* ----------------------------------------------------------- ram dump */
 /* Write SRAM to /freya.ram after a BusFault if a card is up and the

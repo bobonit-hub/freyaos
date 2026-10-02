@@ -51,6 +51,9 @@ int esp_link_response(uint16_t op, void *p, uint16_t *n)
     } else if (op == ESP_OP_SEND) {
         status = last_len - 2;
         if (n) *n = 0;
+    } else if (op == ESP_OP_SYSLOG) {
+        status = last_len - 6;
+        if (n) *n = 0;
     } else if (op == ESP_OP_TLS_CONNECT) {
         status = tls_attempts++ ? 0 : FREYA_ERR_AGAIN;
         if (n) *n = 0;
@@ -111,6 +114,7 @@ int uart_term_peek(uint8_t *dst, int max) { (void)dst; (void)max; return 0; }
 void uart_term_drop(int n) { (void)n; }
 void uart_term_disconnected(void) { }
 void uart_term_rx_push(uint8_t c) { (void)c; }
+void syslog_flush(void) { }
 int app_password_enabled(void) { return 0; }
 void app_password_read(uint8_t *out) { if (out) memset(out, 0, 8); }
 
@@ -214,6 +218,24 @@ int main(void)
         check(rc == 0, "the end of the body is a zero-length read");
         web_post = 0;
     }
+
+#if BOARD_ESP_LINK
+    {
+        static const uint8_t req[] = { 0x14, 0x01, 0xA8, 0xC0, 0x02, 0x02,
+                                       '<', '1', '4', '>', 'h', 'i' };
+
+        rc = net_syslog_send(req, sizeof req);
+        check(rc == 6 && last_op == ESP_OP_SYSLOG && last_len == sizeof req &&
+              memcmp(last_data, req, sizeof req) == 0,
+              "a syslog datagram is one waited-for request");
+        check(wifi_status(&st) == FREYA_ERR_AGAIN,
+              "a program request goes out");
+        check(net_syslog_send(req, sizeof req) == FREYA_ERR_AGAIN,
+              "syslog waits while a program request is in flight");
+        net_poll(1);
+        check(wifi_status(&st) == 0, "the program request still completes");
+    }
+#endif
 
     g_app.running = 1;
     FINISH(net_socket(FREYA_AF_INET, FREYA_SOCK_DGRAM, FREYA_IPPROTO_UDP), rc);

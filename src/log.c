@@ -13,6 +13,9 @@
  * With no card (or a volume that is not mounted) the file backend is not
  * used: a stub writes the same line to the console and never touches SPI
  * or FAT, so a flash-only program can still log.
+ *
+ * On a board with the ESP32-C6 link the message also goes to remote
+ * syslog when that is on (src/syslog.c), whichever backend took the line.
  */
 #include "freya.h"
 #include "fat.h"
@@ -148,7 +151,7 @@ void klog(int level, const char *fmt, ...)
     line_t line;
     rtc_time_t t;
     va_list ap;
-    int n, cap;
+    int n, cap, head;
 
     if (s_busy)
         return;
@@ -166,6 +169,7 @@ void klog(int level, const char *fmt, ...)
         n = 0;
     if (n >= (int)sizeof(buf))
         n = (int)sizeof(buf) - 1;
+    head = n;
 
     cap = (int)sizeof(buf) - 3;         /* leave room for \r\n and NUL */
     if (n < cap) {
@@ -177,6 +181,11 @@ void klog(int level, const char *fmt, ...)
         va_end(ap);
         n = MIN(line.pos, cap);
     }
+#if BOARD_ESP_LINK && !defined(FREYA_HOST)
+    syslog_send(level, &t, buf + head, n - head);
+#else
+    (void)head;
+#endif
     buf[n++] = '\r';
     buf[n++] = '\n';
     buf[n] = '\0';

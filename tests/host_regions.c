@@ -38,6 +38,9 @@ int main(void)
     printf("sum_off %lu\n",         (unsigned long)FREYA_SET_SUM_OFF);
     printf("password_off %lu\n",    (unsigned long)FREYA_PASSWORD_OFF);
     printf("password_len %lu\n",    (unsigned long)FREYA_PASSWORD_LEN);
+    printf("syslog_off %lu\n",      (unsigned long)FREYA_SET_SYSLOG_OFF);
+    printf("syslog_addr_off %lu\n", (unsigned long)FREYA_SET_SYSLOG_ADDR_OFF);
+    printf("syslog_port_off %lu\n", (unsigned long)FREYA_SET_SYSLOG_PORT_OFF);
 #endif
     return 0;
 }

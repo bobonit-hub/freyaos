@@ -52,6 +52,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `spi([bus, hz [, mode] \| bus, "off" \| bus, "x", ...])` | list the SPI buses, or open one and shift bytes |
 | `wifi(["on"\|"off"\|"status"\|"scan"\|"connect"\|"disconnect"\|"credentials", ...])` | control the ESP32-C6 Wi-Fi coprocessor |
 | `ping("host" [, timeout_ms])` | resolve and ping a host through the ESP32-C6 |
+| `syslog(["on"\|"off"\|"server", "a.b.c.d" [, port]])` | show, set or switch remote syslog over UDP through the ESP32-C6 (not on the Blue Pill) |
 | `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | make a bounded HTTP request through the ESP32-C6 |
 | `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one, check presence, or walk the ROMs |
 | `aead(["-d",] "key", "nonce", "in", "out")` | Ascon-AEAD128: seal a file, or open it with `-d` (not on the Blue Pill) |
@@ -597,3 +598,14 @@ They cannot be read back, but the command remains in shell history.
 `ping(host [, timeout_ms])` resolves and pings on the C6 while checking
 Ctrl-C between transport polls. These calls report unsupported on the Blue
 Pill. See [network.md](network.md) for wiring and program API details.
+
+`syslog()` prints whether remote syslog is on and the server it sends to.
+`syslog("server", "192.168.1.10")` stores the server's IPv4 address with
+UDP port 514; `syslog("server", "192.168.1.10", 5514)` stores another
+port. `syslog("on")` and `syslog("off")` switch it; `on` needs a server.
+The flag, the address and the port are kept in the system settings, the
+same 64-byte copies that hold the auto-start flag, so they survive a
+reset. Each change writes flash and drops console input while it runs,
+like `autostart`. Every line the file log keeps is then also sent to the
+server. See [network.md](network.md#remote-syslog). The Blue Pill has no
+`syslog` command.

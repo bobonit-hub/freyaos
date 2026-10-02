@@ -49,6 +49,7 @@ enum {
     ESP_OP_HTTP_CLOSE,
     ESP_OP_TERM,
     ESP_OP_WEB,
+    ESP_OP_SYSLOG,
     ESP_OP_EVENT = 0x8000
 };
 

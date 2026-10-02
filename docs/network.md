@@ -83,6 +83,48 @@ payload length, signed status and CRC-32. A request and its response use
 separate SPI transactions. Duplicate request sequences return a cached
 response, preventing retries from repeating a send or another side effect.
 
+## Remote syslog
+
+Every line the file log keeps (`klog`, the shell's `log()`, a program's
+`api->log`, a program exit) can also go to one syslog server over UDP.
+There is no TCP or TLS transport.
+
+```text
+syslog("server", "192.168.1.10")         # port 514
+syslog("server", "192.168.1.10", 5514)
+syslog("on")
+syslog()
+remote syslog is on, server 192.168.1.10:5514 (UDP, settings at 0x0800c020)
+syslog("off")
+```
+
+The server is an IPv4 address; a hostname is refused, so no DNS lookup
+ever delays a log line. The on flag, the address and the port are system
+settings, stored in both copies next to the auto-start flag. They take
+the 12 bytes after each copy's checksum word, which that checksum has
+always covered, so settings written by an older kernel stay valid and read
+remote syslog as off. A kernel-only `make flash` keeps them, like the
+password.
+
+Each line is one RFC 3164 datagram,
+`<PRI>Mmm dd hh:mm:ss freya freya: message`. The facility is user (1).
+The severity follows the log level: error 3, warn 4, info 6, debug 7.
+The time is Freya's clock, not UTC unless the clock is set to UTC. The
+log level filters the remote copy too: a line `loglevel` drops is not
+sent either.
+
+Lines are sent only while the C6 transport is open (`wifi("on")`). Before
+that, and while the C6 is not associated, they are not sent. A program's
+request to the C6 that is waiting for its reply is left alone. A line
+logged meanwhile waits in a four-line queue and is sent on the next log
+line or the next console poll, and a full queue drops its oldest line. A
+line logged from an interrupt handler is not sent. UDP gives no delivery
+guarantee and Freya does not retry.
+
+The C6 sends from a UDP socket of its own (`ESP_OP_SYSLOG`). It does not
+use one of the four program sockets, and `wifi("off")` closes it. A C6
+firmware older than this op refuses the request, and the line is dropped.
+
 ## Terminal
 
 The coprocessor listens on TCP port 8022 for one console session. TLS ends

@@ -436,6 +436,31 @@ int net_http_close(void)
     return rpc(ESP_OP_HTTP_CLOSE, NULL, 0, NULL, &n);
 }
 
+/*
+ * One remote syslog datagram, waited for here like a terminal exchange.
+ * It is not one of rpc()'s calls, so a program's request in flight is
+ * left alone: FREYA_ERR_AGAIN and the caller keeps the line.
+ */
+int net_syslog_send(const void *req, uint16_t len)
+{
+    uint16_t n = 0;
+    int rc;
+
+    if (!esp_link_is_open()) return FREYA_ERR_UNSUPPORTED;
+    if (s_rpc_op) return FREYA_ERR_AGAIN;
+    rc = esp_link_submit(ESP_OP_SYSLOG, req, len);
+    if (rc) return rc;
+    for (;;) {
+        rc = esp_link_poll();
+        if (rc != 0) break;
+#ifndef FREYA_HOST
+        __wfi();
+#endif
+    }
+    if (rc < 0) return rc;
+    return esp_link_response(ESP_OP_SYSLOG, NULL, &n);
+}
+
 #define TERM_CHUNK 240
 
 void term_pump(void)
@@ -450,6 +475,7 @@ void term_pump(void)
     uint32_t now;
 
     if (busy || !esp_link_is_open() || s_rpc_op) return;
+    syslog_flush();
     now = sys_ticks();
     if (!uart_term_pending() && (int32_t)(now - next_ms) < 0) return;
 

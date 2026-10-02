@@ -75,7 +75,9 @@ transaction. Duplicate sequence numbers return the cached response, so a
 lost FETCH is safe to retry.
 
 Socket descriptors and payloads are bounded to four sockets and 480 bytes.
-All C6 sockets are nonblocking. WLAN and socket readiness changes raise an
+Remote syslog (`OP_SYSLOG`: IPv4 address, port, then the datagram) sends
+from a fifth UDP socket that only the firmware holds; `OP_WIFI_OFF` closes
+it. All C6 sockets are nonblocking. WLAN and socket readiness changes raise an
 event through the same READY/fetch handshake. Wi-Fi uses DHCP; no
 static-address RPC is provided in this version.
 

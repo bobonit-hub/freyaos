@@ -615,7 +615,9 @@ as itself. The stored line is `YYYY-MM-DD HH:MM:SS LEVEL message` in
 `/freya.log`. A level quieter than the current one writes nothing, and
 so does `loglevel` off; the call still succeeds. A long message is cut
 so the line fits the file log. The call returns 0. `off` and 0 are not
-levels a line can have.
+levels a line can have. With remote syslog on (`syslog("on")`, see
+[console-commands.md](console-commands.md#network-coprocessor)) the same
+message is also sent to the syslog server.
 
 ```
 freya: log("info", "ready")
