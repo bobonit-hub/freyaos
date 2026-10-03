@@ -33,8 +33,15 @@
 /* Every other sample is board independent; this one is the exception, and
  * a third board means a third section below rather than a default. */
 #if !defined(FREYA_BOARD_BLUEPILL) && !defined(FREYA_BOARD_BLACKPILL) && \
-    !defined(FREYA_BOARD_STM32F405)
+    !defined(FREYA_BOARD_STM32F405) && !defined(FREYA_BOARD_BLACKPILL2)
 #error "flashprobe drives the flash controller itself and needs a board it knows"
+#endif
+
+/* The AT32F403A's controller is the F103's, so the two share a path. */
+#if defined(FREYA_BOARD_BLUEPILL) || defined(FREYA_BOARD_BLACKPILL2)
+#define FLASH_F1        1
+#else
+#define FLASH_F1        0
 #endif
 
 #define FLASH_ORIGIN        0x08000000UL
@@ -107,6 +114,56 @@ static const char *err_str(uint32_t bits)
 }
 
 #endif /* FREYA_BOARD_BLUEPILL */
+
+/* ================================================ the AT32F403A == */
+#if defined(FREYA_BOARD_BLACKPILL2)
+
+#define MCU_NAME        "AT32F403A"
+#define FLASHSIZE_REG   (*(const volatile uint16_t *)0x1FFFF7E0UL)
+#define DECLARED_KIB    1024u
+#define SPIN_LIMIT      50000000UL          /* 50 ms page erase at 240 MHz */
+
+/* The F103's controller once per 512 KiB bank: the second set of
+ * registers is 0x40 bytes above the first, and the address picks which
+ * one an operation goes through. */
+#define BANK2_BASE      0x08080000UL
+static flash_regs_t *s_fl = (flash_regs_t *)0x40022000UL;
+#define FL              s_fl
+#define FL_BANK1        ((flash_regs_t *)0x40022000UL)
+#define FL_BANK2        ((flash_regs_t *)0x40022040UL)
+
+static void bank_select(uint32_t addr)
+{
+    s_fl = (addr >= BANK2_BASE) ? FL_BANK2 : FL_BANK1;
+}
+
+#define SR_BSY          (1UL << 0)
+#define SR_PGERR        (1UL << 2)
+#define SR_WRPRTERR     (1UL << 4)
+#define SR_EOP          (1UL << 5)
+#define SR_ERRORS       (SR_PGERR | SR_WRPRTERR)
+
+#define CR_PG           (1UL << 0)
+#define CR_PER          (1UL << 1)
+#define CR_STRT         (1UL << 6)
+#define CR_LOCK         (1UL << 7)
+
+/* 2 KiB pages in both banks. */
+static uint32_t unit_size(uint32_t addr)  { (void)addr; return 2048u; }
+static uint32_t unit_base(uint32_t addr)  { return addr & ~2047UL; }
+static int      unit_erasable(uint32_t addr) { (void)addr; return 1; }
+
+static const char *err_str(uint32_t bits)
+{
+    if (bits & ERR_TIMEOUT)  return "controller timeout";
+    if (bits & SR_WRPRTERR)  return "write protected";
+    if (bits & SR_PGERR)     return "programming error";
+    return "no error reported";
+}
+
+#else
+#define bank_select(addr) ((void)(addr))
+#endif /* FREYA_BOARD_BLACKPILL2 */
 
 /* ========================================== the STM32F411 and F405 == */
 #if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
@@ -208,11 +265,14 @@ static uint32_t wait_idle(void)
 
 static uint32_t unit_erase(uint32_t addr)
 {
-    uint32_t pm = irq_off();
-    uint32_t rc = wait_idle();
+    uint32_t pm;
+    uint32_t rc;
 
+    bank_select(addr);
+    pm = irq_off();
+    rc = wait_idle();
     if (rc == 0) {
-#if defined(FREYA_BOARD_BLUEPILL)
+#if FLASH_F1
         FL->CR |= CR_PER;
         FL->AR  = addr;
         FL->CR |= CR_STRT;
@@ -237,12 +297,13 @@ static uint32_t program_block(uint32_t addr, const uint32_t *w, uint32_t words)
     uint32_t rc = 0;
     uint32_t i;
 
+    bank_select(addr);
     for (i = 0; i < words && rc == 0; i++) {
         uint32_t pm = irq_off();
 
         rc = wait_idle();
         if (rc == 0) {
-#if defined(FREYA_BOARD_BLUEPILL)
+#if FLASH_F1
             FL->CR |= CR_PG;
             *(volatile uint16_t *)(uintptr_t)(addr + i * 4U) = (uint16_t)w[i];
             rc = wait_idle();
@@ -266,6 +327,13 @@ static uint32_t program_block(uint32_t addr, const uint32_t *w, uint32_t words)
 
 static int flash_unlock(void)
 {
+#if defined(FREYA_BOARD_BLACKPILL2)
+    FL_BANK2->KEYR = FLASH_KEY1;
+    FL_BANK2->KEYR = FLASH_KEY2;
+    FL_BANK2->SR = SR_ERRORS | SR_EOP;
+    if (FL_BANK2->CR & CR_LOCK) return -1;
+    bank_select(FLASH_ORIGIN);
+#endif
     FL->KEYR = FLASH_KEY1;
     FL->KEYR = FLASH_KEY2;
     return (FL->CR & CR_LOCK) ? -1 : 0;
@@ -293,7 +361,12 @@ static int probe_begin(void)
 
 static void probe_end(void)
 {
-#if defined(FREYA_BOARD_BLUEPILL)
+#if defined(FREYA_BOARD_BLACKPILL2)
+    FL_BANK2->CR &= ~(CR_PG | CR_PER);
+    FL_BANK2->CR |= CR_LOCK;
+    bank_select(FLASH_ORIGIN);
+#endif
+#if FLASH_F1
     FL->CR &= ~(CR_PG | CR_PER);
 #else
     FL->CR &= ~(CR_PG | CR_SER | CR_STRT);

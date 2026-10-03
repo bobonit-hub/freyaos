@@ -6,8 +6,8 @@
  * The interpreter in basic/basic.c, the one that also runs on the PDP-11
  * virtual machine, built with arm-none-eabi-gcc for the Cortex-M4F.  Its
  * numbers are the FPU's single-precision floats (basic/fpnat.c), so this
- * program is for the Black Pill and the STM32F405 and is not built for
- * the Blue Pill, whose Cortex-M3 has no floating point.
+ * program is for the Black Pill, the STM32F405 and the Black Pill 2 and is
+ * not built for the Blue Pill, whose Cortex-M3 has no floating point.
  *
  * The BASIC program, its variables and its strings live in KIB kilobytes
  * taken from the kernel heap: what -m asks for, or as much as the kernel

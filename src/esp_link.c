@@ -78,7 +78,11 @@ static void ready_irq(int source, void *arg)
 
 static void spi_configure(void)
 {
+#ifdef BOARD_ESP_SPI_BR
+    uint32_t br = BOARD_ESP_SPI_BR;
+#else
     uint32_t br = 0; /* PCLK1 / 2: 24 MHz F411, 21 MHz F405 */
+#endif
 
     board_spi_mux(SPI2, FREYA_PB(13), FREYA_PB(14), FREYA_PB(15),
                   BOARD_ESP_SPI_AF);

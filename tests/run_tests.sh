@@ -245,7 +245,7 @@ echo
 echo "================= DS3231 ================="
 # The driver is optional.  Compile it for every board: PB6/PB7 have to be
 # that board's I2C bus 1, and the register coding does not depend on which.
-for b in blackpill bluepill stm32f405; do
+for b in blackpill bluepill stm32f405 blackpill2; do
     bdef="-DFREYA_BOARD_$(echo "$b" | tr '[:lower:]' '[:upper:]')"
     # shellcheck disable=SC2086
     $CC -std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
@@ -490,6 +490,8 @@ else
     # Blue Pill: kernel, program, extension, settings in the last page.
     # F4: kernel, settings in sector 3, program, extension in the last
     # sector, so the extension's end is the end of flash.
+    # Black Pill 2: kernel, settings in a page of their own, extension in
+    # the zero wait state flash, program to the end of flash.
     case "$BOARD" in
         bluepill)  flash_end=$((0x08020000)) ;;
         blackpill) flash_end=$((0x08080000)) ;;
@@ -509,6 +511,19 @@ else
               1 "$(( $(sym "$kelf" __kext_end) <= $(sym "$kelf" __settings_start) ))"
         check "the program region ends at or before the kernel extension" \
               1 "$(( $(sym "$kelf" __app_flash_end) <= $(sym "$kelf" __kext_start) ))"
+    elif [ "$BOARD" = blackpill2 ]; then
+        check "system settings start the 2 KiB page after the kernel" \
+              "$((0x0800C000))" "$(macro settings_addr)"
+        check "the kernel extension starts after the settings page" \
+              1 "$(( $(sym "$kelf" __kext_start) >= 0x0800C800 ))"
+        check "the kernel extension ends in the zero wait state flash" \
+              1 "$(( $(sym "$kelf" __kext_end) <= 0x08040000 ))"
+        check "the kernel extension ends at or before the program region" \
+              1 "$(( $(sym "$kelf" __kext_end) <= $(sym "$kelf" __app_flash_start) ))"
+        check "the program region starts on a 2 KiB page" \
+              0 "$(( $(macro app_flash_addr) % 2048 ))"
+        check "the program region runs to the end of flash" \
+              "$flash_end" "$(sym "$kelf" __app_flash_end)"
     else
         check "system settings are in sector 3, between the kernel and the program" \
               1 "$(( $(macro settings_addr) >= 0x0800C000 && \

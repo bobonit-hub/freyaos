@@ -47,8 +47,9 @@
  * and writable state fit together; larger programs retain XIP execution.
  *
  * System settings occupy an erase unit that holds nothing else: the last
- * page of the Blue Pill's flash, after the kernel extension, and sector 3
- * of the F4, between the kernel and the program.  Two copies are stored.
+ * page of the Blue Pill's flash, after the kernel extension, sector 3 of
+ * the F4, between the kernel and the program, and the page after the
+ * kernel on the Black Pill 2.  Two copies are stored.
  * Each copy begins
  * with FREYA_SETTINGS_MAGIC and ends its named fields with a checksum of
  * every other byte in the copy.  Named fields, in order, are the
@@ -131,8 +132,22 @@
 #else
 #define FREYA_APP_FLASH_SIZE     (0x080E0000UL - FREYA_APP_FLASH_ADDR)
 #endif
+#elif defined(FREYA_BOARD_BLACKPILL2)
+#define FREYA_APP_LOAD_ADDR      0x2000C000UL   /* 96 KiB of SRAM */
+#define FREYA_APP_REGION_SIZE    (40U * 1024U)
+/* The thread stacks are below the window here, not after it. */
+#define FREYA_APP_NOTHREADS_SIZE FREYA_APP_REGION_SIZE
+/* 2 KiB pages.  The kernel image is the first 48 KiB, and system
+ * settings are the first 1 KiB of the page after it, which holds nothing
+ * else.  The kernel extension follows at 0x08010000 (128 KiB), so both
+ * images are in the first 256 KiB, which read without wait states.  The
+ * program region is the rest of the 1 MiB. */
+#define FREYA_SETTINGS_SIZE      1024U
+#define FREYA_SETTINGS_ADDR      0x0800C000UL
+#define FREYA_APP_FLASH_ADDR     0x08030000UL
+#define FREYA_APP_FLASH_SIZE     (0x08100000UL - FREYA_APP_FLASH_ADDR)
 #else
-#error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLUEPILL or FREYA_BOARD_STM32F405"
+#error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLACKPILL2, FREYA_BOARD_BLUEPILL or FREYA_BOARD_STM32F405"
 #endif
 #if (FREYA_SETTINGS_ADDR % 128U) || (FREYA_SETTINGS_SIZE % 128U) || \
     (FREYA_APP_FLASH_ADDR % 128U)

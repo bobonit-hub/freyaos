@@ -488,8 +488,12 @@ static int cmd_sysinfo(int argc, char **argv)
     inf("firmware");   kprintf("%s\r\n", FREYA_FIRMWARE_VERSION);
     inf("board");      kprintf("%s\r\n", BOARD_NAME);
     inf("core");       kprintf("%s, CPUID 0x%08x\r\n", BOARD_CORE, SCB->CPUID);
+#ifdef BOARD_IDCODE_PART
+    inf("device id");  kprintf("0x%08x\r\n", idcode);
+#else
     inf("device id");  kprintf("0x%03x  rev 0x%04x\r\n",
             idcode & 0xFFF, (idcode >> 16) & 0xFFFF);
+#endif
     inf("unique id");  kprintf("%08x-%08x-%08x\r\n", uid[0], uid[1], uid[2]);
     inf("flash");      kprintf("%u KiB internal\r\n", fl_kb);
     inf("clock src");  kprintf("%s -> PLL\r\n",

@@ -3,6 +3,7 @@
 #   make                    build the kernel image and the example programs
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
 #   make BOARD=stm32f405    build for the STM32F405xx (8 MHz crystal)
+#   make BOARD=blackpill2   build for the AT32F403ACGU7 "Black Pill 2"
 #   make rust               build the Rust samples (needs cargo; see rust/README.md)
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
 #   make FIRMWARE_VERSION=3.1.1
@@ -170,8 +171,10 @@ SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 aead compress fl
 # the BASIC interpreter compiled for the board with the FPU's floats for
 # its numbers; the Blue Pill's Cortex-M3 has no FPU.  httpd keeps a 4 KiB
 # page beside its upload buffers and needs the ESP32-C6, which the Blue
-# Pill has no link for.
+# Pill has no link for.  The Black Pill 2's window is 40 KiB, short of
+# the Altair's 48 KiB.
 SKIP_bluepill := altair basic11 httpd
+SKIP_blackpill2 := altair
 SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
@@ -516,7 +519,10 @@ CKSUM_PAGE_BASE := 0x0800C000
 CKSUM_PAGE_SIZE := 16384
 endif
 
-ifneq ($(PROGRAM)$(SCRIPT),)
+ifdef FLASH_UNSUPPORTED
+flash:
+	$(error $(FLASH_UNSUPPORTED))
+else ifneq ($(PROGRAM)$(SCRIPT),)
 flash: $(FLASH_IMAGE) $(SETTINGS_BIN) $(BUILD)/$(TARGET)-kext.bin tools/fwsum.py
 	@set -eu; \
 	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \

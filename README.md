@@ -3,7 +3,8 @@
 Freya is a 32-bit, single-user, text OS for STMicroelectronics
 STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
 metal on the STM32F411CEU6 "Black Pill", the STM32F103C8T6 "Blue Pill",
-and the STM32F405xx.
+the STM32F405xx, and the WeAct "Black Pill 2" with Artery's AT32F403ACGU7,
+an STM32F103 at heart with a Cortex-M4F core.
 No HAL and no CMSIS: Freya brings the chip up itself. LittleFS, on the SPI flash, is the one vendored library. Freya
 talks to the hardware through its own register definitions, and lives
 entirely in internal flash. This is release 3.3.0, "Poltergeist". The notes
@@ -38,15 +39,25 @@ freya:
 
 ## Boards
 
-|  | Black Pill | Blue Pill | STM32F405xx |
-|---|---|---|---|
-| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx |
-| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz |
-| Crystal | 25 MHz | 8 MHz | 8 MHz |
-| Flash | 512 KiB | 128 KiB | 1 MiB |
-| SRAM | 128 KiB | 20 KiB | 128 KiB |
-| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash |
-| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` |
+|  | Black Pill | Blue Pill | STM32F405xx | Black Pill 2 |
+|---|---|---|---|---|
+| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx | AT32F403ACGU7 |
+| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz |
+| Crystal | 25 MHz | 8 MHz | 8 MHz | 8 MHz |
+| Flash | 512 KiB | 128 KiB | 1 MiB | 1 MiB |
+| SRAM | 128 KiB | 20 KiB | 128 KiB | 96 KiB |
+| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash |
+| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=blackpill2` |
+
+The Black Pill 2 is WeAct's board of that name
+([WeActStudio.BlackPill](https://github.com/WeActStudio/WeActStudio.BlackPill)),
+the Black Pill's outline with an Artery part on it. Its peripherals are the
+F103's, so it is wired and driven like the Blue Pill; its core has the FPU,
+so it builds everything the F4 boards do except the 48 KiB Altair, which
+does not fit its 40 KiB program window. The AT32F403A can trade fast flash
+for 128 KiB more SRAM through an option byte; Freya leaves the option byte
+alone and uses the 96 KiB the chip ships with. It has no SPI flash volume:
+the board's SOP-8 footprint is wired to the chip's SPIM pins, not SPI1.
 
 Everything a board needs lives in `boards/<board>`: its register header, its
 startup code and vector table, its bring-up (`board.c`: clock tree, pin mux,
@@ -71,7 +82,9 @@ Freya 3.3.0 "Poltergeist" for STM32F103C8T6
   Black Pill that is a 25 MHz crystal → PLL → 96 MHz SYSCLK, 48 MHz APB1,
   96 MHz APB2, 3 flash wait states, voltage scale 1, prefetch and caches on; on
   the Blue Pill an 8 MHz crystal → PLL ×9 → 72 MHz SYSCLK, 36 MHz APB1, 72 MHz
-  APB2, 2 flash wait states. Both fall back to the internal oscillator if the
+  APB2, 2 flash wait states; on the Black Pill 2 an 8 MHz crystal → PLL ×30
+  → 240 MHz SYSCLK, 120 MHz APB1, 60 MHz APB2, switched in steps by the
+  chip's auto step mode. All of them fall back to the internal oscillator if the
   crystal does not start, and the SysTick reload, the console divisor and the
   microsecond delay all follow whatever the clock tree actually came up at.
 * Console shell on USART2 at 921600 8N1, interrupt driven, with line editing and
@@ -188,11 +201,11 @@ to drive or take interrupts on, and eight of them — PA0, PA1, PB0, PB1 and
 PB6 to PB9 — have a timer channel behind them and can be driven as PWM.
 
 I2C uses two more of those pins, and one pair that is not. Bus 1 is PB6
-(SCL) and PB7 (SDA) on every board. Bus 2 is PB10/PB11 on the Blue Pill and
-the STM32F405xx, and PB10/PB9 on the Black Pill, which has no PB11. Both lines are open drain and
+(SCL) and PB7 (SDA) on every board. Bus 2 is PB10/PB11 on the Blue Pill, the
+Black Pill 2 and the STM32F405xx, and PB10/PB9 on the Black Pill, which has no PB11. Both lines are open drain and
 need a pull-up to 3.3 V; 4.7 kΩ is the usual value. The Black Pill also turns
-on the pin's own weak pull-up; the Blue Pill cannot, so the resistors are
-required there. A pin that is already a PWM output is not also an I2C pin
+on the pin's own weak pull-up; the Blue Pill and the Black Pill 2 cannot, so
+the resistors are required there. A pin that is already a PWM output is not also an I2C pin
 until that channel is turned off.
 
 A DS3231 uses that same pair and no other MCU pin. SCL is PB6, SDA is PB7,
@@ -218,9 +231,9 @@ go faster than the rate asked for. A pin that is already PWM, I2C or
 The console runs at 921600 baud, the fastest rate every common adapter agrees
 on: a CP2101, a CP2102 and an FT232 all list it, where 1 Mbaud is already the
 CP2102's ceiling and past a CP2101 entirely. Neither board divides it exactly —
-USARTDIV rounds to 52 against the Black Pill's 48 MHz APB1 and to 39 against
-the Blue Pill's 36 MHz, both landing on 923077 baud, 0.16% fast and far inside
-what 8N1 tolerates. A Blue Pill whose crystal did not start runs its APB1 at
+USARTDIV rounds to 52 against the Black Pill's 48 MHz APB1, to 39 against
+the Blue Pill's 36 MHz and to 130 against the Black Pill 2's 120 MHz, all
+landing on 923077 baud, 0.16% fast and far inside what 8N1 tolerates. A Blue Pill whose crystal did not start runs its APB1 at
 32 MHz instead and comes out 0.8% slow, which is still comfortable. The USART
 would reach 3 Mbaud on the Black Pill and 2.25 on the Blue Pill, so if the
 adapter is a faster one, the rate is `uart_init()` in `src/main.c` and the
@@ -228,8 +241,9 @@ adapter is a faster one, the rate is `uart_init()` in `src/main.c` and the
 control off on the host, and ground the adapter with the board.
 
 Card identification runs inside the 100–400 kHz window the spec demands
-(375 kHz on the Black Pill, 281 kHz on the Blue Pill) and the bus then
-switches to 12 MHz, or 9 MHz on the Blue Pill.
+(375 kHz on the Black Pill, 281 kHz on the Blue Pill, 234 kHz on the Black
+Pill 2) and the bus then switches to 12 MHz, or 9 MHz on the Blue Pill and
+15 MHz on the Black Pill 2.
 
 ## Building
 
@@ -240,6 +254,7 @@ distribution package) and `make`.
 make                   # Black Pill kernel image + example programs
 make BOARD=bluepill    # the same for the Blue Pill
 make BOARD=stm32f405   # the same for the STM32F405xx
+make BOARD=blackpill2  # the same for the Black Pill 2
 make RTC=ds3231        # also build the DS3231 driver (PB6 SCL, PB7 SDA)
 make FIRMWARE_VERSION=3.1.1
                        # override the hardcoded firmware version
@@ -274,8 +289,11 @@ make BOARD=stm32f405 dfu
                     # build/stm32f405/freya.dfu for the ROM DFU loader
 ```
 
-`make bootloader` is USB DFU on the Black Pill and the STM32F405xx (hold BOOT0,
-tap NRST). `make BOARD=stm32f405 dfu` packs the kernel and the extension into
+`make bootloader` is USB DFU on the Black Pill, the STM32F405xx and the Black
+Pill 2 (hold BOOT0, tap NRST), and `make BOARD=blackpill2 dfu` packs a DfuSe
+file for Artery's loader (`2e3c:df11`). st-flash does not know Artery parts,
+so `make flash` refuses the Black Pill 2; `make openocd` programs it over SWD
+with OpenOCD's `target/artery/at32f4x.cfg`. `make BOARD=stm32f405 dfu` packs the kernel and the extension into
 one DfuSe file, at the addresses they are linked for, and leaves the gap
 between them untouched. The F103
 has no USB loader, so on the Blue Pill it drives the serial loader in ROM with
@@ -906,6 +924,27 @@ or the extension.
             |  interrupt stack (2 KiB)       |
 0x20020000  +--------------------------------+
 ```
+
+Black Pill 2 — 2 KiB pages, two banks, and the first 256 KiB read
+without wait states, so both kernel images sit there:
+
+```
+0x08000000  +--------------------------------+
+            |  Freya kernel                  |  48 KiB
+0x0800C000  +--------------------------------+
+            |  system settings               |  1 KiB, a page of their own
+0x0800C400  +--------------------------------+
+            |  unused                        |
+0x08010000  +--------------------------------+
+            |  kernel extension              |  128 KiB
+0x08030000  +--------------------------------+
+            |  program flash region          |  832 KiB, bank 2 from
+0x08100000  +--------------------------------+  0x08080000
+```
+
+Its RAM is the Black Pill's shape in 96 KiB: kernel data and heap up to
+`0x2000AFFF`, the thread stacks, the 40 KiB program region at `0x2000C000`,
+then the shell and interrupt stacks to `0x20018000`.
 
 Blue Pill — the same shape, squeezed into a fifth of the RAM. The top 8 KiB
 holds two thread stacks, the shell stack and the interrupt stack, and the

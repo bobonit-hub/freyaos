@@ -891,6 +891,8 @@ static void plant_mmio(void)
     *(volatile uint32_t *)0xE0042000UL = 0x10006410UL;
 #elif defined(FREYA_BOARD_STM32F405)
     *(volatile uint32_t *)0xE0042000UL = 0x10006413UL;
+#elif defined(FREYA_BOARD_BLACKPILL2)
+    *(volatile uint32_t *)0xE0042000UL = 0x70050347UL;
 #else
     *(volatile uint32_t *)0xE0042000UL = 0x10006411UL;
 #endif
@@ -900,6 +902,8 @@ static void plant_mmio(void)
     *(volatile uint16_t *)FLASHSIZE_BASE =
 #if defined(FREYA_BOARD_BLUEPILL)
         64;
+#elif defined(FREYA_BOARD_BLACKPILL2)
+        1024;
 #else
         512;
 #endif
@@ -1026,6 +1030,11 @@ int main(void)
     g_clocks.hclk_hz = 168000000;
     g_clocks.pclk1_hz = 42000000;
     g_clocks.pclk2_hz = 84000000;
+#elif defined(FREYA_BOARD_BLACKPILL2)
+    g_clocks.sysclk_hz = 240000000;
+    g_clocks.hclk_hz = 240000000;
+    g_clocks.pclk1_hz = 120000000;
+    g_clocks.pclk2_hz = 60000000;
 #else
     g_clocks.sysclk_hz = 96000000;
     g_clocks.hclk_hz = 96000000;
@@ -1201,6 +1210,12 @@ int main(void)
     expect_has("sysinfo reads the device id", "0x413");
     expect_has("sysinfo reads the flash size", "1024 KiB internal");
     expect_has("sysinfo reports the clock", "168000000 Hz");
+#elif defined(FREYA_BOARD_BLACKPILL2)
+    expect_has("sysinfo names the board", "Black Pill 2");
+    expect_has("sysinfo reads the CPUID", "410fc241");
+    expect_has("sysinfo reads the part number", "0x70050347");
+    expect_has("sysinfo reads the flash size", "1024 KiB internal");
+    expect_has("sysinfo reports the clock", "240000000 Hz");
 #else
     expect_has("sysinfo names the board", "Black Pill");
     expect_has("sysinfo reads the CPUID", "410fc241");
