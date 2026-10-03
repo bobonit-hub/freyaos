@@ -498,11 +498,13 @@ else
     # sector, so the extension's end is the end of flash.
     # Black Pill 2: kernel, settings in a page of their own, extension in
     # the zero wait state flash, program to the end of flash.
-    # STM32U585: the Black Pill 2's order, in 8 KiB pages and 2 MiB.
+    # STM32U585 and STM32H523: the Black Pill 2's order, in 8 KiB pages,
+    # to the end of 2 MiB and of 512 KiB.
     case "$BOARD" in
         bluepill)  flash_end=$((0x08020000)) ;;
         blackpill) flash_end=$((0x08080000)) ;;
         stm32u585) flash_end=$((0x08200000)) ;;
+        stm32h523) flash_end=$((0x08080000)) ;;
         *)         flash_end=$((0x08100000)) ;;
     esac
     check "the kernel image ends at or before the program region" \
@@ -532,7 +534,7 @@ else
               0 "$(( $(macro app_flash_addr) % 2048 ))"
         check "the program region runs to the end of flash" \
               "$flash_end" "$(sym "$kelf" __app_flash_end)"
-    elif [ "$BOARD" = stm32u585 ]; then
+    elif [ "$BOARD" = stm32u585 ] || [ "$BOARD" = stm32h523 ]; then
         check "system settings start the 8 KiB page after the kernel" \
               "$((0x0800C000))" "$(macro settings_addr)"
         check "the kernel extension starts after the settings page" \

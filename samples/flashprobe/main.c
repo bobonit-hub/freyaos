@@ -34,7 +34,7 @@
  * a third board means a third section below rather than a default. */
 #if !defined(FREYA_BOARD_BLUEPILL) && !defined(FREYA_BOARD_BLACKPILL) && \
     !defined(FREYA_BOARD_STM32F405) && !defined(FREYA_BOARD_BLACKPILL2) && \
-    !defined(FREYA_BOARD_STM32U585)
+    !defined(FREYA_BOARD_STM32U585) && !defined(FREYA_BOARD_STM32H523)
 #error "flashprobe drives the flash controller itself and needs a board it knows"
 #endif
 
@@ -43,6 +43,14 @@
 #define FLASH_F1        1
 #else
 #define FLASH_F1        0
+#endif
+
+/* The U5 and the H5 program a quad-word at a time and erase 8 KiB units,
+ * each through its own registers, so the two share a path as well. */
+#if defined(FREYA_BOARD_STM32U585) || defined(FREYA_BOARD_STM32H523)
+#define FLASH_QUAD      1
+#else
+#define FLASH_QUAD      0
 #endif
 
 #define FLASH_ORIGIN        0x08000000UL
@@ -216,21 +224,10 @@ typedef struct {
 #define CR_STRT         (1UL << 16)
 #define CR_LOCK         (1UL << 31)
 
-/* The instruction cache serves data reads of flash as well, so it is off
- * while the probe runs and invalidated afterwards. */
-#define ICACHE_CR       (*(volatile uint32_t *)0x40030400UL)
-#define ICACHE_SR       (*(volatile uint32_t *)0x40030404UL)
-#define ICACHE_EN       (1UL << 0)
-#define ICACHE_INV      (1UL << 1)
-#define ICACHE_BUSY     (1UL << 0)
-
-/* 8 KiB pages, 128 to a bank; PNB names one inside its bank. */
-static uint32_t unit_size(uint32_t addr)  { (void)addr; return 8192u; }
-static uint32_t unit_base(uint32_t addr)  { return addr & ~8191UL; }
-static int      unit_erasable(uint32_t addr)
-{
-    return addr - FLASH_ORIGIN < 2u * BANK_BYTES;
-}
+/* Erase the 8 KiB page at offset 'off': PNB names it inside its bank. */
+#define CR_ERASE(off)   (CR_PER | CR_PNB(((off) % BANK_BYTES) / 8192u) | \
+                         (((off) >= BANK_BYTES) ? CR_BKER : 0))
+#define CR_GO           CR_STRT
 
 static const char *err_str(uint32_t bits)
 {
@@ -245,6 +242,94 @@ static const char *err_str(uint32_t bits)
 }
 
 #endif /* FREYA_BOARD_STM32U585 */
+
+/* ================================================ the STM32H523 === */
+#if defined(FREYA_BOARD_STM32H523)
+
+#define MCU_NAME        "STM32H523"
+#define FLASHSIZE_REG   (*(const volatile uint16_t *)0x08FFF80CUL)
+#define DECLARED_KIB    512u
+#define SPIN_LIMIT      50000000UL          /* a sector erase is milliseconds */
+
+/* The H5's controller: the non-secure key, status and control registers
+ * under the names the shared code uses, and a separate register to clear
+ * the status flags. */
+typedef struct {
+    volatile uint32_t ACR;
+    volatile uint32_t KEYR;                 /* NSKEYR */
+    volatile uint32_t SECKEYR;
+    volatile uint32_t OPTKEYR;
+    volatile uint32_t NSOBKKEYR;
+    volatile uint32_t SECOBKKEYR;
+    volatile uint32_t OPSR;
+    volatile uint32_t OPTCR;
+    volatile uint32_t SR;                   /* NSSR   */
+    volatile uint32_t SECSR;
+    volatile uint32_t CR;                   /* NSCR   */
+    volatile uint32_t SECCR;
+    volatile uint32_t CCR;                  /* NSCCR  */
+} h5_flash_regs_t;
+
+#define FL              ((h5_flash_regs_t *)0x40022000UL)
+#define BANK_BYTES      0x40000UL           /* two banks of 256 KiB        */
+#define FL_CLEAR(bits)  (FL->CCR = (bits))
+
+/* Busy while the controller works or still holds data to write. */
+#define SR_BSY          ((1UL << 0) | (1UL << 1) | (1UL << 3))
+#define SR_EOP          (1UL << 16)
+#define SR_WRPERR       (1UL << 17)
+#define SR_PGSERR       (1UL << 18)
+#define SR_STRBERR      (1UL << 19)
+#define SR_INCERR       (1UL << 20)
+#define SR_ERRORS       (SR_WRPERR | SR_PGSERR | SR_STRBERR | SR_INCERR)
+
+#define CR_LOCK         (1UL << 0)
+#define CR_PG           (1UL << 1)
+#define CR_SER          (1UL << 2)
+#define CR_START        (1UL << 5)
+#define CR_SNB(n)       (((uint32_t)(n) & 0x7FUL) << 6)
+#define CR_BKSEL        (1UL << 31)
+
+/* Erase the 8 KiB sector at offset 'off': SNB names it inside its bank. */
+#define CR_ERASE(off)   (CR_SER | CR_SNB(((off) % BANK_BYTES) / 8192u) | \
+                         (((off) >= BANK_BYTES) ? CR_BKSEL : 0))
+#define CR_GO           CR_START
+
+static const char *err_str(uint32_t bits)
+{
+    if (bits & ERR_TIMEOUT) return "controller timeout";
+    if (bits & SR_WRPERR)   return "write protected";
+    if (bits & SR_PGSERR)   return "programming sequence error";
+    if (bits & SR_STRBERR)  return "strobe error";
+    if (bits & SR_INCERR)   return "inconsistency error";
+    return "no error reported";
+}
+
+#endif /* FREYA_BOARD_STM32H523 */
+
+#if FLASH_QUAD
+/* 8 KiB units, in two banks. */
+static uint32_t unit_size(uint32_t addr)  { (void)addr; return 8192u; }
+static uint32_t unit_base(uint32_t addr)  { return addr & ~8191UL; }
+static int      unit_erasable(uint32_t addr)
+{
+    return addr - FLASH_ORIGIN < 2u * BANK_BYTES;
+}
+
+/* The instruction cache serves data reads of flash as well, so it is off
+ * while the probe runs and invalidated afterwards.  It is at the same
+ * address on both. */
+#define ICACHE_CR       (*(volatile uint32_t *)0x40030400UL)
+#define ICACHE_SR       (*(volatile uint32_t *)0x40030404UL)
+#define ICACHE_EN       (1UL << 0)
+#define ICACHE_INV      (1UL << 1)
+#define ICACHE_BUSY     (1UL << 0)
+#endif
+
+/* Every other controller clears a flag by writing it to SR. */
+#ifndef FL_CLEAR
+#define FL_CLEAR(bits)  (FL->SR = (bits))
+#endif
 
 /* ========================================== the STM32F411 and F405 == */
 #if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
@@ -340,7 +425,7 @@ static uint32_t wait_idle(void)
         if (--spin == 0) return ERR_TIMEOUT;
     }
     sr = FL->SR & SR_ERRORS;
-    FL->SR = SR_ERRORS | SR_EOP;        /* both families clear by writing 1 */
+    FL_CLEAR(SR_ERRORS | SR_EOP);       /* every family clears by writing 1 */
     return sr;
 }
 
@@ -359,12 +444,11 @@ static uint32_t unit_erase(uint32_t addr)
         FL->CR |= CR_STRT;
         rc = wait_idle();
         FL->CR &= ~(CR_PER | CR_STRT);
-#elif defined(FREYA_BOARD_STM32U585)
+#elif FLASH_QUAD
         uint32_t off = addr - FLASH_ORIGIN;
 
-        FL->CR = CR_PER | CR_PNB((off % BANK_BYTES) / 8192u) |
-                 ((off >= BANK_BYTES) ? CR_BKER : 0);
-        FL->CR |= CR_STRT;
+        FL->CR = CR_ERASE(off);
+        FL->CR |= CR_GO;
         rc = wait_idle();
         FL->CR = 0;
 #else
@@ -379,9 +463,9 @@ static uint32_t unit_erase(uint32_t addr)
     return rc;
 }
 
-/* The F1 programs a halfword at a time, the F4 a word and the U5 four
- * words at once, so the block is kept as words and taken apart here. */
-#if defined(FREYA_BOARD_STM32U585)
+/* The F1 programs a halfword at a time, the F4 a word and the U5 and H5
+ * four words at once, so the block is kept as words and taken apart here. */
+#if FLASH_QUAD
 static uint32_t program_block(uint32_t addr, const uint32_t *w, uint32_t words)
 {
     uint32_t rc = 0;
@@ -466,12 +550,12 @@ static int probe_begin(void)
     s_acr = FL->ACR;
     FL->ACR &= ~(ACR_ICEN | ACR_DCEN);
 #endif
-#if defined(FREYA_BOARD_STM32U585)
+#if FLASH_QUAD
     ICACHE_CR &= ~ICACHE_EN;
     while (ICACHE_SR & ICACHE_BUSY) { }
 #endif
     if (flash_unlock() != 0) return -1;
-    FL->SR = SR_ERRORS | SR_EOP;
+    FL_CLEAR(SR_ERRORS | SR_EOP);
 #if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
     FL->CR = (FL->CR & ~CR_SNB_MASK) | CR_PSIZE_X32;
 #endif
@@ -487,13 +571,13 @@ static void probe_end(void)
 #endif
 #if FLASH_F1
     FL->CR &= ~(CR_PG | CR_PER);
-#elif defined(FREYA_BOARD_STM32U585)
+#elif FLASH_QUAD
     FL->CR = 0;
 #else
     FL->CR &= ~(CR_PG | CR_SER | CR_STRT);
 #endif
     FL->CR |= CR_LOCK;
-#if defined(FREYA_BOARD_STM32U585)
+#if FLASH_QUAD
     ICACHE_CR |= ICACHE_INV;
     while (ICACHE_SR & ICACHE_BUSY) { }
     ICACHE_CR |= ICACHE_EN;

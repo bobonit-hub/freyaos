@@ -1,6 +1,6 @@
 # Boards
 
-Freya runs on five boards. This page is everything that differs between
+Freya runs on six boards. This page is everything that differs between
 them: the parts, the clock trees, the console and card clocks, and the flash
 and RAM maps. It starts with a comparison table and the parts every board
 shares, then gives each board a section of its own. The wiring that is the
@@ -8,20 +8,20 @@ same on every board is in [hardware.md](hardware.md).
 
 ## Comparison
 
-|  | Black Pill | Blue Pill | STM32F405xx | Black Pill 2 | STM32U585 |
-|---|---|---|---|---|---|
-| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx | AT32F403ACGU7 | STM32U585CIU6 |
-| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz | Cortex-M33F at 160 MHz |
-| Crystal | 25 MHz | 8 MHz | 8 MHz | 8 MHz | 25 MHz |
-| Flash | 512 KiB | 128 KiB | 1 MiB | 1 MiB | 2 MiB |
-| SRAM | 128 KiB | 20 KiB | 128 KiB | 96 KiB | 768 KiB |
-| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash |
-| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=blackpill2` | `make BOARD=stm32u585` |
-| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 |
-| Console rate | 923077 baud | 923077 baud | 913043 baud | 923077 baud | 919540 baud |
-| SD identification clock | 375 kHz | 281 kHz | 328 kHz | 234 kHz | 312.5 kHz |
-| SD data clock | 12 MHz | 9 MHz | 10.5 MHz | 15 MHz | 10 MHz |
-| SPI flash volume (`/spi1`) | yes | no | no | no | yes |
+|  | Black Pill | Blue Pill | STM32F405xx | Black Pill 2 | STM32U585 | STM32H523 |
+|---|---|---|---|---|---|---|
+| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx | AT32F403ACGU7 | STM32U585CIU6 | STM32H523CET6 |
+| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz | Cortex-M33F at 160 MHz | Cortex-M33F at 250 MHz |
+| Crystal | 25 MHz | 8 MHz | 8 MHz | 8 MHz | 25 MHz | 8 MHz |
+| Flash | 512 KiB | 128 KiB | 1 MiB | 1 MiB | 2 MiB | 512 KiB |
+| SRAM | 128 KiB | 20 KiB | 128 KiB | 96 KiB | 768 KiB | 272 KiB |
+| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash | 168 KiB RAM, or 320 KiB flash |
+| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=blackpill2` | `make BOARD=stm32u585` | `make BOARD=stm32h523` |
+| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 |
+| Console rate | 923077 baud | 923077 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud |
+| SD identification clock | 375 kHz | 281 kHz | 328 kHz | 234 kHz | 312.5 kHz | 390.6 kHz |
+| SD data clock | 12 MHz | 9 MHz | 10.5 MHz | 15 MHz | 10 MHz | 12.5 MHz |
+| SPI flash volume (`/spi1`) | yes | no | no | no | yes | yes |
 
 ## What a board is
 
@@ -48,8 +48,8 @@ The console runs at 921600 baud on every board (why that rate is in
 [hardware.md](hardware.md#console)). No board divides it exactly: USARTDIV
 rounds to the value in the table above against that board's APB1. The
 Black Pill, the Blue Pill and the Black Pill 2 land on 923077 baud, 0.16%
-fast; the STM32U585 on 919540, 0.22% slow; the STM32F405 on 913043, 0.93%
-slow. All of them are far inside what 8N1 tolerates. If the
+fast; the STM32H523 on 922509, 0.10% fast; the STM32U585 on 919540,
+0.22% slow; the STM32F405 on 913043, 0.93% slow. All of them are far inside what 8N1 tolerates. If the
 adapter is a faster one, the rate is `uart_init()` in `src/main.c` and the
 `BOARD_CONSOLE_NAME` string.
 
@@ -308,6 +308,88 @@ RAM — SRAM1, SRAM2 and SRAM3 are one block, in the Black Pill's shape:
 ```
 
 A BusFault ram dump is 768 KiB.
+
+## STM32H523 (WeAct STM32H523CET6 core board)
+
+Build with `make BOARD=stm32h523`.
+
+The board is WeAct's
+[STM32H523 core board](https://github.com/WeActStudio/WeActStudio.STM32H523CoreBoard)
+in its LQFP48 form (CxTx): the Black Pill's pinout with an STM32H523CET6
+on it, a Cortex-M33 with an FPU at 250 MHz, 512 KiB of flash and 272 KiB
+of SRAM. It is wired like the Black Pill and the STM32U585 board: the
+console on PA2/PA3, the card on SPI1 (PA4 to PA7), the socket supply on
+PA8, the LED on PC13 (active low), KEY on PA0, and a SOP-8 footprint for a
+SPI NOR chip on SPI1 with chip select PA4, mounted at `/spi1`. Freya runs it
+with TrustZone off, which is how the chip ships.
+
+It builds everything the Black Pill does, the Altair included. The H5's
+USART, FIFO SPI, EXTI and GPDMA are the U5's blocks, so it uses the same
+paths in `src/`; its clock tree, power controller, ADC and flash controller
+are its own and live in `boards/stm32h523`. Every pin, PWM channel and
+alternate function is the Black Pill's, and each EXTI line has an
+interrupt of its own.
+
+Clock tree: an 8 MHz crystal → PLL1 (M=4, N=250) → 500 MHz VCO, P=2 →
+250 MHz SYSCLK with every APB bus at 250 MHz, Q=5 → 100 MHz for SPI1 and
+SPI2; voltage scale 0, 5 flash wait states, the longer programming delay,
+prefetch and the instruction cache on. Without the crystal, HSI comes out
+of reset at 32 MHz and M=16 gives the same 250 MHz. The SPIs take PLL1Q
+rather than an APB clock, which lets the buses run at full speed while the
+card's identification clock stays inside its window; `src/spi.c` works a
+program's SPI rates out from that 100 MHz (`BOARD_SPI_KERNEL_HZ`).
+
+Console: USARTDIV rounds to 271 against the 250 MHz APB1, 0.10% fast. Card:
+identification at 390.6 kHz, then 12.5 MHz. The ESP32-C6 link runs SPI2 at
+12.5 MHz through GPDMA1 channels 0 and 1; the next tap up, 25 MHz, is
+faster than the F4 boards run it.
+
+Limits that follow from the clocks: the timers count at 250 MHz, so the
+longest timer period is 17.1 s; a longer one is refused. A program's SPI2
+runs from 100 MHz, so its slowest rate is 390.6 kHz. I2C bus 2 is
+PB10/PB9, because the LQFP48 has no PB11. The ADC is 12 bits; its channel
+numbers are the H5's (the temperature sensor is 16, Vref is 17).
+
+Programming: st-flash does not know the H5, so `make flash` refuses this
+board. `make bootloader` is USB DFU through the board's USB-C socket (hold
+BOOT0, tap NRST), and `make BOARD=stm32h523 dfu` packs a DfuSe file for it
+(`0483:df11`). `make openocd` uses `target/stm32h5x.cfg`, which OpenOCD 0.12
+does not ship. Rust programs need the `thumbv8m.main-none-eabihf` target.
+
+Flash — 8 KiB sectors, two banks of 256 KiB, programmed 16 bytes at a time;
+the U585's map in 512 KiB:
+
+```
+0x08000000  +--------------------------------+
+            |  Freya kernel                  |  48 KiB, sectors 0..5
+0x0800C000  +--------------------------------+
+            |  system settings               |  1 KiB, a sector of their own
+0x0800C400  +--------------------------------+
+            |  unused                        |
+0x08010000  +--------------------------------+
+            |  kernel extension              |  128 KiB
+0x08030000  +--------------------------------+
+            |  program flash region          |  320 KiB, bank 2 from
+0x08080000  +--------------------------------+  0x08040000
+```
+
+RAM — SRAM1, SRAM2 and SRAM3 are one block, in the Black Pill's shape:
+
+```
+0x20000000  +--------------------------------+
+            |  .data + .bss + system heap    |  92 KiB
+0x20017000  +--------------------------------+
+            |  thread stacks, 4 x 1 KiB      |
+0x20018000  +--------------------------------+
+            |  user program region (168 KiB) |  image + .bss, loaded from
+0x20042000  +--------------------------------+  card, or just .data + .bss
+            |  shell stack (6 KiB)           |  the program's main thread
+0x20043800  +--------------------------------+
+            |  interrupt stack (2 KiB)       |
+0x20044000  +--------------------------------+
+```
+
+A BusFault ram dump is 272 KiB.
 
 ## Blue Pill (STM32F103C8T6)
 

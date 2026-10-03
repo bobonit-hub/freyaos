@@ -9,8 +9,8 @@ host tools.
 | `boards/<board>/` | one directory per board: register header, `startup.s`, `board.c` (clock tree, pin mux, LED), linker scripts, compiler flags |
 | `boards/<board>/app_flash.ld` | the second program linker script: code in flash, data in RAM |
 | `src/system.c` | SysTick, reset cause, delays, software clock |
-| `src/uart.c` | USART2 console, interrupt driven receive; the older SR/DR USART and the U5's ISR/RDR/TDR one (`BOARD_USART_ISR`) |
-| `src/spi.c`, `src/sd.c`, `src/spiflash.c` | SPI1 for the card and the SPI flash (`BOARD_SPIFLASH`), and SPI master for a program; the F4's SPI and the U5's FIFO SPI (`BOARD_SPI_FIFO`) |
+| `src/uart.c` | USART2 console, interrupt driven receive; the older SR/DR USART and the U5's and H5's ISR/RDR/TDR one (`BOARD_USART_ISR`) |
+| `src/spi.c`, `src/sd.c`, `src/spiflash.c` | SPI1 for the card and the SPI flash (`BOARD_SPIFLASH`), and SPI master for a program; the F4's SPI and the U5's and H5's FIFO SPI (`BOARD_SPI_FIFO`), which may run from a kernel clock of its own (`BOARD_SPI_KERNEL_HZ`) |
 | `src/gpio.c` | pins a program may drive, and the sixteen EXTI interrupt lines, shared or one interrupt each (`BOARD_EXTI_SPLIT`) |
 | `src/timer.c` | the general purpose timers and their interrupts |
 | `src/pwm.c` | the compare channels of those timers, driving pins |
@@ -20,7 +20,7 @@ host tools.
 | `src/aead.c`, `third_party/ascon/` | Ascon-AEAD128, for a program and for `aead`; not built into the STM32F103. Keys come from `tools/aead` |
 | `src/lz.c`, `third_party/heatshrink/` | heatshrink LZSS, for a program and for `compress` / `decompress`; not built into the Blue Pill |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing |
-| `src/lfsvol.c`, `third_party/littlefs/` | LittleFS on the SPI flash of the Black Pill and the STM32U585 (the default there) |
+| `src/lfsvol.c`, `third_party/littlefs/` | LittleFS on the SPI flash of the Black Pill, the STM32U585 and the STM32H523 (the default there) |
 | `src/fs.c` | paths, working directory, descriptor table |
 | `src/xmodem.c` | XMODEM receive (`download`) and send (`upload`) |
 | `src/loader.c` | program loading and installing, the service table, start and stop |

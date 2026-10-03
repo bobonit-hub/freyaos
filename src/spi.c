@@ -195,9 +195,16 @@ static int spi_br(uint32_t pclk, uint32_t hz)
     return -1;
 }
 
+/* The clock the divider divides: the bus's PCLK, or on a board whose SPIs
+ * run from a kernel clock of their own (BOARD_SPI_KERNEL_HZ), that. */
 static uint32_t spi_pclk(const spi_bus_t *b)
 {
+#ifdef BOARD_SPI_KERNEL_HZ
+    (void)b;
+    return BOARD_SPI_KERNEL_HZ;
+#else
     return (b->apb == 2) ? g_clocks.pclk2_hz : g_clocks.pclk1_hz;
+#endif
 }
 
 static int spi_bus_index(int bus)

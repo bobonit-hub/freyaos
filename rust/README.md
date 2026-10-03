@@ -15,7 +15,7 @@ Rust comes from [rustup](https://rustup.rs). Add the targets for the boards:
 ```sh
 rustup target add thumbv7em-none-eabihf    # Black Pill, STM32F405, Black Pill 2 (Cortex-M4F)
 rustup target add thumbv7m-none-eabi       # Blue Pill (Cortex-M3)
-rustup target add thumbv8m.main-none-eabihf  # STM32U585 (Cortex-M33)
+rustup target add thumbv8m.main-none-eabihf  # STM32U585, STM32H523 (Cortex-M33)
 ```
 
 The Makefile finds `cargo` on `PATH`, or in `~/.cargo/bin` when rustup was

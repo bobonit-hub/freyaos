@@ -713,6 +713,11 @@ int main(void)
     check("PA0 maps to ADC channel 5", 5, adc_lookup(FREYA_PA(0)));
     check("PB1 maps to ADC channel 16", 16, adc_lookup(FREYA_PB(1)));
     check("PC5 maps to ADC channel 14", 14, adc_lookup(FREYA_PC(5)));
+#elif defined(FREYA_BOARD_STM32H523)
+    /* So does the H5. */
+    check("PA0 maps to ADC channel 0", 0, adc_lookup(FREYA_PA(0)));
+    check("PB1 maps to ADC channel 5", 5, adc_lookup(FREYA_PB(1)));
+    check("PC5 maps to ADC channel 8", 8, adc_lookup(FREYA_PC(5)));
 #else
     check("PA0 maps to ADC channel 0", 0, adc_lookup(FREYA_PA(0)));
     check("PB1 maps to ADC channel 9", 9, adc_lookup(FREYA_PB(1)));

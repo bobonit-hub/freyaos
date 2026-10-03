@@ -19,6 +19,7 @@ make BOARD=bluepill    # the same for the Blue Pill
 make BOARD=stm32f405   # the same for the STM32F405xx
 make BOARD=blackpill2  # the same for the Black Pill 2
 make BOARD=stm32u585   # the same for the WeAct STM32U585CIU6 board
+make BOARD=stm32h523   # the same for the WeAct STM32H523CET6 board
 make RTC=ds3231        # also build the DS3231 driver (PB6 SCL, PB7 SDA)
 make FIRMWARE_VERSION=3.1.1
                        # override the hardcoded firmware version
@@ -68,7 +69,10 @@ with OpenOCD's `target/artery/at32f4x.cfg`. The STM32U585 is the same:
 st-flash does not know the U5, so `make flash` refuses it, `make openocd`
 uses `target/stm32u5x.cfg`, `make bootloader` is USB DFU through the
 board's USB-C socket (hold BOOT0, tap NRST), and `make BOARD=stm32u585 dfu`
-packs a DfuSe file for ST's loader (`0483:df11`). `make BOARD=stm32f405 dfu` packs
+packs a DfuSe file for ST's loader (`0483:df11`). The STM32H523 is flashed
+the same way, through `make bootloader` or `make BOARD=stm32h523 dfu`; its
+`make openocd` needs an OpenOCD that ships `target/stm32h5x.cfg`, which
+0.12 does not. `make BOARD=stm32f405 dfu` packs
 the kernel and the extension into one DfuSe file, at the addresses they are
 linked for, and leaves the gap between them untouched. The F103 has no USB
 loader, so on the Blue Pill it drives the serial loader in ROM with

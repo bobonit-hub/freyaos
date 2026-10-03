@@ -885,7 +885,7 @@ static void plant_mmio(void)
     SCB->CPUID =
 #if defined(FREYA_BOARD_BLUEPILL)
         0x410FC231UL;
-#elif defined(FREYA_BOARD_STM32U585)
+#elif defined(FREYA_BOARD_STM32U585) || defined(FREYA_BOARD_STM32H523)
         0x410FD214UL;
 #else
         0x410FC241UL;
@@ -898,6 +898,8 @@ static void plant_mmio(void)
     *(volatile uint32_t *)0xE0042000UL = 0x70050347UL;
 #elif defined(FREYA_BOARD_STM32U585)
     DBGMCU_IDCODE = 0x20016482UL;
+#elif defined(FREYA_BOARD_STM32H523)
+    DBGMCU_IDCODE = 0x10016484UL;
 #else
     *(volatile uint32_t *)0xE0042000UL = 0x10006411UL;
 #endif
@@ -911,6 +913,8 @@ static void plant_mmio(void)
         1024;
 #elif defined(FREYA_BOARD_STM32U585)
         2048;
+#elif defined(FREYA_BOARD_STM32H523)
+        512;
 #else
         512;
 #endif
@@ -1042,6 +1046,11 @@ int main(void)
     g_clocks.hclk_hz = 240000000;
     g_clocks.pclk1_hz = 120000000;
     g_clocks.pclk2_hz = 60000000;
+#elif defined(FREYA_BOARD_STM32H523)
+    g_clocks.sysclk_hz = 250000000;
+    g_clocks.hclk_hz = 250000000;
+    g_clocks.pclk1_hz = 250000000;
+    g_clocks.pclk2_hz = 250000000;
 #elif defined(FREYA_BOARD_STM32U585)
     g_clocks.sysclk_hz = 160000000;
     g_clocks.hclk_hz = 160000000;
@@ -1239,6 +1248,12 @@ int main(void)
     expect_has("sysinfo reads the part number", "0x70050347");
     expect_has("sysinfo reads the flash size", "1024 KiB internal");
     expect_has("sysinfo reports the clock", "240000000 Hz");
+#elif defined(FREYA_BOARD_STM32H523)
+    expect_has("sysinfo names the board", "STM32H523CET6");
+    expect_has("sysinfo reads the CPUID", "410fd214");
+    expect_has("sysinfo reads the device id", "0x484");
+    expect_has("sysinfo reads the flash size", "512 KiB internal");
+    expect_has("sysinfo reports the clock", "250000000 Hz");
 #elif defined(FREYA_BOARD_STM32U585)
     expect_has("sysinfo names the board", "STM32U585CIU6");
     expect_has("sysinfo reads the CPUID", "410fd214");

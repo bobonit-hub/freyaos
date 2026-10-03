@@ -7,7 +7,7 @@
  * virtual machine, built with arm-none-eabi-gcc for the Cortex-M4F and the
  * Cortex-M33.  Its numbers are the FPU's single-precision floats
  * (basic/fpnat.c), so this program is for the Black Pill, the STM32F405,
- * the Black Pill 2 and the STM32U585 and is
+ * the Black Pill 2, the STM32U585 and the STM32H523 and is
  * not built for the Blue Pill, whose Cortex-M3 has no floating point.
  *
  * The BASIC program, its variables and its strings live in KIB kilobytes
