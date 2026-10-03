@@ -755,6 +755,16 @@ PY
 fi
 
 echo
+echo "================= shell on Linux ================="
+# The same interpreter built as a Linux program, with the hardware left out.
+if make -s --no-print-directory -C linux >/dev/null; then
+    sh linux/test.sh build/linux/fsh || status=1
+else
+    echo "  FAIL  build/linux/fsh did not build"
+    status=1
+fi
+
+echo
 echo "$checks checks, $fails failures"
 
 echo

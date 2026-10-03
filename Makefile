@@ -19,6 +19,8 @@
 #                           same, with the auto-start flag already on
 #   make BOARD=stm32f405 dfu
 #                           pack the kernel and the extension into a DfuSe file
+#   make linux              build the shell language as a Linux program,
+#                           build/linux/fsh (docs/linux.md)
 #   make size               show the section sizes
 #   make clean
 #
@@ -298,7 +300,7 @@ else
 FLASH_IMAGE := $(BUILD)/$(TARGET).bin
 endif
 
-.PHONY: all apps samples rust size clean flash bootloader openocd image test dfu
+.PHONY: all apps samples rust size clean flash bootloader openocd image test dfu linux
 .SECONDARY:
 
 all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size
@@ -458,6 +460,10 @@ size: $(BUILD)/$(TARGET).elf
 	@echo
 
 disasm: $(BUILD)/$(TARGET).lst
+
+# The shell language as a Linux program: build/linux/fsh (docs/linux.md).
+linux:
+	@$(MAKE) --no-print-directory -C linux
 
 # Runs the FAT and XMODEM code on the host against real FAT images.
 test:

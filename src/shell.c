@@ -45,11 +45,15 @@ static char s_hist[HIST_DEPTH][LINE_MAX];
 static int  s_hist_count;
 static int  s_hist_pos;
 static int  s_status;               /* status of the last command, '$?' */
+#ifndef FREYA_LINUX
 static char s_poll_line[LINE_MAX];  /* a command typed during a run       */
 static int  s_poll_len;
+#endif
 static int  s_script_stop;          /* Ctrl-C while a script or sleep runs */
 static int  s_exec_depth;           /* shell_exec frames currently active  */
+#ifndef FREYA_LINUX
 static int  s_capture;              /* a page script may source           */
+#endif
 #ifdef FREYA_HOST
 int shell_test_console_call_only;
 #define s_console_call_only shell_test_console_call_only
@@ -153,6 +157,12 @@ static int readline(char *buf, int max, int secret)
             buf[len] = '\0';
             return len;
         }
+#ifdef FREYA_LINUX
+        if (c == 0x04 && len == 0) {        /* Ctrl-D: end of input */
+            uart_puts("\r\n");
+            return -2;
+        }
+#endif
         if (c == 0x03) {                    /* Ctrl-C */
             sh_stop_all();
             if (!s_script_stop) uart_puts("^C\r\n");
@@ -354,7 +364,9 @@ static void attr_string(uint8_t attr, char *out)
     out[5] = '\0';
 }
 
+#ifndef FREYA_LINUX
 static const char *onoff(int v) { return v ? "on" : "off"; }
+#endif /* FREYA_LINUX */
 
 static int need_fs(void)
 {
@@ -370,13 +382,19 @@ static int need_fs(void)
 
 static int busy_running(const char *who)
 {
+#ifdef FREYA_LINUX
+    (void)who;
+    return 0;
+#else
     if (!g_app.running) return 0;
     /* The HTTPS file service runs as a program and sources the page. */
     if (s_capture && strcmp(who, "source") == 0) return 0;
     kprintf("%s: a program is running - stop it first\r\n", who);
     return 1;
+#endif
 }
 
+#ifndef FREYA_LINUX
 /* A page must not replace the program that is serving it. */
 static int page_blocked(const char *who)
 {
@@ -384,6 +402,7 @@ static int page_blocked(const char *who)
     kprintf("%s: not from a page\r\n", who);
     return 1;
 }
+#endif
 
 static int usage(const char *s)
 {
@@ -398,6 +417,7 @@ static int fs_fail(const char *cmd, const char *path, int rc)
     return -1;
 }
 
+#ifndef FREYA_LINUX
 static uint32_t ratio(uint32_t n, uint32_t d, uint32_t scale)
 {
     if (!d) return 0;
@@ -427,6 +447,7 @@ static void bar_nl(uint32_t used, uint32_t total)
     print_bar(used, total);
     kprintf("\r\n");
 }
+#endif /* FREYA_LINUX */
 
 static void inf(const char *k)
 {
@@ -441,6 +462,7 @@ static void inf(const char *k)
 #define PROG_ARG  "<file>"
 #endif
 
+#ifndef FREYA_LINUX
 static int is_flash_path(const char *p)
 {
 #ifdef FREYA_APP_FLASH_ADDR
@@ -465,13 +487,17 @@ static uint32_t mcu_flash_kib(void)
     return kib;
 #endif
 }
+#endif /* FREYA_LINUX */
 
 /* ----------------------------------------------------------- commands */
 static int cmd_help(int argc, char **argv);
+#ifndef FREYA_LINUX
 static int cmd_cksum(int argc, char **argv);
+#endif
 static int cmd_script(int argc, char **argv);
 static int KEXT cmd_unset(int argc, char **argv);
 
+#ifndef FREYA_LINUX
 static int cmd_sysinfo(int argc, char **argv)
 {
     uint32_t idcode = DBGMCU_IDCODE;
@@ -725,6 +751,7 @@ static int POWER_TEXT cmd_power(int argc, char **argv)
     kprintf("sd %s\r\n", on ? "on" : "off");
     return 0;
 }
+#endif /* FREYA_LINUX */
 
 static int cmd_ls(int argc, char **argv)
 {
@@ -904,6 +931,7 @@ static int cmd_rename(int argc, char **argv)
     return 0;
 }
 
+#ifndef FREYA_LINUX
 static int cmd_download(int argc, char **argv)
 {
     uint32_t got = 0;
@@ -997,6 +1025,7 @@ static int cmd_upload(int argc, char **argv)
     }
     return -1;
 }
+#endif /* FREYA_LINUX */
 
 static int cmd_cat(int argc, char **argv)
 {
@@ -1033,7 +1062,11 @@ static int cmd_write(int argc, char **argv)
     for (int i = 2; i < argc; i++) {
         int len = (int)strlen(argv[i]);
         if (fs_fd_write(fd, argv[i], len) != len) { rc = -1; break; }
+#ifdef FREYA_LINUX
+        if (fs_fd_write(fd, (i + 1 < argc) ? " " : "\n", 1) < 0) {
+#else
         if (fs_fd_write(fd, (i + 1 < argc) ? " " : "\r\n", (i + 1 < argc) ? 1 : 2) < 0) {
+#endif
             rc = -1;
             break;
         }
@@ -1076,6 +1109,7 @@ static int cmd_hexdump(int argc, char **argv)
     return 0;
 }
 
+#ifndef FREYA_LINUX
 static int write_mem_file(const char *who, const char *name,
                           const uint8_t *src, uint32_t size)
 {
@@ -1453,6 +1487,7 @@ static int cmd_password(int argc, char **argv)
     return 0;
 }
 #endif
+#endif /* FREYA_LINUX */
 
 static int parse_log_level(const char *s, int *out)
 {
@@ -1529,11 +1564,14 @@ static int cmd_log(int argc, char **argv)
 static int cmd_threads(int argc, char **argv)
 {
     if (argc > 1) return usage("threads");
+#ifndef FREYA_LINUX
     thread_list();
+#endif
     sh_list();
     return 0;
 }
 
+#ifndef FREYA_LINUX
 static int cmd_stop(int argc, char **argv)
 {
     int rc;
@@ -1617,6 +1655,51 @@ static int cmd_status(int argc, char **argv)
     kprintf("%u since reset\r\n", g_app.runs);
     return 0;
 }
+
+#else
+/* On Linux the only threads are the script's own, and there is no
+ * program: stop() takes a name, and status() is the last command. */
+static int cmd_stop(int argc, char **argv)
+{
+    if (argc != 2) return usage("stop <thread>");
+    if (!sh_stop_named(argv[1])) {
+        kprintf("stop: no thread named %s\r\n", argv[1]);
+        return -1;
+    }
+    kprintf("stopped %s\r\n", argv[1]);
+    return 0;
+}
+
+static int cmd_status(int argc, char **argv)
+{
+    if (argc > 1) return usage("status");
+    inf("command");
+    kprintf("%d\r\n", s_status);
+    return 0;
+}
+
+/* run(program, arg, ...) as a command: the program shares the terminal,
+ * and its exit status becomes '$?'.  The search is the PATH one. */
+static int cmd_run(int argc, char **argv)
+{
+    char *av[MAX_ARGS + 1];
+
+    if (argc < 2) return usage("run <program> [arg ...]");
+    memcpy(av, argv + 1, (size_t)(argc - 1) * sizeof av[0]);
+    av[argc - 1] = NULL;
+    return linux_spawn(av, NULL, NULL);
+}
+
+static int cmd_exit(int argc, char **argv)
+{
+    uint32_t st = 0;
+
+    if (argc > 2 || (argc == 2 && (str_to_u32(argv[1], &st) != 0 || st > 255)))
+        return usage("exit [0..255]");
+    linux_exit(argc == 2 ? (int)st : s_status);
+    return 0;
+}
+#endif /* FREYA_LINUX */
 
 /* Every image keeps this command in the kernel extension.  The Blue
  * Pill held it in the 48 KiB image while that had room; the cipher it
@@ -1767,6 +1850,7 @@ static int cmd_uptime(int argc, char **argv)
     return 0;
 }
 
+#ifndef FREYA_LINUX
 static int cmd_reboot(int argc, char **argv)
 {
     (void)argc; (void)argv;
@@ -1780,6 +1864,7 @@ static int cmd_reboot(int argc, char **argv)
     sys_reboot();
     return 0;
 }
+#endif /* FREYA_LINUX */
 
 static int cmd_clear(int argc, char **argv)
 {
@@ -1864,7 +1949,9 @@ static int KEXT load_script_file(const char *path, char **out)
 static int KEXT cmd_source(int argc, char **argv)
 {
     char *buf = NULL;
+#ifdef FREYA_APP_FLASH_ADDR
     const char *text = NULL;
+#endif
     int rc;
 
     if (argc != 2) return usage("source " PROG_ARG);
@@ -1908,6 +1995,19 @@ static int KEXT cmd_source(int argc, char **argv)
     return rc;
 }
 
+#ifdef FREYA_LINUX
+/* A script file, the way 'source' runs it. */
+int KEXT shell_source_file(const char *path)
+{
+    char *buf = NULL;
+    int rc;
+
+    if (load_script_file(path, &buf) != 0) return s_status = FREYA_EXIT_FAIL;
+    rc = shell_exec(buf);
+    kfree(buf);
+    return rc;
+}
+#else
 /* Publish $method and $query, then run path.  Console text lands in buf.
  * A quote in any of the three strings is refused: the prelude is a
  * shell line, and a quote would close it early. */
@@ -1949,6 +2049,7 @@ int KEXT shell_source_capture(const char *path, const char *method,
     if (dropped) return FREYA_EXIT_FAIL;
     return s_status;
 }
+#endif /* FREYA_LINUX */
 
 /* 1 once Ctrl-C has been noticed.  The first time prints '^C' and
  * remembers it, so a loop unwinds without printing it again. */
@@ -2002,6 +2103,7 @@ static int KEXT cmd_sleep(int argc, char **argv)
     return 0;
 }
 
+#ifndef FREYA_LINUX
 static int cmd_led(int argc, char **argv)
 {
     if (argc < 2) return usage("led on|off|blink");
@@ -2484,6 +2586,7 @@ static int cmd_w1(int argc, char **argv)
     }
     return 0;
 }
+#endif /* FREYA_LINUX */
 
 /* ------------------------------------------------------------ aead */
 /* Ascon-AEAD128.  The key and the nonce are hex, with no 0x and no
@@ -2823,12 +2926,14 @@ static int cmd_decompress(int argc, char **argv)
 }
 #endif
 
+#ifndef FREYA_LINUX
 static int cmd_cksum(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
     return fw_cksum_show() == FW_CKSUM_OK ? 0 : -1;
 }
+#endif /* FREYA_LINUX */
 
 #if BOARD_ESP_LINK
 static void KEXT print_ipv4(uint32_t a)
@@ -3038,7 +3143,7 @@ static int KEXT cmd_syslog(int argc, char **argv)
     print_syslog();
     return 0;
 }
-#else
+#elif !defined(FREYA_LINUX)
 static int KEXT cmd_network_unsupported(int argc, char **argv)
 {
     (void)argc; (void)argv;
@@ -3080,26 +3185,34 @@ static const char s_help_syslog[]
 
 static const command_t s_cmds[] = {
     { "help",     cmd_help,     "help([\"command\"])" },
+#ifndef FREYA_LINUX
     { "sysinfo",  cmd_sysinfo,  "sysinfo()" },
     { "cksum",    cmd_cksum,    "cksum()" },
     { "meminfo",  cmd_meminfo,  "meminfo()" },
     { "mount",    cmd_mount,    "mount()" },
     { "power",    cmd_power,    "power([\"sd\" [, \"on\"|\"off\"]])" },
+#endif
     { "ls",       cmd_ls,       "ls([\"-l\"] [, \"path\"])" },
     { "cd",       cmd_cd,       "cd([\"path\"])" },
     { "pwd",      cmd_pwd,      "pwd()" },
     { "mkdir",    cmd_mkdir,    "mkdir(\"dir\" [, ...])" },
     { "rm",       cmd_rm,       "rm([\"-r\"|\"-rf\",] \"path\" [, ...])" },
     { "rename",   cmd_rename,   "rename(\"old\", \"new\")" },
+#ifndef FREYA_LINUX
     { "download", cmd_download, "download(\"file\" [, \"--raw\"] [, \"--size\", bytes])" },
     { "upload",   cmd_upload,   "upload(\"file\")" },
+#endif
     { "cat",      cmd_cat,      "cat(\"file\")" },
     { "write",    cmd_write,    "write(\"file\", value [, ...])" },
     { "hexdump",  cmd_hexdump,  "hexdump(\"file\" [, offset [, length]])" },
+#ifndef FREYA_LINUX
     { "flashdump",cmd_flashdump,"flashdump([\"file\"])" },
     { "df",       cmd_df,       "df()" },
     { "load",     cmd_load,     "load(\"file\"|\"@flash\")" },
     { "run",      cmd_run,      "run([\"file\"|\"@flash\" [, arg ...]])" },
+#else
+    { "run",      cmd_run,      "run(\"program\" [, arg ...])" },
+#endif
 #ifdef FREYA_APP_FLASH_ADDR
     { "runflash", cmd_runflash, "runflash([arg [, ...]])" },
 #endif
@@ -3118,6 +3231,7 @@ static const command_t s_cmds[] = {
     { "loglevel", cmd_loglevel, "loglevel([\"off\"|\"error\"|\"warn\"|\"info\"|\"debug\"|0..4])" },
     { "log",      cmd_log,      "log(\"error\"|\"warn\"|\"info\"|\"debug\"|1..4, message)" },
     { "uptime",   cmd_uptime,   "uptime()" },
+#ifndef FREYA_LINUX
     { "led",      cmd_led,      "led(\"on\"|\"off\"|\"blink\")" },
     { "pin",      cmd_pin,      "pin(\"pin\" [, \"in\"|\"up\"|\"down\"|\"out\"|\"od\"|\"analog\"|0|1|\"toggle\" [, 0|1|\"toggle\"]])" },
     { "pwm",      cmd_pwm,      "pwm([[\"pin\", hz, duty] | [\"pin\", \"off\"]])" },
@@ -3126,11 +3240,14 @@ static const command_t s_cmds[] = {
     { "spi",      cmd_spi,      "spi([bus, hz [, mode] | bus, \"off\" | bus, \"x\", ...])" },
     { "wifi",     cmd_wifi,     "wifi([\"on\"|\"off\"|\"status\"|\"scan\"|\"connect\"|\"disconnect\"|\"credentials\", ...])" },
     { "ping",     cmd_ping,     "ping(\"host\" [, timeout_ms])" },
+#endif
 #if BOARD_ESP_LINK
     { "syslog",   cmd_syslog,   s_help_syslog },
 #endif
+#ifndef FREYA_LINUX
     { "curl",     cmd_curl,     "curl([\"--basic\", \"user:password\",] [\"--compressed\",] [\"--data\", text,] [\"--output\", file,] [\"--user-agent\", text,] [\"--insecure\",] [\"--verbose\",] \"http[s]://...\")" },
     { "w1",       cmd_w1,       "w1([\"pin\" [, \"off\"|\"reset\"|\"search\"]])" },
+#endif
     /* A board that builds none of the cipher or the coder does not
      * carry their names either: an entry and its help are bytes this
      * board's extension does not have to spare. */
@@ -3155,7 +3272,11 @@ static const command_t s_cmds[] = {
     { "loop",     cmd_script,   "loop <count|condition>" },
     { "break",    cmd_script,   "break" },
     { "clear",    cmd_clear,    "clear()" },
+#ifndef FREYA_LINUX
     { "reboot",   cmd_reboot,   "reboot()" },
+#else
+    { "exit",     cmd_exit,     "exit([status])" },
+#endif
 };
 
 /* 'if', 'else', 'end', 'loop', 'fn' and 'return' are syntax, handled
@@ -4638,7 +4759,7 @@ typedef struct {
     sh_thr_t sh[SH_MAX];
 } shell_scratch_t;
 
-#ifdef FREYA_HOST
+#if defined(FREYA_HOST) || defined(FREYA_LINUX)
 static uint8_t s_scratch_mem[2048];
 #define SCRATCH_BYTES s_scratch_mem
 #else
@@ -4652,6 +4773,10 @@ static shell_scratch_t * KEXT shell_scratch(void)
 {
     shell_scratch_t *p = (shell_scratch_t *)(void *)SCRATCH_BYTES;
 
+#ifdef FREYA_LINUX
+    /* No program ever owns these bytes. */
+    (void)s_scratch_runs;
+#else
     /* A running program owns these bytes as thread stacks. */
     if (g_app.running) return p;
     /* A loaded program that starts no threads may own them as its RAM.
@@ -4666,6 +4791,7 @@ static shell_scratch_t * KEXT shell_scratch(void)
         memset(p, 0, sizeof *p);
         s_scratch_runs = g_app.runs;
     }
+#endif
     return p;
 }
 
@@ -4745,7 +4871,10 @@ static int KEXT fn_reserved(const char *s, int n)
         "ram_read", "ram_write", "ram_checksum",
         "match", "find", "gsub",
         "password_check",
-        "log"
+        "log",
+#ifdef FREYA_LINUX
+        "run"
+#endif
     };
     int i;
 
@@ -5441,6 +5570,7 @@ static int KEXT dt_builtin(const char *name, int nlen, fn_arg_t *args,
     return 0;
 }
 
+#ifndef FREYA_LINUX
 /* A script function cannot run in interrupt context: the interpreter is
  * one thread of static state.  The handler below only marks the slot.
  * wait() calls the named function afterwards, where a script may do
@@ -5572,6 +5702,7 @@ static int KEXT shell_wait(uint32_t ms, int *hit)
         }
     }
 }
+#endif /* FREYA_LINUX */
 
 static int KEXT named_fn(const char *s)
 {
@@ -5584,6 +5715,7 @@ static int KEXT named_fn(const char *s)
     return 0;
 }
 
+#ifndef FREYA_LINUX
 static int KEXT timer_builtin(fn_arg_t *args, int argc, val_t *out)
 {
     shell_bind_t *b = NULL;
@@ -5693,6 +5825,7 @@ static int KEXT irq_builtin(fn_arg_t *args, int argc, val_t *out)
     }
     return 1;
 }
+#endif /* FREYA_LINUX */
 
 /* 1 handled, 0 not a built-in, -1 error (already printed).
  * int/float/str/hex convert.  rand() and srand(seed) are the ANSI C
@@ -6295,6 +6428,7 @@ static int KEXT file_builtin(const char *name, int nlen, fn_arg_t *args,
 }
 
 /* Binary files and bounded physical memory. */
+#ifndef FREYA_LINUX
 #define MEM_FLASH_BASE 0x08000000UL
 #ifdef FREYA_HOST
 #define MEM_RAM_BASE   0x20000000UL
@@ -6302,6 +6436,7 @@ static int KEXT file_builtin(const char *name, int nlen, fn_arg_t *args,
 extern uint8_t freya_test_flash_mem[];
 extern uint8_t freya_test_ram_mem[];
 #endif
+#endif /* FREYA_LINUX */
 
 static int arg_nonneg(const fn_arg_t *a, uint32_t *out)
 {
@@ -6310,6 +6445,7 @@ static int arg_nonneg(const fn_arg_t *a, uint32_t *out)
     return 0;
 }
 
+#ifndef FREYA_LINUX
 static int range_inside(uint32_t addr, uint32_t len,
                         uint32_t base, uint32_t size)
 {
@@ -6345,6 +6481,7 @@ static void ram_bounds(uint32_t *base, uint32_t *size)
     *size = (uint32_t)((uintptr_t)__ram_end - (uintptr_t)__ram_start);
 #endif
 }
+#endif /* FREYA_LINUX */
 
 static int binary_file_checksum(fn_arg_t *args, int argc, val_t *out)
 {
@@ -6449,6 +6586,7 @@ static int binary_file_write(fn_arg_t *args, int argc, val_t *out)
     return 1;
 }
 
+#ifndef FREYA_LINUX
 static int binary_flash_read(fn_arg_t *args, int argc, val_t *out)
 {
     uint32_t addr, count, size = mcu_flash_kib() << 10;
@@ -6547,6 +6685,7 @@ static int binary_ram_checksum(fn_arg_t *args, int argc, val_t *out)
     out->i = (int32_t)fw_sum_bytes(ram_bytes_at(addr), addr, count, 0, 0);
     return 1;
 }
+#endif /* FREYA_LINUX */
 
 static int binary_builtin(const char *name, int nlen, fn_arg_t *args,
                           int argc, val_t *out)
@@ -6557,6 +6696,7 @@ static int binary_builtin(const char *name, int nlen, fn_arg_t *args,
         return binary_file_read(args, argc, out);
     if (nlen == 10 && strncmp(name, "file_write", 10) == 0)
         return binary_file_write(args, argc, out);
+#ifndef FREYA_LINUX
     if (nlen == 10 && strncmp(name, "flash_read", 10) == 0)
         return binary_flash_read(args, argc, out);
     if (nlen == 11 && strncmp(name, "flash_write", 11) == 0)
@@ -6567,6 +6707,7 @@ static int binary_builtin(const char *name, int nlen, fn_arg_t *args,
         return binary_ram_write(args, argc, out);
     if (nlen == 12 && strncmp(name, "ram_checksum", 12) == 0)
         return binary_ram_checksum(args, argc, out);
+#endif
     return 0;
 }
 
@@ -7197,6 +7338,7 @@ static int KEXT log_builtin(fn_arg_t *args, int argc, val_t *out)
     return 1;
 }
 
+#ifndef FREYA_LINUX
 static int KEXT password_builtin(fn_arg_t *args, int argc, val_t *out)
 {
     out->type = V_BOOL;
@@ -7222,12 +7364,64 @@ static int KEXT password_builtin(fn_arg_t *args, int argc, val_t *out)
 #endif
     return 1;
 }
+#endif /* FREYA_LINUX */
+
+#ifdef FREYA_LINUX
+/* run(program, arg, ...) inside an expression.  Two values: what the
+ * program wrote on its standard output, exactly, and its exit status.
+ * Its standard input and standard error stay the terminal's.  A number,
+ * a byte or a bool argument is passed as its text. */
+static int KEXT run_builtin(fn_arg_t *args, int argc, val_t *out)
+{
+    char *argv[FN_ARGS + 1];
+    char text[FN_ARGS][VAR_STR];
+    char *buf = NULL;
+    uint32_t len = 0;
+    int i, st;
+
+    (void)out;
+    if (argc < 1 || args[0].type != V_STR || !str_len(args[0].u.s))
+        return vfail("bad expression");
+    for (i = 0; i < argc; i++) {
+        val_t v;
+
+        if (args[i].type == V_STR) {
+            argv[i] = (char *)str_text(args[i].u.s);
+            continue;
+        }
+        if (args[i].type != V_INT && args[i].type != V_BYTE &&
+            args[i].type != V_BOOL && !is_flt(args[i].type))
+            return vfail("bad expression");
+        memset(&v, 0, sizeof v);
+        v.type = args[i].type;
+        if (is_flt(v.type)) v.f = args[i].u.f;
+        else v.i = args[i].u.i;
+        val_text(&v, text[i], (int)sizeof text[i]);
+        argv[i] = text[i];
+    }
+    argv[argc] = NULL;
+    st = linux_spawn(argv, &buf, &len);
+    if (st < 0) return -1;
+    memset(&s_fn_retv[0], 0, 2 * sizeof s_fn_retv[0]);
+    s_fn_retv[0].type = V_STR;
+    s_fn_retv[0].u.s = str_new(buf, len);
+    kfree(buf);
+    if (len && !s_fn_retv[0].u.s) return vfail("out of memory");
+    s_fn_retv[1].type = V_INT;
+    s_fn_retv[1].u.i = st;
+    s_fn_nret = 2;
+    return 2;
+}
+#endif
 
 static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
                            int argc, val_t *out)
 {
+#ifndef FREYA_LINUX
     const char *ps;
-    int pin, rc;
+    int pin;
+#endif
+    int rc;
 
     out->type = V_INT;
     out->i = 0;
@@ -7299,6 +7493,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         return conv_sincos(&args[0], name[0] == 'c', out);
     }
 
+#ifndef FREYA_LINUX
     if (nlen == 3 && strncmp(name, "get", 3) == 0) {
         if (argc != 1 || args[0].type != V_STR) return vfail("bad expression");
         pin = parse_pin(str_text(args[0].u.s));
@@ -7371,6 +7566,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         out->i = (int32_t)hz;
         return 1;
     }
+#endif /* FREYA_LINUX */
 
     if (nlen == 5 && strncmp(name, "ticks", 5) == 0) {
         uint32_t ms;
@@ -7381,6 +7577,7 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         out->i = (int32_t)ms;
         return 1;
     }
+#ifndef FREYA_LINUX
     if (nlen == 5 && strncmp(name, "timer", 5) == 0)
         return timer_builtin(args, argc, out);
     if (nlen == 6 && strncmp(name, "tstart", 6) == 0)
@@ -7405,14 +7602,21 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         out->i = hit ? 0 : -1;
         return 1;
     }
+#endif /* FREYA_LINUX */
+
     if (nlen == 5 && strncmp(name, "spawn", 5) == 0)
         return sh_spawn(args, argc, out);
     if (nlen == 4 && strncmp(name, "join", 4) == 0)
         return sh_join(args, argc, out);
     if (nlen == 5 && strncmp(name, "yield", 5) == 0)
         return sh_yield_fn(args, argc, out);
+#ifndef FREYA_LINUX
     if (nlen == 14 && strncmp(name, "password_check", 14) == 0)
         return password_builtin(args, argc, out);
+#else
+    if (nlen == 3 && strncmp(name, "run", 3) == 0)
+        return run_builtin(args, argc, out);
+#endif
     if (nlen == 3 && strncmp(name, "log", 3) == 0)
         return log_builtin(args, argc, out);
     if ((rc = file_builtin(name, nlen, args, argc, out)) != 0) return rc;
@@ -9461,8 +9665,11 @@ static int KEXT script_append(const char *line)
     return 0;
 }
 
+#ifdef FREYA_APP_FLASH_ADDR
 static int s_term_open;
+#endif
 
+#ifndef FREYA_LINUX
 static int terminal_locked(void)
 {
 #ifdef FREYA_APP_FLASH_ADDR
@@ -9471,6 +9678,8 @@ static int terminal_locked(void)
     return 0;
 #endif
 }
+
+#endif
 
 #ifdef FREYA_APP_FLASH_ADDR
 static void terminal_unlock(void)
@@ -9508,6 +9717,7 @@ static void terminal_unlock(void) { }
  * loader under a thread that may be using them.  The line is assembled
  * across polls, and one command is run per call so PendSV is not held
  * across a long print.  A locked terminal discards that input. */
+#ifndef FREYA_LINUX
 void shell_poll_runtime(void)
 {
     int c;
@@ -9579,6 +9789,8 @@ void shell_poll_runtime(void)
     }
 }
 
+#endif /* FREYA_LINUX */
+
 int KEXT shell_exec(const char *line)
 {
     char walk[LINE_MAX];
@@ -9604,6 +9816,14 @@ int KEXT shell_exec(const char *line)
     return s_status;
 }
 
+#ifdef FREYA_LINUX
+void console_banner(void)
+{
+    kprintf("Freya %s \"%s\" shell on Linux - built %s\r\n",
+            FREYA_OS_VERSION, FREYA_CODENAME, FREYA_BUILD_ID);
+    kprintf("Type 'help()'.  Ctrl-D or exit() leaves.\r\n\r\n");
+}
+#else
 void console_banner(void)
 {
     static const char art[] =
@@ -9623,8 +9843,13 @@ void console_banner(void)
     kprintf("%u MHz, %s reset. Type 'help()'.\r\n\r\n",
             g_clocks.hclk_hz / 1000000UL, sys_reset_cause_str());
 }
+#endif
 
+#ifdef FREYA_LINUX
+int shell_run(void)
+#else
 void shell_run(void)
+#endif
 {
     static char line[LINE_MAX];
 
@@ -9642,6 +9867,16 @@ void shell_run(void)
 #endif
 
         n = readline(line, (int)sizeof line, 0);
+#ifdef FREYA_LINUX
+        if (n == -2) {                      /* end of input */
+            if (s_script_len) {
+                kprintf("missing end\r\n");
+                script_discard();
+                s_status = FREYA_EXIT_FAIL;
+            }
+            return s_status;
+        }
+#endif
         if (n < 0) {                        /* Ctrl-C abandons the block */
             script_discard();
             continue;

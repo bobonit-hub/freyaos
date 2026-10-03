@@ -1009,6 +1009,7 @@ is measured rather than guessed).
 | `src/fault.c` | fault containment and the kernel panic dump |
 | `src/ramdump.c` | SRAM dump to `/freya.ram` after a BusFault |
 | `src/shell.c` | line editing and the commands |
+| `linux/` | `fsh`, the shell built for Linux: its board header, its platform layer, its tests |
 | `src/log.c` | file log (`/freya.log`) and rotation |
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
@@ -1018,6 +1019,7 @@ is measured rather than guessed).
 | `basic/` | BASIC-11 style interpreter for the FPU boards: the interpreter, its `float` arithmetic, the PC build it is tested on |
 | `tests/` | host side tests |
 | `docs/shell.md` | the shell language: values, expressions, control, variables, functions |
+| `docs/linux.md` | the shell language as a Linux program, `fsh`, and `run()` |
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
 | `docs/i2c.md` | the I2C master API, the pins, the optional DS3231, and the `i2c` command |

@@ -10,8 +10,14 @@
 
 #include <stdint.h>
 
+#ifdef FREYA_LINUX
+/* The shell on Linux (linux/board.h) passes these to the host's names. */
+#define FAT_MAX_NAME        256
+#define FAT_MAX_PATH        1024
+#else
 #define FAT_MAX_NAME        64
 #define FAT_MAX_PATH        128
+#endif
 
 enum {
     FAT_OK          =  0,

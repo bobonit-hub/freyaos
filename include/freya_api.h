@@ -146,9 +146,13 @@
 #define FREYA_SETTINGS_ADDR      0x0800C000UL
 #define FREYA_APP_FLASH_ADDR     0x08030000UL
 #define FREYA_APP_FLASH_SIZE     (0x08100000UL - FREYA_APP_FLASH_ADDR)
+#elif defined(FREYA_LINUX)
+/* The shell language as a Linux program (linux/board.h): no program
+ * region, no program flash and no system settings. */
 #else
 #error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLACKPILL2, FREYA_BOARD_BLUEPILL or FREYA_BOARD_STM32F405"
 #endif
+#ifndef FREYA_LINUX
 #if (FREYA_SETTINGS_ADDR % 128U) || (FREYA_SETTINGS_SIZE % 128U) || \
     (FREYA_APP_FLASH_ADDR % 128U)
 #error "system settings and program flash must be 128-byte aligned"
@@ -162,6 +166,7 @@
     ((FREYA_SET_SYSLOG_PORT_OFF + 4U) > FREYA_SETTINGS_BLOCK)
 #error "system settings copies do not fit in the reserved flash"
 #endif
+#endif /* FREYA_LINUX */
 
 /* header flags */
 #define FREYA_APP_F_XIP        0x00000001UL   /* stored in program flash */

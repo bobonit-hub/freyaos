@@ -26,7 +26,7 @@ uint32_t fw_sum_bytes(const uint8_t *p, uint32_t addr, uint32_t len,
     return sum;
 }
 
-#ifndef FREYA_HOST
+#if !defined(FREYA_HOST) && !defined(FREYA_LINUX)
 static uint32_t add_span(uint32_t sum, const uint8_t *p, const uint8_t *end)
 {
     while (p < end)

@@ -732,7 +732,12 @@ extern uint32_t thread_exc_restore;
 
 /* -------------------------------------------------------------- shell */
 void shell_poll_runtime(void);          /* threads/stop while a program runs */
+#ifdef FREYA_LINUX
+int  shell_run(void);          /* at end of input, the last status    */
+int  shell_source_file(const char *path);     /* returns the status     */
+#else
 void shell_run(void) __attribute__((noreturn));
+#endif
 int  shell_exec(const char *line);            /* returns the status     */
 int  shell_source_capture(const char *path, const char *method,
                           const char *query, char *buf, int cap,
