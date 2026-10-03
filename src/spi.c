@@ -66,8 +66,22 @@ void spififo_setup(SPI_TypeDef *regs, uint32_t br, int mode)
 #endif
 
 /* ------------------------------------------------------- the SD card */
+#ifdef BOARD_SD_BITBANG
+/* A board whose card is not on a SPI peripheral drives it itself
+ * (sdspi_*() in its board.c).  SPI1 then serves the SPI flash alone, and
+ * the functions below take the flspi_*() names and its chip select. */
+#define sdspi_init      flspi_init
+#define sdspi_set_speed flspi_set_speed
+#define sdspi_cs        flspi_cs
+#define sdspi_xfer      flspi_xfer
+#define sdspi_write     flspi_write
+#define sdspi_read      flspi_read
+#define CS_PORT     BOARD_FLASH_CS_PORT
+#define CS_PIN      BOARD_FLASH_CS_PIN
+#else
 #define CS_PORT     BOARD_SD_CS_PORT
 #define CS_PIN      BOARD_SD_CS_PIN
+#endif
 
 void sdspi_init(void)
 {
@@ -128,6 +142,7 @@ void sdspi_read(uint8_t *buf, uint32_t len)
     while (len--) *buf++ = sdspi_xfer(0xFF);
 }
 
+#ifndef BOARD_SD_BITBANG
 /* Drop the bus before the socket loses VDD.  A pin left driving, or a
  * pull-up left on, feeds the card through its protection diodes. */
 /* Own section, with sd_power().  The Black Pill image has no room. */
@@ -147,6 +162,7 @@ void sdspi_quiesce(void)
     for (int n = 4; n <= 7; n++)
         board_pin_mode(port, n, FREYA_PIN_ANALOG);
 }
+#endif
 
 /* --------------------------------------------------------- a program */
 typedef struct {

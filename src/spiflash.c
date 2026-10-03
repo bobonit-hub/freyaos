@@ -13,6 +13,17 @@
 
 #ifdef BOARD_SPIFLASH
 
+/* The chip shares the card's bus and chip select, or, on a board with
+ * BOARD_SPIFLASH_OWN_BUS, has SPI1 to itself (flspi_*() in src/spi.c). */
+#ifndef BOARD_SPIFLASH_OWN_BUS
+#define flspi_init      sdspi_init
+#define flspi_set_speed sdspi_set_speed
+#define flspi_cs        sdspi_cs
+#define flspi_xfer      sdspi_xfer
+#define flspi_write     sdspi_write
+#define flspi_read      sdspi_read
+#endif
+
 #define SPIFLASH_BUS    1
 #define SECTOR          4096
 
@@ -45,10 +56,10 @@ static int wait_ready(uint32_t ms)
     do {
         uint8_t st;
 
-        sdspi_cs(1);
-        (void)sdspi_xfer(0x05);
-        st = sdspi_xfer(0xFF);
-        sdspi_cs(0);
+        flspi_cs(1);
+        (void)flspi_xfer(0x05);
+        st = flspi_xfer(0xFF);
+        flspi_cs(0);
         if ((st & 0x01) == 0) return 0;
     } while ((uint32_t)(sys_ticks() - start) < ms);
     return -1;
@@ -56,36 +67,36 @@ static int wait_ready(uint32_t ms)
 
 static void cmd_addr(uint8_t cmd3, uint8_t cmd4, uint32_t addr)
 {
-    sdspi_cs(1);
-    (void)sdspi_xfer(0x06);             /* write enable */
-    sdspi_cs(0);
-    sdspi_cs(1);
+    flspi_cs(1);
+    (void)flspi_xfer(0x06);             /* write enable */
+    flspi_cs(0);
+    flspi_cs(1);
     if (s_addr4) {
-        (void)sdspi_xfer(cmd4);
-        (void)sdspi_xfer((uint8_t)(addr >> 24));
+        (void)flspi_xfer(cmd4);
+        (void)flspi_xfer((uint8_t)(addr >> 24));
     } else {
-        (void)sdspi_xfer(cmd3);
+        (void)flspi_xfer(cmd3);
     }
-    (void)sdspi_xfer((uint8_t)(addr >> 16));
-    (void)sdspi_xfer((uint8_t)(addr >> 8));
-    (void)sdspi_xfer((uint8_t)addr);
+    (void)flspi_xfer((uint8_t)(addr >> 16));
+    (void)flspi_xfer((uint8_t)(addr >> 8));
+    (void)flspi_xfer((uint8_t)addr);
 }
 
 static int raw_read(uint32_t addr, uint8_t *dst, uint32_t len)
 {
     if (wait_ready(2000) != 0) return -1;
-    sdspi_cs(1);
+    flspi_cs(1);
     if (s_addr4) {
-        (void)sdspi_xfer(0x13);
-        (void)sdspi_xfer((uint8_t)(addr >> 24));
+        (void)flspi_xfer(0x13);
+        (void)flspi_xfer((uint8_t)(addr >> 24));
     } else {
-        (void)sdspi_xfer(0x03);
+        (void)flspi_xfer(0x03);
     }
-    (void)sdspi_xfer((uint8_t)(addr >> 16));
-    (void)sdspi_xfer((uint8_t)(addr >> 8));
-    (void)sdspi_xfer((uint8_t)addr);
-    sdspi_read(dst, len);
-    sdspi_cs(0);
+    (void)flspi_xfer((uint8_t)(addr >> 16));
+    (void)flspi_xfer((uint8_t)(addr >> 8));
+    (void)flspi_xfer((uint8_t)addr);
+    flspi_read(dst, len);
+    flspi_cs(0);
     return 0;
 }
 
@@ -93,7 +104,7 @@ static int raw_erase(uint32_t addr)
 {
     if (wait_ready(2000) != 0) return -1;
     cmd_addr(0x20, 0x21, addr);         /* 4 KiB erase */
-    sdspi_cs(0);
+    flspi_cs(0);
     return wait_ready(2000);
 }
 
@@ -110,8 +121,8 @@ static int raw_prog(uint32_t addr, const uint8_t *src, uint32_t len)
         if (!blank) {
             if (wait_ready(50) != 0) return -1;
             cmd_addr(0x02, 0x12, addr);
-            sdspi_write(src, n);
-            sdspi_cs(0);
+            flspi_write(src, n);
+            flspi_cs(0);
             if (wait_ready(50) != 0) return -1;
         }
         addr += n;
@@ -125,25 +136,25 @@ static int jedec(uint8_t id[3])
 {
     uint8_t again[3];
 
-    sdspi_init();
-    sdspi_set_speed(0);
-    sdspi_cs(0);
-    (void)sdspi_xfer(0xFF);
+    flspi_init();
+    flspi_set_speed(0);
+    flspi_cs(0);
+    (void)flspi_xfer(0xFF);
 
-    sdspi_cs(1);
-    (void)sdspi_xfer(0x9F);
-    id[0] = sdspi_xfer(0xFF);
-    id[1] = sdspi_xfer(0xFF);
-    id[2] = sdspi_xfer(0xFF);
-    sdspi_cs(0);
-    (void)sdspi_xfer(0xFF);
+    flspi_cs(1);
+    (void)flspi_xfer(0x9F);
+    id[0] = flspi_xfer(0xFF);
+    id[1] = flspi_xfer(0xFF);
+    id[2] = flspi_xfer(0xFF);
+    flspi_cs(0);
+    (void)flspi_xfer(0xFF);
 
-    sdspi_cs(1);
-    (void)sdspi_xfer(0x9F);
-    again[0] = sdspi_xfer(0xFF);
-    again[1] = sdspi_xfer(0xFF);
-    again[2] = sdspi_xfer(0xFF);
-    sdspi_cs(0);
+    flspi_cs(1);
+    (void)flspi_xfer(0x9F);
+    again[0] = flspi_xfer(0xFF);
+    again[1] = flspi_xfer(0xFF);
+    again[2] = flspi_xfer(0xFF);
+    flspi_cs(0);
 
     if (id[0] != again[0] || id[1] != again[1] || id[2] != again[2]) return -1;
     if (id[0] == 0x00 || id[0] == 0xFF) return -1;
@@ -418,14 +429,14 @@ int spiflash_probe(void)
     s_ready = 0;
     if (jedec(id) == 0) {
         accept_id(id);
-        sdspi_set_speed(1);
+        flspi_set_speed(1);
         return 0;
     }
 #ifdef FREYA_BOARD_BLACKPILL
     miso_pb4();
     if (jedec(id) == 0) {
         accept_id(id);
-        sdspi_set_speed(1);
+        flspi_set_speed(1);
         return 0;
     }
     miso_pa6();
@@ -489,6 +500,9 @@ void spiflash_boot(void)
     print_mounted(rc == 1);
     kprintf(", mounted on /spi%d\r\n", spiflash_bus());
 #ifndef FREYA_HOST
+#ifdef BOARD_SPIFLASH_OWN_BUS
+    if (fat_mounted()) return;          /* the card stays the start */
+#endif
     (void)fs_chdir("/spi1");
 #endif
 }

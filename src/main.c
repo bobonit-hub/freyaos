@@ -11,14 +11,18 @@
 #define AUTORUN_PATH    "/autorun.bin"
 #define AUTORUN_GRACE   2000    /* ms to interrupt the autorun */
 
+#ifdef BOARD_SPIFLASH_OWN_BUS
+static void boot_card(void)
+#else
 static void boot_storage(void)
+#endif
 {
     int rc;
 
     kprintf("[boot] SD card    : ");
     if (sd_init() != 0) {
         kprintf("not present\r\n");
-#ifdef BOARD_SPIFLASH
+#if defined(BOARD_SPIFLASH) && !defined(BOARD_SPIFLASH_OWN_BUS)
         spiflash_boot();
 #endif
         return;
@@ -39,6 +43,16 @@ static void boot_storage(void)
     kput_size(g_fs.bytes_per_clus);
     kprintf(", mounted on /\r\n");
 }
+
+#ifdef BOARD_SPIFLASH_OWN_BUS
+/* The SPI flash has a bus of its own here, so it is mounted beside the
+ * card rather than only in its absence. */
+static void boot_storage(void)
+{
+    boot_card();
+    spiflash_boot();
+}
+#endif
 
 /*
  * The card is asked first, so a program on it always overrides one in

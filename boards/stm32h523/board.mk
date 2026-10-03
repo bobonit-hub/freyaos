@@ -11,8 +11,10 @@ OPENOCD_TARGET := target/stm32h5x.cfg
 # The SOP-8 footprint takes a SPI NOR chip: LittleFS at /spi1.
 SPIFLASH       := 1
 
-# st-flash does not know the H5 family.
-FLASH_UNSUPPORTED := st-flash does not support the STM32H523 - use 'make bootloader' or 'make openocd'
+# st-flash writes the kernel and the extension, and fwsum.py then updates
+# the settings in their own 8 KiB page at 0x0800C000.
+CKSUM_PAGE_BASE := 0x0800C000
+CKSUM_PAGE_SIZE := 8192
 
 # The H523 has a USB DFU loader in ROM on the board's USB-C socket: hold
 # BOOT0, tap NRST, then run this.  The extension lies between the kernel

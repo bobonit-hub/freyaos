@@ -324,6 +324,15 @@ void     sdspi_write(const uint8_t *buf, uint32_t len);
 void     sdspi_read(uint8_t *buf, uint32_t len);
 void     sdspi_cs(int low);
 void     sdspi_quiesce(void);             /* stop SPI1, release its pins */
+#ifdef BOARD_SD_BITBANG
+/* SPI1 for the SPI flash alone, on a board that drives its card itself. */
+void     flspi_init(void);
+void     flspi_set_speed(int fast);
+uint8_t  flspi_xfer(uint8_t v);
+void     flspi_write(const uint8_t *buf, uint32_t len);
+void     flspi_read(uint8_t *buf, uint32_t len);
+void     flspi_cs(int low);
+#endif
 #ifdef BOARD_SPI_FIFO
 /* Master, 8 bits, software NSS, divider code br, mode 0..3, started. */
 void     spififo_setup(SPI_TypeDef *regs, uint32_t br, int mode);

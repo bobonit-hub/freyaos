@@ -860,6 +860,9 @@ static int app_load_flash(void)
             }
             __dsb();
             __isb();
+#ifdef BOARD_ICACHE
+            icache_invalidate();
+#endif
             run_hdr = ram_hdr;
             ram_end = copy_addr + hdr->image_size;
         }
@@ -974,6 +977,9 @@ int app_load(const char *path)
     /* The image was written as data; make sure the core fetches it fresh. */
     __dsb();
     __isb();
+#ifdef BOARD_ICACHE
+    icache_invalidate();                /* not what the last one left */
+#endif
 
     g_app.loaded     = 1;
     g_app.entry      = hdr.entry;

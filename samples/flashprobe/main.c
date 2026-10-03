@@ -34,7 +34,8 @@
  * a third board means a third section below rather than a default. */
 #if !defined(FREYA_BOARD_BLUEPILL) && !defined(FREYA_BOARD_BLACKPILL) && \
     !defined(FREYA_BOARD_STM32F405) && !defined(FREYA_BOARD_BLACKPILL2) && \
-    !defined(FREYA_BOARD_STM32U585) && !defined(FREYA_BOARD_STM32H523)
+    !defined(FREYA_BOARD_STM32U585) && !defined(FREYA_BOARD_STM32H523) && \
+    !defined(FREYA_BOARD_STM32H723)
 #error "flashprobe drives the flash controller itself and needs a board it knows"
 #endif
 
@@ -46,8 +47,10 @@
 #endif
 
 /* The U5 and the H5 program a quad-word at a time and erase 8 KiB units,
- * each through its own registers, so the two share a path as well. */
-#if defined(FREYA_BOARD_STM32U585) || defined(FREYA_BOARD_STM32H523)
+ * and the H7 a 32-byte flash word and 128 KiB sectors, each through its
+ * own registers, so the three share a path as well. */
+#if defined(FREYA_BOARD_STM32U585) || defined(FREYA_BOARD_STM32H523) || \
+    defined(FREYA_BOARD_STM32H723)
 #define FLASH_QUAD      1
 #else
 #define FLASH_QUAD      0
@@ -58,6 +61,8 @@
 #define BLOCK_BYTES         256u            /* the data block each step writes */
 #if defined(FREYA_BOARD_STM32U585)
 #define PROBE_MAX_KIB       4096u           /* as far up as this will look     */
+#elif defined(FREYA_BOARD_STM32H723)
+#define PROBE_MAX_KIB       2048u           /* as far up as this will look     */
 #else
 #define PROBE_MAX_KIB       1024u           /* as far up as this will look     */
 #endif
@@ -228,6 +233,8 @@ typedef struct {
 #define CR_ERASE(off)   (CR_PER | CR_PNB(((off) % BANK_BYTES) / 8192u) | \
                          (((off) >= BANK_BYTES) ? CR_BKER : 0))
 #define CR_GO           CR_STRT
+#define CR_PROG         CR_PG
+#define PROG_WORDS      4u                  /* a quad-word                 */
 
 static const char *err_str(uint32_t bits)
 {
@@ -294,6 +301,8 @@ typedef struct {
 #define CR_ERASE(off)   (CR_SER | CR_SNB(((off) % BANK_BYTES) / 8192u) | \
                          (((off) >= BANK_BYTES) ? CR_BKSEL : 0))
 #define CR_GO           CR_START
+#define CR_PROG         CR_PG
+#define PROG_WORDS      4u                  /* a quad-word                 */
 
 static const char *err_str(uint32_t bits)
 {
@@ -307,7 +316,73 @@ static const char *err_str(uint32_t bits)
 
 #endif /* FREYA_BOARD_STM32H523 */
 
-#if FLASH_QUAD
+/* ================================================ the STM32H723 === */
+#if defined(FREYA_BOARD_STM32H723)
+
+#define MCU_NAME        "STM32H723"
+#define FLASHSIZE_REG   (*(const volatile uint16_t *)0x1FF1E880UL)
+#define DECLARED_KIB    1024u
+#define SPIN_LIMIT      2000000000UL        /* a sector erase is seconds   */
+
+/* The H7's bank 1 registers under the names the shared code uses, and a
+ * separate register to clear the status flags. */
+typedef struct {
+    volatile uint32_t ACR;
+    volatile uint32_t KEYR;                 /* KEYR1 */
+    volatile uint32_t OPTKEYR;
+    volatile uint32_t CR;                   /* CR1   */
+    volatile uint32_t SR;                   /* SR1   */
+    volatile uint32_t CCR;                  /* CCR1  */
+} h7_flash_regs_t;
+
+#define FL              ((h7_flash_regs_t *)0x52002000UL)
+#define FL_CLEAR(bits)  (FL->CCR = (bits))
+
+/* Busy while the controller works or still holds data to write. */
+#define SR_BSY          ((1UL << 0) | (1UL << 1) | (1UL << 2))
+#define SR_EOP          (1UL << 16)
+#define SR_WRPERR       (1UL << 17)
+#define SR_PGSERR       (1UL << 18)
+#define SR_STRBERR      (1UL << 19)
+#define SR_INCERR       (1UL << 21)
+#define SR_OPERR        (1UL << 22)
+#define SR_ERRORS       (SR_WRPERR | SR_PGSERR | SR_STRBERR | SR_INCERR | \
+                         SR_OPERR)
+
+#define CR_LOCK         (1UL << 0)
+#define CR_PG           (1UL << 1)
+#define CR_SER          (1UL << 2)
+#define CR_PSIZE_X32    (2UL << 4)
+#define CR_START        (1UL << 7)
+#define CR_SNB(n)       (((uint32_t)(n) & 7UL) << 8)
+
+/* Erase the 128 KiB sector at offset 'off'.  One bank, eight sectors. */
+#define CR_ERASE(off)   (CR_SER | CR_PSIZE_X32 | CR_SNB((off) / 0x20000UL))
+#define CR_GO           CR_START
+#define CR_PROG         (CR_PG | CR_PSIZE_X32)
+#define PROG_WORDS      8u                  /* a 32-byte flash word        */
+
+static uint32_t unit_size(uint32_t addr)  { (void)addr; return 0x20000u; }
+static uint32_t unit_base(uint32_t addr)  { return addr & ~0x1FFFFUL; }
+static int      unit_erasable(uint32_t addr)
+{
+    return addr - FLASH_ORIGIN < 8u * 0x20000UL;
+}
+
+static const char *err_str(uint32_t bits)
+{
+    if (bits & ERR_TIMEOUT) return "controller timeout";
+    if (bits & SR_WRPERR)   return "write protected";
+    if (bits & SR_PGSERR)   return "programming sequence error";
+    if (bits & SR_STRBERR)  return "strobe error";
+    if (bits & SR_INCERR)   return "inconsistency error";
+    if (bits & SR_OPERR)    return "operation error";
+    return "no error reported";
+}
+
+#endif /* FREYA_BOARD_STM32H723 */
+
+#if defined(FREYA_BOARD_STM32U585) || defined(FREYA_BOARD_STM32H523)
 /* 8 KiB units, in two banks. */
 static uint32_t unit_size(uint32_t addr)  { (void)addr; return 8192u; }
 static uint32_t unit_base(uint32_t addr)  { return addr & ~8191UL; }
@@ -471,17 +546,17 @@ static uint32_t program_block(uint32_t addr, const uint32_t *w, uint32_t words)
     uint32_t rc = 0;
     uint32_t i;
 
-    for (i = 0; i + 4u <= words && rc == 0; i += 4u) {
+    for (i = 0; i + PROG_WORDS <= words && rc == 0; i += PROG_WORDS) {
         volatile uint32_t *dst = (volatile uint32_t *)(uintptr_t)(addr + i * 4U);
         uint32_t pm = irq_off();
+        uint32_t k;
 
         rc = wait_idle();
         if (rc == 0) {
-            FL->CR = CR_PG;
-            dst[0] = w[i];
-            dst[1] = w[i + 1u];
-            dst[2] = w[i + 2u];
-            dst[3] = w[i + 3u];
+            FL->CR = CR_PROG;
+            dsb();
+            for (k = 0; k < PROG_WORDS; k++) dst[k] = w[i + k];
+            dsb();
             rc = wait_idle();
             FL->CR = 0;
         }
@@ -550,7 +625,7 @@ static int probe_begin(void)
     s_acr = FL->ACR;
     FL->ACR &= ~(ACR_ICEN | ACR_DCEN);
 #endif
-#if FLASH_QUAD
+#ifdef ICACHE_CR
     ICACHE_CR &= ~ICACHE_EN;
     while (ICACHE_SR & ICACHE_BUSY) { }
 #endif
@@ -577,7 +652,7 @@ static void probe_end(void)
     FL->CR &= ~(CR_PG | CR_SER | CR_STRT);
 #endif
     FL->CR |= CR_LOCK;
-#if FLASH_QUAD
+#ifdef ICACHE_CR
     ICACHE_CR |= ICACHE_INV;
     while (ICACHE_SR & ICACHE_BUSY) { }
     ICACHE_CR |= ICACHE_EN;

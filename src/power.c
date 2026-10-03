@@ -28,8 +28,8 @@ int board_power(int domain, int on)
     if (!on) {
         fs_close_all();
         if (fat_mounted()) fat_unmount();
-#ifdef BOARD_SPIFLASH
-        spiflash_unmount();
+#if defined(BOARD_SPIFLASH) && !defined(BOARD_SPIFLASH_OWN_BUS)
+        spiflash_unmount();             /* it shares the card's bus */
 #endif
     }
     sd_power(on);

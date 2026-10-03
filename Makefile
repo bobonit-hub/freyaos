@@ -6,6 +6,7 @@
 #   make BOARD=blackpill2   build for the AT32F403ACGU7 "Black Pill 2"
 #   make BOARD=stm32u585    build for the WeAct STM32U585CIU6 core board
 #   make BOARD=stm32h523    build for the WeAct STM32H523CET6 core board
+#   make BOARD=stm32h723    build for the WeAct MiniSTM32H723 (STM32H723VGT6)
 #   make rust               build the Rust samples (needs cargo; see rust/README.md)
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
 #   make FIRMWARE_VERSION=3.1.1
@@ -530,12 +531,15 @@ image: $(FLASH_IMAGE)
 # again after it (auto-start off unless AUTOSTART=1).  A kernel-only flash
 # reads the unit back and updates the firmware sum in both copies, and
 # leaves the sum alone when both copies are corrupt.
+# A board whose settings erase unit is elsewhere names it in its board.mk.
+ifndef CKSUM_PAGE_BASE
 ifeq ($(BOARD),bluepill)
 CKSUM_PAGE_BASE := 0x0801FC00
 CKSUM_PAGE_SIZE := 1024
 else
 CKSUM_PAGE_BASE := 0x0800C000
 CKSUM_PAGE_SIZE := 16384
+endif
 endif
 
 ifdef FLASH_UNSUPPORTED

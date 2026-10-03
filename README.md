@@ -4,8 +4,9 @@ Freya is a 32-bit, single-user, text OS for STMicroelectronics
 STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
 metal on the STM32F411CEU6 "Black Pill", the STM32F103C8T6 "Blue Pill",
 the STM32F405xx, the WeAct "Black Pill 2" with Artery's AT32F403ACGU7,
-an STM32F103 at heart with a Cortex-M4F core, and WeAct's STM32U585CIU6
-and STM32H523CET6 core boards, both Cortex-M33.
+an STM32F103 at heart with a Cortex-M4F core, WeAct's STM32U585CIU6
+and STM32H523CET6 core boards, both Cortex-M33, and WeAct's
+MiniSTM32H723, a Cortex-M7.
 No HAL and no CMSIS: Freya brings the chip up itself. LittleFS, on the SPI flash, is the one vendored library. Freya
 talks to the hardware through its own register definitions, and lives
 entirely in internal flash. This is release 3.3.0, "Poltergeist". The notes
@@ -13,8 +14,8 @@ are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 Freya gives you a serial console, a real FAT filesystem on an SD card, and the
 ability to download a program over the console, load it into RAM and run it —
-then stop it again with Ctrl-C. The Black Pill and the STM32U585 and STM32H523
-boards can also mount a SPI NOR chip soldered on their SOP-8 footprint at `/spi1`,
+then stop it again with Ctrl-C. The Black Pill, the STM32U585, the STM32H523
+and the STM32H723 boards can also mount a SPI NOR chip soldered on their SOP-8 footprint at `/spi1`,
 formatted as LittleFS, with the same file calls. Every board also keeps one
 program in a reserved area of its own flash and run it from there, so the program survives a power
 cycle and needs no card at all.
@@ -50,6 +51,7 @@ freya:
 | Black Pill 2 | AT32F403ACGU7 | Cortex-M4F at 240 MHz | `make BOARD=blackpill2` |
 | STM32U585 | STM32U585CIU6 | Cortex-M33F at 160 MHz | `make BOARD=stm32u585` |
 | STM32H523 | STM32H523CET6 | Cortex-M33F at 250 MHz | `make BOARD=stm32h523` |
+| STM32H723 | STM32H723VGT6 | Cortex-M7F at 520 MHz | `make BOARD=stm32h723` |
 
 Flash, SRAM, program regions, clock trees and memory maps are in
 [docs/boards.md](docs/boards.md), and the wiring in
@@ -60,7 +62,7 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 * Boots from internal flash and brings up the whole clock tree itself ([docs/boards.md](docs/boards.md)).
 * A console shell on USART2 at 921600 8N1, with line editing and history ([docs/console-commands.md](docs/console-commands.md)).
 * A shell language with variables, functions, loops and scripts, also built for Linux as `fsh` ([docs/shell.md](docs/shell.md), [docs/linux.md](docs/linux.md)).
-* SD / SDHC cards over SPI with FAT16 / FAT32 that reads and writes, a switchable socket supply, and LittleFS on the SPI flash of the Black Pill, the STM32U585 and the STM32H523 ([docs/files.md](docs/files.md)).
+* SD / SDHC cards over SPI with FAT16 / FAT32 that reads and writes, a switchable socket supply, and LittleFS on the SPI flash of the Black Pill, the STM32U585, the STM32H523 and the STM32H723 ([docs/files.md](docs/files.md)).
 * XMODEM / XMODEM-1K over the console, and `tools/fremote.py` on the host ([docs/files.md](docs/files.md)).
 * Wi-Fi, DNS, ping, TCP/UDP sockets and TLS 1.3 through an optional ESP32-C6, on every board but the Blue Pill ([docs/network.md](docs/network.md)).
 * A dated log in `/freya.log` from programs, the shell and the kernel, rotated at 1 MiB ([docs/programs.md](docs/programs.md#the-service-table)).
@@ -83,7 +85,7 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 ## Quick start
 
 ```sh
-make BOARD=bluepill                 # or make, BOARD=stm32f405, blackpill2, stm32u585, stm32h523
+make BOARD=bluepill                 # or make, BOARD=stm32f405, blackpill2, stm32u585, stm32h523, stm32h723
 make BOARD=bluepill flash           # st-flash; see docs/building.md for the others
 picocom -b 921600 /dev/ttyUSB0      # the console: PA2 to the adapter's RX, PA3 to its TX
 ```

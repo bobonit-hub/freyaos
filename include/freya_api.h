@@ -49,7 +49,8 @@
  * System settings occupy an erase unit that holds nothing else: the last
  * page of the Blue Pill's flash, after the kernel extension, sector 3 of
  * the F4, between the kernel and the program, and the page after the
- * kernel on the Black Pill 2, the STM32U585 and the STM32H523.  Two copies are stored.
+ * kernel on the Black Pill 2, the STM32U585 and the STM32H523, and sector
+ * 1 of the STM32H723.  Two copies are stored.
  * Each copy begins
  * with FREYA_SETTINGS_MAGIC and ends its named fields with a checksum of
  * every other byte in the copy.  Named fields, in order, are the
@@ -171,11 +172,23 @@
 #define FREYA_SETTINGS_ADDR      0x0800C000UL
 #define FREYA_APP_FLASH_ADDR     0x08030000UL
 #define FREYA_APP_FLASH_SIZE     (0x08080000UL - FREYA_APP_FLASH_ADDR)
+#elif defined(FREYA_BOARD_STM32H723)
+#define FREYA_APP_LOAD_ADDR      0x24018000UL   /* 320 KiB of AXI SRAM */
+#define FREYA_APP_REGION_SIZE    (216U * 1024U)
+/* The thread stacks are below the window here, not after it. */
+#define FREYA_APP_NOTHREADS_SIZE FREYA_APP_REGION_SIZE
+/* Eight 128 KiB sectors, in the F4's order: the kernel in sector 0, the
+ * system settings alone in sector 1, the program region in sectors 2..6
+ * and the kernel extension in sector 7. */
+#define FREYA_SETTINGS_SIZE      1024U
+#define FREYA_SETTINGS_ADDR      0x08020000UL
+#define FREYA_APP_FLASH_ADDR     0x08040000UL
+#define FREYA_APP_FLASH_SIZE     (0x080E0000UL - FREYA_APP_FLASH_ADDR)
 #elif defined(FREYA_LINUX)
 /* The shell language as a Linux program (linux/board.h): no program
  * region, no program flash and no system settings. */
 #else
-#error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLACKPILL2, FREYA_BOARD_BLUEPILL, FREYA_BOARD_STM32F405, FREYA_BOARD_STM32U585 or FREYA_BOARD_STM32H523"
+#error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLACKPILL2, FREYA_BOARD_BLUEPILL, FREYA_BOARD_STM32F405, FREYA_BOARD_STM32U585, FREYA_BOARD_STM32H523 or FREYA_BOARD_STM32H723"
 #endif
 #ifndef FREYA_LINUX
 #if (FREYA_SETTINGS_ADDR % 128U) || (FREYA_SETTINGS_SIZE % 128U) || \

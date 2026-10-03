@@ -133,6 +133,95 @@ static void channel_event(DMA_Channel_TypeDef *ch, volatile uint8_t *done)
 void GPDMA1_Channel0_IRQHandler(void) { channel_event(RX_DMA, &s_rx_done); }
 void GPDMA1_Channel1_IRQHandler(void) { channel_event(TX_DMA, &s_tx_done); }
 
+#elif defined(BOARD_ESP_DMAMUX)
+
+/*
+ * The H7's DMA: the F4's streams, receive on stream 3 and transmit on
+ * stream 4, with SPI2's requests routed to them through DMAMUX1 channels
+ * of the same numbers, in front of the FIFO SPI.  The data cache is off,
+ * so the buffers need no cleaning; they are in AXI SRAM, which DMA1
+ * reaches.
+ */
+int spi_dma_start(const void *tx, void *rx, uint16_t length)
+{
+    GPIO_TypeDef *cs;
+
+    if (!tx || !rx || !length || s_active) return FREYA_ERR_ARG;
+    RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
+    (void)RCC->AHB1ENR;
+
+    DMA1_Stream3->CR &= ~DMA_SxCR_EN;
+    DMA1_Stream4->CR &= ~DMA_SxCR_EN;
+    while ((DMA1_Stream3->CR | DMA1_Stream4->CR) & DMA_SxCR_EN) { }
+    DMA1->LIFCR = DMA_LIFCR_CSTREAM3;
+    DMA1->HIFCR = DMA_HIFCR_CSTREAM4;
+    DMAMUX1_Channel3->CCR = DMA_REQUEST_SPI2_RX;
+    DMAMUX1_Channel4->CCR = DMA_REQUEST_SPI2_TX;
+
+    DMA1_Stream3->PAR = (uint32_t)(uintptr_t)&SPI2->RXDR;
+    DMA1_Stream3->M0AR = (uint32_t)(uintptr_t)rx;
+    DMA1_Stream3->NDTR = length;
+    DMA1_Stream3->FCR = 0;
+    DMA1_Stream3->CR = DMA_SxCR_MINC | DMA_SxCR_PL_HIGH |
+                       DMA_SxCR_TCIE | DMA_SxCR_TEIE;
+
+    DMA1_Stream4->PAR = (uint32_t)(uintptr_t)&SPI2->TXDR;
+    DMA1_Stream4->M0AR = (uint32_t)(uintptr_t)tx;
+    DMA1_Stream4->NDTR = length;
+    DMA1_Stream4->FCR = 0;
+    DMA1_Stream4->CR = DMA_SxCR_DIR_M2P | DMA_SxCR_MINC |
+                       DMA_SxCR_PL_HIGH | DMA_SxCR_TCIE | DMA_SxCR_TEIE;
+
+    s_rx_done = s_tx_done = s_error = 0;
+    s_active = 1;
+    nvic_set_priority(DMA1_Stream3_IRQn, IRQ_PRIO_HANDLER);
+    nvic_set_priority(DMA1_Stream4_IRQn, IRQ_PRIO_HANDLER);
+    nvic_enable(DMA1_Stream3_IRQn);
+    nvic_enable(DMA1_Stream4_IRQn);
+
+    cs = board_gpio_port(FREYA_PIN_PORT(BOARD_ESP_CS));
+    sys_delay_us(2000);
+    cs->BSRR = 1UL << (FREYA_PIN_NUM(BOARD_ESP_CS) + 16);
+
+    /* RM0468's order: receive requests first, both streams on, then
+     * transmit requests, and only then the SPI. */
+    spi_dma_off();
+    SPI2->IFCR = SPI_IFCR_ALL;
+    SPI2->CFG1 |= SPI_CFG1_RXDMAEN;
+    DMA1_Stream3->CR |= DMA_SxCR_EN;
+    DMA1_Stream4->CR |= DMA_SxCR_EN;
+    SPI2->CFG1 |= SPI_CFG1_TXDMAEN;
+    SPI2->CR1 |= SPI_CR1_SPE;
+    SPI2->CR1 |= SPI_CR1_CSTART;
+    return 0;
+}
+
+static void channels_off(void)
+{
+    DMA1_Stream3->CR &= ~DMA_SxCR_EN;
+    DMA1_Stream4->CR &= ~DMA_SxCR_EN;
+    DMA1->LIFCR = DMA_LIFCR_CSTREAM3;
+    DMA1->HIFCR = DMA_HIFCR_CSTREAM4;
+}
+
+void DMA1_Stream3_IRQHandler(void)
+{
+    uint32_t f = DMA1->LISR;
+    DMA1->LIFCR = DMA_LIFCR_CSTREAM3;
+    if (f & DMA_LISR_TEIF3) s_error = 1;
+    if (f & DMA_LISR_TCIF3) s_rx_done = 1;
+    finish_if_done();
+}
+
+void DMA1_Stream4_IRQHandler(void)
+{
+    uint32_t f = DMA1->HISR;
+    DMA1->HIFCR = DMA_HIFCR_CSTREAM4;
+    if (f & DMA_HISR_TEIF4) s_error = 1;
+    if (f & DMA_HISR_TCIF4) s_tx_done = 1;
+    finish_if_done();
+}
+
 #elif defined(BOARD_ESP_DMA_CHANNELS)
 
 /*
@@ -279,7 +368,7 @@ void DMA1_Stream4_IRQHandler(void)
     finish_if_done();
 }
 
-#endif /* BOARD_ESP_GPDMA, BOARD_ESP_DMA_CHANNELS */
+#endif /* BOARD_ESP_GPDMA, BOARD_ESP_DMAMUX, BOARD_ESP_DMA_CHANNELS */
 
 int spi_dma_done(void)
 {

@@ -13,20 +13,34 @@ static volatile uint32_t s_ticks;      /* milliseconds since boot */
 static volatile uint32_t s_rtc_secs;   /* software wall clock     */
 static uint32_t s_rtc_frac;
 
+/* The reset flags are RCC->CSR's top bits on most parts.  A board whose
+ * chip keeps them elsewhere names the register and the bits. */
+#ifndef BOARD_RESET_SR
+#define BOARD_RESET_SR      (RCC->CSR)
+#define BOARD_RESET_RMVF    RCC_CSR_RMVF
+#define BOARD_RSTF_LPWR     (1UL << 31)
+#define BOARD_RSTF_WWDG     (1UL << 30)
+#define BOARD_RSTF_IWDG     (1UL << 29)
+#define BOARD_RSTF_SOFTWARE (1UL << 28)
+#define BOARD_RSTF_POWER_ON (1UL << 27)      /* PORRSTF  */
+#define BOARD_RSTF_PIN      (1UL << 26)
+#define BOARD_RSTF_BROWNOUT (1UL << 25)
+#endif
+
 static uint8_t detect_reset_cause(void)
 {
-    uint32_t csr = RCC->CSR;
+    uint32_t csr = BOARD_RESET_SR;
     uint8_t cause = RESET_UNKNOWN;
 
-    if (csr & (1UL << 31))      cause = RESET_LOWPOWER;   /* LPWRRSTF */
-    else if (csr & (1UL << 30)) cause = RESET_WWDG;
-    else if (csr & (1UL << 29)) cause = RESET_IWDG;
-    else if (csr & (1UL << 28)) cause = RESET_SOFTWARE;
-    else if (csr & (1UL << 27)) cause = RESET_POWER_ON;   /* PORRSTF  */
-    else if (csr & (1UL << 26)) cause = RESET_PIN;
-    else if (csr & (1UL << 25)) cause = RESET_BROWNOUT;
+    if (csr & BOARD_RSTF_LPWR)          cause = RESET_LOWPOWER;
+    else if (csr & BOARD_RSTF_WWDG)     cause = RESET_WWDG;
+    else if (csr & BOARD_RSTF_IWDG)     cause = RESET_IWDG;
+    else if (csr & BOARD_RSTF_SOFTWARE) cause = RESET_SOFTWARE;
+    else if (csr & BOARD_RSTF_POWER_ON) cause = RESET_POWER_ON;
+    else if (csr & BOARD_RSTF_PIN)      cause = RESET_PIN;
+    else if (csr & BOARD_RSTF_BROWNOUT) cause = RESET_BROWNOUT;
 
-    RCC->CSR |= RCC_CSR_RMVF;
+    BOARD_RESET_SR |= BOARD_RESET_RMVF;
     return cause;
 }
 
@@ -64,12 +78,21 @@ void sys_delay_ms(uint32_t ms)
         __asm volatile ("nop");
 }
 
-/* Busy loop scaled to the measured HCLK; accurate enough for card timing. */
+/* Busy loop scaled to the measured HCLK; accurate enough for card timing.
+ * A core that runs the loop faster than four cycles a pass - the
+ * dual-issue Cortex-M7 - counts the cycles instead (BOARD_DELAY_CYCCNT). */
 void sys_delay_us(uint32_t us)
 {
+#ifdef BOARD_DELAY_CYCCNT
+    uint32_t start = DWT_CYCCNT;
+    uint32_t cycles = us * (g_clocks.hclk_hz / 1000000UL);
+
+    while ((uint32_t)(DWT_CYCCNT - start) < cycles) { }
+#else
     uint32_t cycles = us * (g_clocks.hclk_hz / 1000000UL) / 4UL;
     while (cycles--)
         __asm volatile ("nop");
+#endif
 }
 
 void sys_reboot(void)

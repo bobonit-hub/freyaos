@@ -20,6 +20,7 @@ make BOARD=stm32f405   # the same for the STM32F405xx
 make BOARD=blackpill2  # the same for the Black Pill 2
 make BOARD=stm32u585   # the same for the WeAct STM32U585CIU6 board
 make BOARD=stm32h523   # the same for the WeAct STM32H523CET6 board
+make BOARD=stm32h723   # the same for the WeAct MiniSTM32H723
 make RTC=ds3231        # also build the DS3231 driver (PB6 SCL, PB7 SDA)
 make FIRMWARE_VERSION=3.1.1
                        # override the hardcoded firmware version
@@ -65,14 +66,16 @@ make BOARD=stm32f405 dfu
 Pill 2 (hold BOOT0, tap NRST), and `make BOARD=blackpill2 dfu` packs a DfuSe
 file for Artery's loader (`2e3c:df11`). st-flash does not know Artery parts,
 so `make flash` refuses the Black Pill 2; `make openocd` programs it over SWD
-with OpenOCD's `target/artery/at32f4x.cfg`. The STM32U585 is the same:
-st-flash does not know the U5, so `make flash` refuses it, `make openocd`
-uses `target/stm32u5x.cfg`, `make bootloader` is USB DFU through the
-board's USB-C socket (hold BOOT0, tap NRST), and `make BOARD=stm32u585 dfu`
-packs a DfuSe file for ST's loader (`0483:df11`). The STM32H523 is flashed
-the same way, through `make bootloader` or `make BOARD=stm32h523 dfu`; its
-`make openocd` needs an OpenOCD that ships `target/stm32h5x.cfg`, which
-0.12 does not. `make BOARD=stm32f405 dfu` packs
+with OpenOCD's `target/artery/at32f4x.cfg`. The STM32U585, the STM32H523
+and the STM32H723 take `make flash` (st-flash 1.8 knows all three), and
+`make bootloader` is USB DFU through the board's USB-C socket (hold BOOT0,
+tap NRST); `make BOARD=<board> dfu` packs a DfuSe file for ST's loader
+(`0483:df11`). `make openocd` uses `target/stm32u5x.cfg` and
+`target/stm32h7x.cfg`; the H523's needs an OpenOCD that ships
+`target/stm32h5x.cfg`, which 0.12 does not. A board whose system settings
+are not at `0x0800C000` in a 16 KiB unit names its settings sector in its
+`board.mk` (`CKSUM_PAGE_BASE`, `CKSUM_PAGE_SIZE`), which is where
+`make flash` updates the firmware sum. `make BOARD=stm32f405 dfu` packs
 the kernel and the extension into one DfuSe file, at the addresses they are
 linked for, and leaves the gap between them untouched. The F103 has no USB
 loader, so on the Blue Pill it drives the serial loader in ROM with
