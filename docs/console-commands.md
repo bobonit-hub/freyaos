@@ -35,7 +35,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `runflash([arg [, ...]])` | run the program stored in internal flash |
 | `stop(["thread"])` | stop the program, or one thread by name |
 | `threads()` | list threads: id, priority, state, name |
-| `status()` | exit status of the last command and the last program |
+| `status()` | exit status of the last command and the last program (also `$?`) |
 | `install("file")` | write a program, or a shell script, into internal flash |
 | `saveflash(["file"])` | copy the installed program or script from flash onto the card |
 | `uninstall()` | erase the program flash region |
@@ -72,6 +72,25 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `echo([value [, ...]])` | print values, separated by spaces |
 | `clear()` | clear the terminal |
 | `reboot()` | sync the filesystem and restart |
+
+## Listings and flash images
+
+`ls()` prints names only; `ls("-l")` adds sizes and timestamps:
+
+```
+freya: ls("-l")
+/:
+  d---a      <DIR>  2026-09-21 20:14  apps
+  -w--a       2048  2026-09-21 20:31  notes.txt
+  -w--a      13284  2026-09-21 20:33  hello.bin
+  2 files, 1 directory, 14.9 KiB total
+```
+
+`flashdump` copies the chip's mapped internal flash (from `0x08000000`, using
+the size the MCU reports) onto the card as a raw image. It overwrites
+`/freya.flash` unless you name another file. Ctrl-C stops the write and
+leaves whatever was written. `saveflash` copies only the installed program
+image (not the kernel) to `/<name>.xip.bin`, or to a path you give.
 
 ## Socket power
 

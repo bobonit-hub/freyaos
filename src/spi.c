@@ -30,6 +30,41 @@
 #define network_is_open()      esp_link_is_open()
 #endif
 
+/*
+ * The FIFO SPI of the newer parts (BOARD_SPI_FIFO) is configured in CFG1
+ * and CFG2 while it is off, runs once CSTART is set, and moves a byte
+ * through a byte access to TXDR and RXDR.  Its divider codes are the old
+ * BR codes, so everything that chooses a divider is shared.  With TSIZE
+ * left at zero a transfer never ends; TXC then means the bus is idle.
+ */
+#ifdef BOARD_SPI_FIFO
+#define SPI_TX_READY    SPI_SR_TXP
+#define SPI_RX_READY    SPI_SR_RXP
+#define SPI_PUT(s, v)   (SPI_TXDR8(s) = (uint8_t)(v))
+#define SPI_GET(s)      ((uint8_t)SPI_RXDR8(s))
+
+void spififo_setup(SPI_TypeDef *regs, uint32_t br, int mode)
+{
+    uint32_t cfg2 = SPI_CFG2_AFCNTR | SPI_CFG2_SSM | SPI_CFG2_MASTER;
+
+    if (mode & 1) cfg2 |= SPI_CFG2_CPHA;
+    if (mode & 2) cfg2 |= SPI_CFG2_CPOL;
+
+    regs->CR1  = SPI_CR1_SSI;           /* off: the FIFOs are flushed */
+    regs->IFCR = SPI_IFCR_ALL;
+    regs->CFG1 = (br << SPI_CFG1_MBR_SHIFT) | SPI_CFG1_CRCSIZE_8 |
+                 SPI_CFG1_DSIZE_8;
+    regs->CFG2 = cfg2;
+    regs->CR1  = SPI_CR1_SSI | SPI_CR1_SPE;
+    regs->CR1  = SPI_CR1_SSI | SPI_CR1_SPE | SPI_CR1_CSTART;
+}
+#else
+#define SPI_TX_READY    SPI_SR_TXE
+#define SPI_RX_READY    SPI_SR_RXNE
+#define SPI_PUT(s, v)   ((s)->DR = (v))
+#define SPI_GET(s)      ((uint8_t)((s)->DR & 0xFF))
+#endif
+
 /* ------------------------------------------------------- the SD card */
 #define CS_PORT     BOARD_SD_CS_PORT
 #define CS_PIN      BOARD_SD_CS_PIN
@@ -38,6 +73,9 @@ void sdspi_init(void)
 {
     board_spi_pins();
 
+#ifdef BOARD_SPI_FIFO
+    spififo_setup(SPI1, BOARD_SPI_BR_SLOW, 0);
+#else
     SPI1->CR1 = 0;
 #if BOARD_SPI_HAS_I2S
     SPI1->I2SCFGR = 0;                  /* SPI mode, not I2S */
@@ -46,15 +84,24 @@ void sdspi_init(void)
     SPI1->CR1 = SPI_CR1_MSTR | SPI_CR1_SSM | SPI_CR1_SSI |
                 (BOARD_SPI_BR_SLOW << SPI_CR1_BR_SHIFT);   /* mode 0 */
     SPI1->CR1 |= SPI_CR1_SPE;
+#endif
 }
 
 void sdspi_set_speed(int fast)
 {
     uint32_t br = fast ? (uint32_t)BOARD_SPI_BR_FAST : (uint32_t)BOARD_SPI_BR_SLOW;
 
+#ifdef BOARD_SPI_FIFO
+    while (!(SPI1->SR & SPI_SR_TXC)) { }
+    SPI1->CR1 &= ~SPI_CR1_SPE;
+    SPI1->CFG1 = (SPI1->CFG1 & ~SPI_CFG1_MBR_MASK) | (br << SPI_CFG1_MBR_SHIFT);
+    SPI1->CR1 |= SPI_CR1_SPE;
+    SPI1->CR1 |= SPI_CR1_CSTART;
+#else
     SPI1->CR1 &= ~SPI_CR1_SPE;
     SPI1->CR1 = (SPI1->CR1 & ~SPI_CR1_BR_MASK) | (br << SPI_CR1_BR_SHIFT);
     SPI1->CR1 |= SPI_CR1_SPE;
+#endif
 }
 
 void sdspi_cs(int low)
@@ -65,10 +112,10 @@ void sdspi_cs(int low)
 
 uint8_t sdspi_xfer(uint8_t v)
 {
-    while (!(SPI1->SR & SPI_SR_TXE)) { }
-    SPI1->DR = v;
-    while (!(SPI1->SR & SPI_SR_RXNE)) { }
-    return (uint8_t)(SPI1->DR & 0xFF);
+    while (!(SPI1->SR & SPI_TX_READY)) { }
+    SPI_PUT(SPI1, v);
+    while (!(SPI1->SR & SPI_RX_READY)) { }
+    return SPI_GET(SPI1);
 }
 
 void sdspi_write(const uint8_t *buf, uint32_t len)
@@ -190,6 +237,7 @@ static int spi_wait_set(SPI_TypeDef *spi, uint32_t flag, uint32_t deadline)
     return 0;
 }
 
+#ifndef BOARD_SPI_FIFO
 static int spi_wait_clear(SPI_TypeDef *spi, uint32_t flag, uint32_t deadline)
 {
     while (spi->SR & flag) {
@@ -198,9 +246,13 @@ static int spi_wait_clear(SPI_TypeDef *spi, uint32_t flag, uint32_t deadline)
     }
     return 0;
 }
+#endif
 
 static void spi_hw(SPI_TypeDef *regs, int br, int mode)
 {
+#ifdef BOARD_SPI_FIFO
+    spififo_setup(regs, (uint32_t)br, mode);
+#else
     uint32_t cr = SPI_CR1_MSTR | SPI_CR1_SSM | SPI_CR1_SSI |
                   ((uint32_t)br << SPI_CR1_BR_SHIFT);
 
@@ -217,6 +269,7 @@ static void spi_hw(SPI_TypeDef *regs, int br, int mode)
     regs->CR1 = cr;
     regs->CR1 = cr | SPI_CR1_SPE;
     if (regs->SR & SPI_SR_RXNE) (void)regs->DR;
+#endif
 }
 
 static void spi_pin_in(int pin)
@@ -338,15 +391,19 @@ int spi_transfer(int bus, const void *tx, void *rx, int len)
         uint8_t out = tb ? tb[i] : 0xFF;
         uint8_t in;
 
-        rc = spi_wait_set(regs, SPI_SR_TXE, deadline);
+        rc = spi_wait_set(regs, SPI_TX_READY, deadline);
         if (rc) break;
-        regs->DR = out;
-        rc = spi_wait_set(regs, SPI_SR_RXNE, deadline);
+        SPI_PUT(regs, out);
+        rc = spi_wait_set(regs, SPI_RX_READY, deadline);
         if (rc) break;
-        in = (uint8_t)(regs->DR & 0xFF);
+        in = SPI_GET(regs);
         if (rb) rb[i] = in;
     }
+#ifdef BOARD_SPI_FIFO
+    if (rc == 0) rc = spi_wait_set(regs, SPI_SR_TXC, deadline);
+#else
     if (rc == 0) rc = spi_wait_clear(regs, SPI_SR_BSY, deadline);
+#endif
     if (rc) spi_hw(regs, s_spi[idx].br, s_spi[idx].mode);
     return rc;
 }

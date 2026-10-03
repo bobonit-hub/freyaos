@@ -4,6 +4,7 @@
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
 #   make BOARD=stm32f405    build for the STM32F405xx (8 MHz crystal)
 #   make BOARD=blackpill2   build for the AT32F403ACGU7 "Black Pill 2"
+#   make BOARD=stm32u585    build for the WeAct STM32U585CIU6 core board
 #   make rust               build the Rust samples (needs cargo; see rust/README.md)
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
 #   make FIRMWARE_VERSION=3.1.1
@@ -140,7 +141,7 @@ OBJS      := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(filter %.c,$(CSRC))) \
              $(patsubst $(SRC_DIR)/%.S,$(BUILD)/%.o,$(filter %.S,$(ASRC))) \
              $(patsubst $(BOARD_DIR)/%.c,$(BUILD)/board/%.o,$(BCSRC)) \
              $(patsubst $(BOARD_DIR)/%.s,$(BUILD)/board/%.o,$(BASRC)) \
-             $(if $(filter blackpill,$(BOARD)),$(BUILD)/lfs.o $(BUILD)/lfs_util.o) \
+             $(if $(SPIFLASH),$(BUILD)/lfs.o $(BUILD)/lfs_util.o) \
              $(BUILD)/heatshrink_encoder.o $(BUILD)/heatshrink_decoder.o \
              $(BUILD)/ascon.o
 DEPS      := $(OBJS:.o=.d)
@@ -228,13 +229,24 @@ RUST_SAMPLES := rustdemo
 CARGO     ?= $(or $(shell command -v cargo 2>/dev/null),$(wildcard $(HOME)/.cargo/bin/cargo))
 RUST_LIBDIR := $(BUILD)/rust/$(RUST_TARGET)/release
 RUST_FLAGS  := -C target-cpu=$(RUST_CPU)
+# A board whose target rustup has not installed is skipped the same way,
+# so one board's missing target does not stop the C build of it.
+ifneq ($(CARGO),)
+RUSTC_TARGET_LIB := $(shell $(dir $(CARGO))rustc --print target-libdir --target $(RUST_TARGET) 2>/dev/null)
+ifneq ($(RUSTC_TARGET_LIB),)
+ifeq ($(wildcard $(RUSTC_TARGET_LIB)/libcore-*.rlib),)
+RUST_MISSING := the $(RUST_TARGET) target is not installed (rustup target add $(RUST_TARGET))
+CARGO :=
+endif
+endif
+endif
 ifneq ($(CARGO),)
 SMPL_BINS += $(patsubst %,$(BUILD)/samples/%.bin,$(filter-out $(XIP_ONLY),$(RUST_SAMPLES)))
 ifneq ($(APP_XIP_LD),)
 SMPL_BINS += $(patsubst %,$(BUILD)/samples/%.xip.bin,$(RUST_SAMPLES))
 endif
 else ifneq ($(filter all samples rust,$(or $(MAKECMDGOALS),all)),)
-$(info Rust samples skipped: cargo not found (see rust/README.md))
+$(info Rust samples skipped: $(or $(RUST_MISSING),cargo not found (see rust/README.md)))
 endif
 
 # One user program to store in the board's program flash region when the

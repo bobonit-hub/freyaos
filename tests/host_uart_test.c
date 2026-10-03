@@ -38,9 +38,21 @@ int  app_should_stop(void) { return s_stops != 0; }
 static USART_TypeDef s_fake;
 static int           s_access;
 
+/* The newer USART (BOARD_USART_ISR) has its flags in ISR and its received
+ * byte in RDR. */
+#ifdef BOARD_USART_ISR
+#define FAKE_FLAGS      ISR
+#define FAKE_RXNE       USART_ISR_RXNE
+#define FAKE_RX         RDR
+#else
+#define FAKE_FLAGS      SR
+#define FAKE_RXNE       USART_SR_RXNE
+#define FAKE_RX         DR
+#endif
+
 static USART_TypeDef *fake_usart(void)
 {
-    s_fake.SR = s_access++ < 3 ? USART_SR_RXNE : 0;
+    s_fake.FAKE_FLAGS = s_access++ < 3 ? FAKE_RXNE : 0;
     return &s_fake;
 }
 
@@ -65,7 +77,7 @@ static void check(const char *what, int expected, int got)
 static void receive(uint8_t c)
 {
     s_access = 0;
-    s_fake.DR = c;
+    s_fake.FAKE_RX = c;
     usart2_interrupt(NULL);
 }
 

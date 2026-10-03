@@ -1,7 +1,7 @@
 # BASIC for Freya
 
 A BASIC in the manner of DEC's BASIC-11, written in C. Compiled with
-GCC for the Cortex-M4F boards it is the native program `basic11`,
+GCC for the boards with an FPU it is the native program `basic11`,
 whose numbers are the C `float` on the FPU; the same source compiles
 for the PC, with the same arithmetic, for testing. Nothing here needs
 a C library; the interpreter talks to whatever runs it through a few

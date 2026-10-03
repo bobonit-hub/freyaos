@@ -86,6 +86,9 @@ static void spi_configure(void)
 
     board_spi_mux(SPI2, FREYA_PB(13), FREYA_PB(14), FREYA_PB(15),
                   BOARD_ESP_SPI_AF);
+#ifdef BOARD_SPI_FIFO
+    spififo_setup(SPI2, br, 0);
+#else
     SPI2->CR1 = 0;
 #if BOARD_SPI_HAS_I2S
     SPI2->I2SCFGR = 0;
@@ -95,6 +98,7 @@ static void spi_configure(void)
                 (br << SPI_CR1_BR_SHIFT);
     SPI2->CR1 |= SPI_CR1_SPE;
     if (SPI2->SR & SPI_SR_RXNE) (void)SPI2->DR;
+#endif
 }
 
 static int transfer_start(void)

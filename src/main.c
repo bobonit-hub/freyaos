@@ -18,7 +18,7 @@ static void boot_storage(void)
     kprintf("[boot] SD card    : ");
     if (sd_init() != 0) {
         kprintf("not present\r\n");
-#ifdef FREYA_BOARD_BLACKPILL
+#ifdef BOARD_SPIFLASH
         spiflash_boot();
 #endif
         return;

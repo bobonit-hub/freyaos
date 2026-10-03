@@ -370,7 +370,7 @@ static const char *onoff(int v) { return v ? "on" : "off"; }
 
 static int need_fs(void)
 {
-#ifdef FREYA_BOARD_BLACKPILL
+#ifdef BOARD_SPIFLASH
     vol_use(0);
     if (fat_mounted() || spiflash_mounted()) return 1;
 #else
@@ -555,7 +555,7 @@ static int cmd_sysinfo(int argc, char **argv)
         }
         kprintf("\r\n");
     }
-#ifdef FREYA_BOARD_BLACKPILL
+#ifdef BOARD_SPIFLASH
     vol_use(0);
 #endif
     if (fat_mounted()) {
@@ -567,7 +567,7 @@ static int cmd_sysinfo(int argc, char **argv)
     } else {
         kprintf("  filesystem : not mounted\r\n");
     }
-#ifdef FREYA_BOARD_BLACKPILL
+#ifdef BOARD_SPIFLASH
     spiflash_info();
 #endif
 
@@ -702,7 +702,7 @@ static int cmd_mount(int argc, char **argv)
     kprintf("initialising SD card ... ");
     if (sd_init() != 0) {
         kprintf("failed (no card, or wiring/level problem)\r\n");
-#ifdef FREYA_BOARD_BLACKPILL
+#ifdef BOARD_SPIFLASH
         return spiflash_mount_cmd();
 #else
         return -1;
@@ -1165,7 +1165,7 @@ static int cmd_df(int argc, char **argv)
     (void)argc; (void)argv;
     if (!need_fs()) return -1;
 
-#ifdef FREYA_BOARD_BLACKPILL
+#ifdef BOARD_SPIFLASH
     vol_use(0);
 #endif
     if (fat_mounted()) {
@@ -1194,7 +1194,7 @@ static int cmd_df(int argc, char **argv)
         print_bar(total_clus - free_clus, total_clus);
         kprintf("\r\n");
     }
-#ifdef FREYA_BOARD_BLACKPILL
+#ifdef BOARD_SPIFLASH
     spiflash_df();
 #endif
     return 0;
@@ -1855,7 +1855,7 @@ static int cmd_reboot(int argc, char **argv)
 {
     (void)argc; (void)argv;
     if (page_blocked("reboot")) return -1;
-#ifdef FREYA_BOARD_BLACKPILL
+#ifdef BOARD_SPIFLASH
     if (fat_mounted() || spiflash_mounted()) fat_sync();
 #else
     if (fat_mounted()) fat_sync();
@@ -9860,7 +9860,7 @@ void shell_run(void)
 
         if (s_script_len) uart_puts("> ");
         else kprintf("freya:%s> ",
-#ifdef FREYA_BOARD_BLACKPILL
+#ifdef BOARD_SPIFLASH
                     (fat_mounted() || spiflash_mounted()) ? fs_cwd() : "(no fs)");
 #else
                     fat_mounted() ? fs_cwd() : "(no fs)");

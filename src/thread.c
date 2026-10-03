@@ -100,6 +100,21 @@ static void pend_soft(void)
 #endif
 }
 
+/*
+ * The EXC_RETURN a thread that has never run is resumed with: thread mode,
+ * PSP, a basic frame.  On v8-M two of its bits, S and ES, say which
+ * security state the stack belongs to, and that depends on how the chip
+ * runs rather than on Freya, so a fresh thread is marked 0 and given the
+ * PendSV's own bits when it is first switched to.
+ */
+#ifdef __ARM_ARCH_8M_MAIN__
+#define EXC_NEW     0u
+#define EXC_FRESH   (0xFFFFFF9Cu | (thread_exc_save & 0x61u))
+#else
+#define EXC_NEW     0xFFFFFFFDu
+#define EXC_FRESH   0xFFFFFFFDu
+#endif
+
 /* A fabricated exception frame: PendSV restores r4-r11 and exception-
  * returns into fn, and a return from fn lands in thread_exit. */
 static uint32_t *make_frame(uint32_t *base, uint32_t bytes,
@@ -233,7 +248,7 @@ void thread_init(void)
     s_thr[IDLE_ID].flags = TF_SYSTEM;
     s_thr[IDLE_ID].slot = SLOT_NONE;
     s_thr[IDLE_ID].sp = (uint32_t)(uintptr_t)sp;
-    s_thr[IDLE_ID].exc = 0xFFFFFFFDu;
+    s_thr[IDLE_ID].exc = EXC_NEW;
     s_thr[IDLE_ID].stack = s_idle_stack;
 
     s_current = &s_thr[SHELL_ID];
@@ -289,7 +304,7 @@ int thread_create(const char *name, int priority, freya_thread_fn fn, void *arg)
     t->slot = (uint8_t)slot;
     t->stack = worker_base(slot);
     t->sp = (uint32_t)(uintptr_t)make_frame(t->stack, bytes, fn, arg);
-    t->exc = 0xFFFFFFFDu;
+    t->exc = EXC_NEW;
     t->state = TH_READY;
     crit_restore(pm);
 
@@ -424,7 +439,7 @@ uint32_t thread_switch(uint32_t saved_sp)
 
     s_need = 0;
     s_slice = SLICE_MS;
-    thread_exc_restore = next->exc ? next->exc : 0xFFFFFFFDu;
+    thread_exc_restore = next->exc ? next->exc : EXC_FRESH;
     return next->sp;
 }
 

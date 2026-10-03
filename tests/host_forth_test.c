@@ -300,7 +300,7 @@ int main(int argc, char **argv)
     forth("drop",                           " ? stack underflow\n");
     forth("frobnicate",                     " ? frobnicate\n");
     forth("if",                             " ? compile only\n");
-    forth("60000 allot",                    " ? dictionary full\n");
+    forth("1000000 allot",                  " ? dictionary full\n");
     forth("1 2 + .",                        "3 ");
 
     printf("\n--- multi-line definitions ---\n");

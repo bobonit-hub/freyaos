@@ -4,9 +4,10 @@
  *     run basic11 [-m KIB] [PROGRAM.BAS]
  *
  * The interpreter in basic/basic.c, the one that also runs on the PDP-11
- * virtual machine, built with arm-none-eabi-gcc for the Cortex-M4F.  Its
- * numbers are the FPU's single-precision floats (basic/fpnat.c), so this
- * program is for the Black Pill, the STM32F405 and the Black Pill 2 and is
+ * virtual machine, built with arm-none-eabi-gcc for the Cortex-M4F and the
+ * Cortex-M33.  Its numbers are the FPU's single-precision floats
+ * (basic/fpnat.c), so this program is for the Black Pill, the STM32F405,
+ * the Black Pill 2 and the STM32U585 and is
  * not built for the Blue Pill, whose Cortex-M3 has no floating point.
  *
  * The BASIC program, its variables and its strings live in KIB kilobytes

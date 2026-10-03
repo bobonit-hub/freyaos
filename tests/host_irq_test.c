@@ -708,9 +708,16 @@ int main(void)
     spi_map();
 
     /* ----------------------------------------------------------- ADC */
+#ifdef FREYA_BOARD_STM32U585
+    /* The U5 numbers the same pins' channels its own way. */
+    check("PA0 maps to ADC channel 5", 5, adc_lookup(FREYA_PA(0)));
+    check("PB1 maps to ADC channel 16", 16, adc_lookup(FREYA_PB(1)));
+    check("PC5 maps to ADC channel 14", 14, adc_lookup(FREYA_PC(5)));
+#else
     check("PA0 maps to ADC channel 0", 0, adc_lookup(FREYA_PA(0)));
     check("PB1 maps to ADC channel 9", 9, adc_lookup(FREYA_PB(1)));
     check("PC5 maps to ADC channel 15", 15, adc_lookup(FREYA_PC(5)));
+#endif
     check("a digital-only pin is refused by ADC",
           FREYA_ERR_PIN, adc_lookup(FREYA_PB(12)));
     check("the temperature source uses the board channel",

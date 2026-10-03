@@ -33,7 +33,8 @@
 /* Every other sample is board independent; this one is the exception, and
  * a third board means a third section below rather than a default. */
 #if !defined(FREYA_BOARD_BLUEPILL) && !defined(FREYA_BOARD_BLACKPILL) && \
-    !defined(FREYA_BOARD_STM32F405) && !defined(FREYA_BOARD_BLACKPILL2)
+    !defined(FREYA_BOARD_STM32F405) && !defined(FREYA_BOARD_BLACKPILL2) && \
+    !defined(FREYA_BOARD_STM32U585)
 #error "flashprobe drives the flash controller itself and needs a board it knows"
 #endif
 
@@ -47,7 +48,11 @@
 #define FLASH_ORIGIN        0x08000000UL
 #define FLASH_MIN_KIB       128u            /* every supported board has this  */
 #define BLOCK_BYTES         256u            /* the data block each step writes */
+#if defined(FREYA_BOARD_STM32U585)
+#define PROBE_MAX_KIB       4096u           /* as far up as this will look     */
+#else
 #define PROBE_MAX_KIB       1024u           /* as far up as this will look     */
+#endif
 #define ERR_TIMEOUT         0x80000000UL    /* not an SR bit: our own          */
 
 #define FLASH_KEY1          0x45670123UL
@@ -165,6 +170,82 @@ static const char *err_str(uint32_t bits)
 #define bank_select(addr) ((void)(addr))
 #endif /* FREYA_BOARD_BLACKPILL2 */
 
+/* ================================================ the STM32U585 === */
+#if defined(FREYA_BOARD_STM32U585)
+
+#define MCU_NAME        "STM32U585"
+#define FLASHSIZE_REG   (*(const volatile uint16_t *)0x0BFA07A0UL)
+#define DECLARED_KIB    2048u
+#define SPIN_LIMIT      50000000UL          /* a page erase is milliseconds */
+
+/* The U5's controller keeps its non-secure key, status and control
+ * registers further up than the F1 and F4 do; under these names the
+ * shared code below drives them unchanged. */
+typedef struct {
+    volatile uint32_t ACR;
+    volatile uint32_t RES0;
+    volatile uint32_t KEYR;                 /* NSKEYR */
+    volatile uint32_t SECKEYR;
+    volatile uint32_t OPTKEYR;
+    volatile uint32_t RES1;
+    volatile uint32_t PDKEY1R;
+    volatile uint32_t PDKEY2R;
+    volatile uint32_t SR;                   /* NSSR   */
+    volatile uint32_t SECSR;
+    volatile uint32_t CR;                   /* NSCR   */
+} u5_flash_regs_t;
+
+#define FL              ((u5_flash_regs_t *)0x40022000UL)
+#define BANK_BYTES      0x100000UL          /* two banks of 1 MiB          */
+
+#define SR_EOP          (1UL << 0)
+#define SR_OPERR        (1UL << 1)
+#define SR_PROGERR      (1UL << 3)
+#define SR_WRPERR       (1UL << 4)
+#define SR_PGAERR       (1UL << 5)
+#define SR_SIZERR       (1UL << 6)
+#define SR_PGSERR       (1UL << 7)
+#define SR_BSY          (1UL << 16)
+#define SR_ERRORS       (SR_OPERR | SR_PROGERR | SR_WRPERR | SR_PGAERR | \
+                         SR_SIZERR | SR_PGSERR)
+
+#define CR_PG           (1UL << 0)
+#define CR_PER          (1UL << 1)
+#define CR_PNB(n)       (((uint32_t)(n) & 0x7FUL) << 3)
+#define CR_BKER         (1UL << 11)
+#define CR_STRT         (1UL << 16)
+#define CR_LOCK         (1UL << 31)
+
+/* The instruction cache serves data reads of flash as well, so it is off
+ * while the probe runs and invalidated afterwards. */
+#define ICACHE_CR       (*(volatile uint32_t *)0x40030400UL)
+#define ICACHE_SR       (*(volatile uint32_t *)0x40030404UL)
+#define ICACHE_EN       (1UL << 0)
+#define ICACHE_INV      (1UL << 1)
+#define ICACHE_BUSY     (1UL << 0)
+
+/* 8 KiB pages, 128 to a bank; PNB names one inside its bank. */
+static uint32_t unit_size(uint32_t addr)  { (void)addr; return 8192u; }
+static uint32_t unit_base(uint32_t addr)  { return addr & ~8191UL; }
+static int      unit_erasable(uint32_t addr)
+{
+    return addr - FLASH_ORIGIN < 2u * BANK_BYTES;
+}
+
+static const char *err_str(uint32_t bits)
+{
+    if (bits & ERR_TIMEOUT) return "controller timeout";
+    if (bits & SR_WRPERR)   return "write protected";
+    if (bits & SR_PGSERR)   return "programming sequence error";
+    if (bits & SR_SIZERR)   return "programming size error";
+    if (bits & SR_PGAERR)   return "programming alignment error";
+    if (bits & SR_PROGERR)  return "programming error";
+    if (bits & SR_OPERR)    return "operation error";
+    return "no error reported";
+}
+
+#endif /* FREYA_BOARD_STM32U585 */
+
 /* ========================================== the STM32F411 and F405 == */
 #if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
 
@@ -278,6 +359,14 @@ static uint32_t unit_erase(uint32_t addr)
         FL->CR |= CR_STRT;
         rc = wait_idle();
         FL->CR &= ~(CR_PER | CR_STRT);
+#elif defined(FREYA_BOARD_STM32U585)
+        uint32_t off = addr - FLASH_ORIGIN;
+
+        FL->CR = CR_PER | CR_PNB((off % BANK_BYTES) / 8192u) |
+                 ((off >= BANK_BYTES) ? CR_BKER : 0);
+        FL->CR |= CR_STRT;
+        rc = wait_idle();
+        FL->CR = 0;
 #else
         FL->CR = (FL->CR & ~CR_SNB_MASK) | CR_SER | CR_SNB(sector_of(addr)) |
                  CR_PSIZE_X32;
@@ -290,8 +379,33 @@ static uint32_t unit_erase(uint32_t addr)
     return rc;
 }
 
-/* The F1 programs a halfword at a time and the F4 a word, so the block is
- * kept as words and taken apart here. */
+/* The F1 programs a halfword at a time, the F4 a word and the U5 four
+ * words at once, so the block is kept as words and taken apart here. */
+#if defined(FREYA_BOARD_STM32U585)
+static uint32_t program_block(uint32_t addr, const uint32_t *w, uint32_t words)
+{
+    uint32_t rc = 0;
+    uint32_t i;
+
+    for (i = 0; i + 4u <= words && rc == 0; i += 4u) {
+        volatile uint32_t *dst = (volatile uint32_t *)(uintptr_t)(addr + i * 4U);
+        uint32_t pm = irq_off();
+
+        rc = wait_idle();
+        if (rc == 0) {
+            FL->CR = CR_PG;
+            dst[0] = w[i];
+            dst[1] = w[i + 1u];
+            dst[2] = w[i + 2u];
+            dst[3] = w[i + 3u];
+            rc = wait_idle();
+            FL->CR = 0;
+        }
+        irq_on(pm);
+    }
+    return rc;
+}
+#else
 static uint32_t program_block(uint32_t addr, const uint32_t *w, uint32_t words)
 {
     uint32_t rc = 0;
@@ -324,6 +438,7 @@ static uint32_t program_block(uint32_t addr, const uint32_t *w, uint32_t words)
     }
     return rc;
 }
+#endif
 
 static int flash_unlock(void)
 {
@@ -351,6 +466,10 @@ static int probe_begin(void)
     s_acr = FL->ACR;
     FL->ACR &= ~(ACR_ICEN | ACR_DCEN);
 #endif
+#if defined(FREYA_BOARD_STM32U585)
+    ICACHE_CR &= ~ICACHE_EN;
+    while (ICACHE_SR & ICACHE_BUSY) { }
+#endif
     if (flash_unlock() != 0) return -1;
     FL->SR = SR_ERRORS | SR_EOP;
 #if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
@@ -368,10 +487,17 @@ static void probe_end(void)
 #endif
 #if FLASH_F1
     FL->CR &= ~(CR_PG | CR_PER);
+#elif defined(FREYA_BOARD_STM32U585)
+    FL->CR = 0;
 #else
     FL->CR &= ~(CR_PG | CR_SER | CR_STRT);
 #endif
     FL->CR |= CR_LOCK;
+#if defined(FREYA_BOARD_STM32U585)
+    ICACHE_CR |= ICACHE_INV;
+    while (ICACHE_SR & ICACHE_BUSY) { }
+    ICACHE_CR |= ICACHE_EN;
+#endif
 #if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
     FL->ACR |= ACR_ICRST | ACR_DCRST;
     FL->ACR &= ~(ACR_ICRST | ACR_DCRST);

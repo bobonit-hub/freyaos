@@ -16,6 +16,33 @@
 
 #define CTRL_C          0x03
 
+/* The USART of the newer parts (BOARD_USART_ISR) keeps its flags in ISR,
+ * clears them through ICR, and splits DR into RDR and TDR.  The bits
+ * that matter here sit in the same places. */
+#ifdef BOARD_USART_ISR
+#define UART_FLAGS      ISR
+#define UART_RX         RDR
+#define UART_TX         TDR
+#define UART_PE         USART_ISR_PE
+#define UART_FE         USART_ISR_FE
+#define UART_NE         USART_ISR_NE
+#define UART_ORE        USART_ISR_ORE
+#define UART_RXNE       USART_ISR_RXNE
+#define UART_TC         USART_ISR_TC
+#define UART_TXE        USART_ISR_TXE
+#else
+#define UART_FLAGS      SR
+#define UART_RX         DR
+#define UART_TX         DR
+#define UART_PE         USART_SR_PE
+#define UART_FE         USART_SR_FE
+#define UART_NE         USART_SR_NE
+#define UART_ORE        USART_SR_ORE
+#define UART_RXNE       USART_SR_RXNE
+#define UART_TC         USART_SR_TC
+#define UART_TXE        USART_SR_TXE
+#endif
+
 static volatile uint8_t  s_rx[RX_BUF_SIZE];
 static volatile uint16_t s_head, s_tail;
 static volatile uint32_t s_overruns;
@@ -179,15 +206,19 @@ __attribute__((naked)) void USART2_IRQHandler(void)
 
 void usart2_interrupt(uint32_t *frame)
 {
-    uint32_t sr = USART2->SR;
+    uint32_t sr = USART2->UART_FLAGS;
 
-    if (sr & (USART_SR_ORE | USART_SR_NE | USART_SR_FE | USART_SR_PE)) {
+    if (sr & (UART_ORE | UART_NE | UART_FE | UART_PE)) {
+#ifdef BOARD_USART_ISR
+        USART2->ICR = USART_ICR_ERRORS;
+#else
         (void)USART2->DR;               /* SR read + DR read clears them */
+#endif
         s_overruns++;
     }
 
-    while (USART2->SR & USART_SR_RXNE) {
-        uint8_t c = (uint8_t)(USART2->DR & 0xFF);
+    while (USART2->UART_FLAGS & UART_RXNE) {
+        uint8_t c = (uint8_t)(USART2->UART_RX & 0xFF);
         uint16_t next = (uint16_t)((s_head + 1) & RX_MASK);
 
 #if BOARD_ESP_LINK
@@ -250,8 +281,8 @@ void uart_putc(char c)
 #if BOARD_ESP_LINK
     if (!s_term_output || s_cap_on) {
 #endif
-        while (!(USART2->SR & USART_SR_TXE)) { }
-        USART2->DR = (uint32_t)(uint8_t)c;
+        while (!(USART2->UART_FLAGS & UART_TXE)) { }
+        USART2->UART_TX = (uint32_t)(uint8_t)c;
 #if BOARD_ESP_LINK
     }
 #endif
@@ -283,7 +314,7 @@ void uart_puts(const char *s)
 
 void uart_drain_tx(void)
 {
-    while (!(USART2->SR & USART_SR_TC)) { }
+    while (!(USART2->UART_FLAGS & UART_TC)) { }
 }
 
 int uart_rx_ready(void)

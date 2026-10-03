@@ -4,6 +4,9 @@
 CPUFLAGS       := -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard
 OPENOCD_TARGET := target/stm32f4x.cfg
 
+# The SOP-8 footprint takes a SPI NOR chip: LittleFS at /spi1.
+SPIFLASH       := 1
+
 # The F411 has a USB DFU loader in ROM: hold BOOT0, tap NRST, then run this.
 # The extension is written first; :leave on the kernel image resets the chip.
 BOOTLOADER_KEXT = dfu-util -a 0 -s $$addr -D $(BUILD)/$(TARGET)-kext.bin

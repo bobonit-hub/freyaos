@@ -324,6 +324,10 @@ void     sdspi_write(const uint8_t *buf, uint32_t len);
 void     sdspi_read(uint8_t *buf, uint32_t len);
 void     sdspi_cs(int low);
 void     sdspi_quiesce(void);             /* stop SPI1, release its pins */
+#ifdef BOARD_SPI_FIFO
+/* Master, 8 bits, software NSS, divider code br, mode 0..3, started. */
+void     spififo_setup(SPI_TypeDef *regs, uint32_t br, int mode);
+#endif
 
 int      spi_open(int bus, uint32_t hz, int mode); /* 0, or FREYA_ERR_* */
 int      spi_close(int bus);

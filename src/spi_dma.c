@@ -14,14 +14,126 @@ static void cs_high(void)
     p->BSRR = 1UL << FREYA_PIN_NUM(BOARD_ESP_CS);
 }
 
+#ifdef BOARD_SPI_FIFO
+/* The FIFO SPI takes its DMA enables in CFG1, which can be written only
+ * while it is off.  spi_dma_done() and spi_dma_cancel() turn it off. */
+static void spi_dma_off(void)
+{
+    SPI2->CR1 &= ~SPI_CR1_SPE;
+    SPI2->CFG1 &= ~(SPI_CFG1_RXDMAEN | SPI_CFG1_TXDMAEN);
+}
+
+static void finish_if_done(void) { }
+#else
+static void spi_dma_off(void)
+{
+    SPI2->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
+}
+
 static void finish_if_done(void)
 {
     if (s_active && (s_error || (s_rx_done && s_tx_done))) {
         SPI2->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
     }
 }
+#endif
 
-#if defined(BOARD_ESP_DMA_CHANNELS)
+#if defined(BOARD_ESP_GPDMA)
+
+/*
+ * The U5's GPDMA: SPI2 receives on channel 0 and transmits on channel 1,
+ * each a single block of bytes with the request line chosen in CTR2.  A
+ * channel that finished its block is idle again on its own; one that has
+ * to stop early is suspended and then reset.
+ */
+#define RX_DMA  GPDMA1_Channel0
+#define TX_DMA  GPDMA1_Channel1
+
+static void channel_stop(DMA_Channel_TypeDef *ch)
+{
+    uint32_t spin = 100000;
+
+    if (ch->CCR & DMA_CCR_EN) {
+        ch->CCR |= DMA_CCR_SUSP;
+        while (!(ch->CSR & DMA_CSR_IDLEF) && --spin) { }
+    }
+    ch->CCR = DMA_CCR_RESET;
+    ch->CFCR = DMA_CFCR_ALL;
+}
+
+static void channel_load(DMA_Channel_TypeDef *ch, uint32_t ctr1, uint32_t ctr2,
+                         const volatile void *src, volatile void *dst,
+                         uint16_t length)
+{
+    ch->CLLR = 0;
+    ch->CTR1 = ctr1;
+    ch->CTR2 = ctr2;
+    ch->CBR1 = length;
+    ch->CSAR = (uint32_t)(uintptr_t)src;
+    ch->CDAR = (uint32_t)(uintptr_t)dst;
+    ch->CCR  = DMA_CCR_PRIO_HIGH | DMA_CCR_TCIE | DMA_CCR_DTEIE |
+               DMA_CCR_ULEIE | DMA_CCR_USEIE;
+}
+
+int spi_dma_start(const void *tx, void *rx, uint16_t length)
+{
+    GPIO_TypeDef *cs;
+
+    if (!tx || !rx || !length || s_active) return FREYA_ERR_ARG;
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPDMA1EN;
+    (void)RCC->AHB1ENR;
+
+    channel_stop(RX_DMA);
+    channel_stop(TX_DMA);
+    channel_load(RX_DMA, DMA_CTR1_DINC, GPDMA1_REQUEST_SPI2_RX,
+                 &SPI2->RXDR, rx, length);
+    channel_load(TX_DMA, DMA_CTR1_SINC, GPDMA1_REQUEST_SPI2_TX | DMA_CTR2_DREQ,
+                 tx, &SPI2->TXDR, length);
+
+    s_rx_done = s_tx_done = s_error = 0;
+    s_active = 1;
+    nvic_set_priority(GPDMA1_Channel0_IRQn, IRQ_PRIO_HANDLER);
+    nvic_set_priority(GPDMA1_Channel1_IRQn, IRQ_PRIO_HANDLER);
+    nvic_enable(GPDMA1_Channel0_IRQn);
+    nvic_enable(GPDMA1_Channel1_IRQn);
+
+    cs = board_gpio_port(FREYA_PIN_PORT(BOARD_ESP_CS));
+    sys_delay_us(2000);
+    cs->BSRR = 1UL << (FREYA_PIN_NUM(BOARD_ESP_CS) + 16);
+
+    /* RM0456's order: receive requests first, both channels on, then
+     * transmit requests, and only then the SPI. */
+    spi_dma_off();
+    SPI2->IFCR = SPI_IFCR_ALL;
+    SPI2->CFG1 |= SPI_CFG1_RXDMAEN;
+    RX_DMA->CCR |= DMA_CCR_EN;
+    TX_DMA->CCR |= DMA_CCR_EN;
+    SPI2->CFG1 |= SPI_CFG1_TXDMAEN;
+    SPI2->CR1 |= SPI_CR1_SPE;
+    SPI2->CR1 |= SPI_CR1_CSTART;
+    return 0;
+}
+
+static void channels_off(void)
+{
+    channel_stop(RX_DMA);
+    channel_stop(TX_DMA);
+}
+
+static void channel_event(DMA_Channel_TypeDef *ch, volatile uint8_t *done)
+{
+    uint32_t f = ch->CSR;
+
+    ch->CFCR = DMA_CFCR_ALL;
+    if (f & DMA_CSR_ERRORS) s_error = 1;
+    if (f & DMA_CSR_TCF) *done = 1;
+    finish_if_done();
+}
+
+void GPDMA1_Channel0_IRQHandler(void) { channel_event(RX_DMA, &s_rx_done); }
+void GPDMA1_Channel1_IRQHandler(void) { channel_event(TX_DMA, &s_tx_done); }
+
+#elif defined(BOARD_ESP_DMA_CHANNELS)
 
 /*
  * The F103's DMA, which the AT32F403A keeps: SPI2 receives on channel 4
@@ -167,13 +279,18 @@ void DMA1_Stream4_IRQHandler(void)
     finish_if_done();
 }
 
-#endif /* BOARD_ESP_DMA_CHANNELS */
+#endif /* BOARD_ESP_GPDMA, BOARD_ESP_DMA_CHANNELS */
 
 int spi_dma_done(void)
 {
     if (s_error) return FREYA_ERR_IO;
     if (!s_active) return 0;
+#ifdef BOARD_SPI_FIFO
+    if (!s_rx_done || !s_tx_done || !(SPI2->SR & SPI_SR_TXC)) return 0;
+    spi_dma_off();
+#else
     if (!s_rx_done || !s_tx_done || (SPI2->SR & SPI_SR_BSY)) return 0;
+#endif
     cs_high();
     s_active = 0;
     return 1;
@@ -182,7 +299,7 @@ int spi_dma_done(void)
 void spi_dma_cancel(void)
 {
     channels_off();
-    SPI2->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
+    spi_dma_off();
     cs_high();
     s_active = s_rx_done = s_tx_done = s_error = 0;
 }

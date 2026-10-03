@@ -1,7 +1,7 @@
 # ESP32-C6 networking
 
-Black Pill and STM32F405 builds can use an ESP32-C6 as a network
-coprocessor. The C6 owns Wi-Fi credentials, association, DHCP, DNS, ICMP and
+Every board but the Blue Pill can use an ESP32-C6 as a network
+coprocessor, on SPI2 with the same pins. The C6 owns Wi-Fi credentials, association, DHCP, DNS, ICMP and
 the TCP/IP stack. Freya does not contain lwIP.
 
 ## Connection

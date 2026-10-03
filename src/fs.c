@@ -189,7 +189,7 @@ void fs_close_all(void)
     for (int i = 0; i < MAX_FILES; i++)
         if (s_files[i].open) fat_close(&s_files[i]);
     for (int i = 0; i < MAX_DIRS; i++) {
-#ifdef FREYA_BOARD_BLACKPILL
+#ifdef BOARD_SPIFLASH
         if (s_dirs[i].open) fat_closedir(&s_dirs[i]);
 #else
         s_dirs[i].open = 0;

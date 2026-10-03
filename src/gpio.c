@@ -12,13 +12,29 @@
  * group handlers walk their range.
  *
  * Everything chip specific - how a pin is configured, and which port a
- * line listens to - is a board hook; EXTI itself is the same register
- * block on every STM32 Freya runs on.
+ * line listens to - is a board hook.  EXTI itself is one register block
+ * on the F1 and the F4.  The U5's (BOARD_EXTI_SPLIT) names its registers
+ * with a 1, keeps a rising and a falling pending bit apart, and gives
+ * every line an interrupt of its own.
  */
 #include "freya.h"
 #include "esp_link.h"
 
 #define EXTI_LINES  16
+
+#ifdef BOARD_EXTI_SPLIT
+#define EXTI_IMR        IMR1
+#define EXTI_RTSR       RTSR1
+#define EXTI_FTSR       FTSR1
+#define exti_pending()  (EXTI->RPR1 | EXTI->FPR1)
+#define exti_clear(bit) (EXTI->RPR1 = (bit), EXTI->FPR1 = (bit))
+#else
+#define EXTI_IMR        IMR
+#define EXTI_RTSR       RTSR
+#define EXTI_FTSR       FTSR
+#define exti_pending()  (EXTI->PR)
+#define exti_clear(bit) (EXTI->PR = (bit))
+#endif
 
 typedef struct {
     freya_irq_fn fn;
@@ -113,12 +129,16 @@ int gpio_pin_toggle(int pin)
 /* ------------------------------------------------------ pin interrupts */
 static int line_irq(int line)
 {
+#ifdef BOARD_EXTI_SPLIT
+    return EXTI0_IRQn + line;
+#else
     static const uint8_t first[] = {
         EXTI0_IRQn, EXTI1_IRQn, EXTI2_IRQn, EXTI3_IRQn, EXTI4_IRQn
     };
 
     if (line < (int)ARRAY_SIZE(first)) return first[line];
     return (line < 10) ? EXTI9_5_IRQn : EXTI15_10_IRQn;
+#endif
 }
 
 /*
@@ -130,13 +150,13 @@ static void line_edges(int line, int edge)
 {
     uint32_t bit = 1UL << line;
 
-    if (edge & FREYA_EDGE_RISING)  EXTI->RTSR |= bit;
-    else                           EXTI->RTSR &= ~bit;
-    if (edge & FREYA_EDGE_FALLING) EXTI->FTSR |= bit;
-    else                           EXTI->FTSR &= ~bit;
-    EXTI->PR = bit;                     /* drop an edge seen while arming */
-    if (edge) EXTI->IMR |=  bit;
-    else      EXTI->IMR &= ~bit;
+    if (edge & FREYA_EDGE_RISING)  EXTI->EXTI_RTSR |= bit;
+    else                           EXTI->EXTI_RTSR &= ~bit;
+    if (edge & FREYA_EDGE_FALLING) EXTI->EXTI_FTSR |= bit;
+    else                           EXTI->EXTI_FTSR &= ~bit;
+    exti_clear(bit);                    /* drop an edge seen while arming */
+    if (edge) EXTI->EXTI_IMR |=  bit;
+    else      EXTI->EXTI_IMR &= ~bit;
 }
 
 /* Give a line back: silenced in the hardware and free in the table. */
@@ -236,6 +256,9 @@ void gpio_irq_release(void)
     for (int line = 0; line < EXTI_LINES; line++)
         if (s_line[line].edge && s_line[line].from_app) line_free(line);
     for (int line = 0; line < EXTI_LINES; line++) {
+#ifdef BOARD_EXTI_SPLIT
+        if (!s_line[line].edge) nvic_disable(line_irq(line));
+#else
         int busy = 0, i;
 
         if (line < 5) busy = s_line[line].edge != 0;
@@ -245,6 +268,7 @@ void gpio_irq_release(void)
             for (i = 10; i <= 15; i++) busy |= s_line[i].edge != 0;
         } else continue;
         if (!busy) nvic_disable(line_irq(line));
+#endif
     }
     irq_restore(pm);
 }
@@ -289,8 +313,8 @@ static void exti_dispatch(int first, int last)
     for (int line = first; line <= last; line++) {
         uint32_t bit = 1UL << line;
 
-        if (!(EXTI->PR & bit)) continue;
-        EXTI->PR = bit;                 /* write 1 to clear */
+        if (!(exti_pending() & bit)) continue;
+        exti_clear(bit);                /* write 1 to clear */
         line_event(line);
     }
 }
@@ -300,5 +324,19 @@ void EXTI1_IRQHandler(void)     { exti_dispatch(1, 1); }
 void EXTI2_IRQHandler(void)     { exti_dispatch(2, 2); }
 void EXTI3_IRQHandler(void)     { exti_dispatch(3, 3); }
 void EXTI4_IRQHandler(void)     { exti_dispatch(4, 4); }
+#ifdef BOARD_EXTI_SPLIT
+void EXTI5_IRQHandler(void)     { exti_dispatch(5, 5); }
+void EXTI6_IRQHandler(void)     { exti_dispatch(6, 6); }
+void EXTI7_IRQHandler(void)     { exti_dispatch(7, 7); }
+void EXTI8_IRQHandler(void)     { exti_dispatch(8, 8); }
+void EXTI9_IRQHandler(void)     { exti_dispatch(9, 9); }
+void EXTI10_IRQHandler(void)    { exti_dispatch(10, 10); }
+void EXTI11_IRQHandler(void)    { exti_dispatch(11, 11); }
+void EXTI12_IRQHandler(void)    { exti_dispatch(12, 12); }
+void EXTI13_IRQHandler(void)    { exti_dispatch(13, 13); }
+void EXTI14_IRQHandler(void)    { exti_dispatch(14, 14); }
+void EXTI15_IRQHandler(void)    { exti_dispatch(15, 15); }
+#else
 void EXTI9_5_IRQHandler(void)   { exti_dispatch(5, 9); }
 void EXTI15_10_IRQHandler(void) { exti_dispatch(10, 15); }
+#endif

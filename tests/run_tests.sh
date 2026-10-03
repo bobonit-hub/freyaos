@@ -46,7 +46,7 @@ $CC $CFLAGS tests/host_fat_test.c src/fat.c src/log.c src/string.c src/print.c \
 $CC $CFLAGS tests/host_xmodem_test.c src/xmodem.c src/fat.c src/fs.c \
     src/string.c src/print.c -o "$OUT/hostxmodem"
 
-if [ "$BOARD" = blackpill ]; then
+if grep -q "^SPIFLASH *:= *1" "boards/$BOARD/board.mk"; then
     # shellcheck disable=SC2086
     $CC $CFLAGS tests/host_spiflash_test.c src/spiflash.c src/lfsvol.c src/fat.c \
         third_party/littlefs/lfs.c third_party/littlefs/lfs_util.c \
@@ -86,7 +86,7 @@ done
 # foreign FAT implementation, and vice versa.
 echo
 echo "================= SPI flash ================="
-if [ "$BOARD" = blackpill ]; then
+if grep -q "^SPIFLASH *:= *1" "boards/$BOARD/board.mk"; then
     if ! "$OUT/hostspiflash"; then
         status=1
     fi
@@ -498,9 +498,11 @@ else
     # sector, so the extension's end is the end of flash.
     # Black Pill 2: kernel, settings in a page of their own, extension in
     # the zero wait state flash, program to the end of flash.
+    # STM32U585: the Black Pill 2's order, in 8 KiB pages and 2 MiB.
     case "$BOARD" in
         bluepill)  flash_end=$((0x08020000)) ;;
         blackpill) flash_end=$((0x08080000)) ;;
+        stm32u585) flash_end=$((0x08200000)) ;;
         *)         flash_end=$((0x08100000)) ;;
     esac
     check "the kernel image ends at or before the program region" \
@@ -528,6 +530,17 @@ else
               1 "$(( $(sym "$kelf" __kext_end) <= $(sym "$kelf" __app_flash_start) ))"
         check "the program region starts on a 2 KiB page" \
               0 "$(( $(macro app_flash_addr) % 2048 ))"
+        check "the program region runs to the end of flash" \
+              "$flash_end" "$(sym "$kelf" __app_flash_end)"
+    elif [ "$BOARD" = stm32u585 ]; then
+        check "system settings start the 8 KiB page after the kernel" \
+              "$((0x0800C000))" "$(macro settings_addr)"
+        check "the kernel extension starts after the settings page" \
+              1 "$(( $(sym "$kelf" __kext_start) >= 0x0800E000 ))"
+        check "the kernel extension ends at or before the program region" \
+              1 "$(( $(sym "$kelf" __kext_end) <= $(sym "$kelf" __app_flash_start) ))"
+        check "the program region starts on an 8 KiB page" \
+              0 "$(( $(macro app_flash_addr) % 8192 ))"
         check "the program region runs to the end of flash" \
               "$flash_end" "$(sym "$kelf" __app_flash_end)"
     else

@@ -7,7 +7,7 @@
  */
 #include "freya.h"
 
-#if defined(FREYA_BOARD_BLACKPILL)
+#ifdef BOARD_SPIFLASH
 
 #include "lfsvol.h"
 #include "lfs.h"
@@ -434,4 +434,4 @@ int lfsvol_rename(const char *src, const char *dst)
     return err ? map_err(err) : FAT_OK;
 }
 
-#endif /* FREYA_BOARD_BLACKPILL */
+#endif /* BOARD_SPIFLASH */

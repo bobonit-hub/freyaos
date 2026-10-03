@@ -867,7 +867,8 @@ static void plant_mmio(void)
 {
     static const uintptr_t pages[] = {
         0xE000E000UL,   /* SCB */
-        0xE0042000UL,   /* DBGMCU_IDCODE */
+        (uintptr_t)&DBGMCU_IDCODE & ~(uintptr_t)0xFFFU,
+                        /* DBGMCU_IDCODE */
         (uintptr_t)UID_BASE & ~(uintptr_t)0xFFFU
                          /* unique id and flash size */
     };
@@ -884,6 +885,8 @@ static void plant_mmio(void)
     SCB->CPUID =
 #if defined(FREYA_BOARD_BLUEPILL)
         0x410FC231UL;
+#elif defined(FREYA_BOARD_STM32U585)
+        0x410FD214UL;
 #else
         0x410FC241UL;
 #endif
@@ -893,6 +896,8 @@ static void plant_mmio(void)
     *(volatile uint32_t *)0xE0042000UL = 0x10006413UL;
 #elif defined(FREYA_BOARD_BLACKPILL2)
     *(volatile uint32_t *)0xE0042000UL = 0x70050347UL;
+#elif defined(FREYA_BOARD_STM32U585)
+    DBGMCU_IDCODE = 0x20016482UL;
 #else
     *(volatile uint32_t *)0xE0042000UL = 0x10006411UL;
 #endif
@@ -904,6 +909,8 @@ static void plant_mmio(void)
         64;
 #elif defined(FREYA_BOARD_BLACKPILL2)
         1024;
+#elif defined(FREYA_BOARD_STM32U585)
+        2048;
 #else
         512;
 #endif
@@ -1035,6 +1042,11 @@ int main(void)
     g_clocks.hclk_hz = 240000000;
     g_clocks.pclk1_hz = 120000000;
     g_clocks.pclk2_hz = 60000000;
+#elif defined(FREYA_BOARD_STM32U585)
+    g_clocks.sysclk_hz = 160000000;
+    g_clocks.hclk_hz = 160000000;
+    g_clocks.pclk1_hz = 80000000;
+    g_clocks.pclk2_hz = 80000000;
 #else
     g_clocks.sysclk_hz = 96000000;
     g_clocks.hclk_hz = 96000000;
@@ -1227,6 +1239,12 @@ int main(void)
     expect_has("sysinfo reads the part number", "0x70050347");
     expect_has("sysinfo reads the flash size", "1024 KiB internal");
     expect_has("sysinfo reports the clock", "240000000 Hz");
+#elif defined(FREYA_BOARD_STM32U585)
+    expect_has("sysinfo names the board", "STM32U585CIU6");
+    expect_has("sysinfo reads the CPUID", "410fd214");
+    expect_has("sysinfo reads the device id", "0x482");
+    expect_has("sysinfo reads the flash size", "2048 KiB internal");
+    expect_has("sysinfo reports the clock", "160000000 Hz");
 #else
     expect_has("sysinfo names the board", "Black Pill");
     expect_has("sysinfo reads the CPUID", "410fc241");

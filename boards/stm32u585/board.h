@@ -1,41 +1,48 @@
 /*
- * Freya - WeAct STM32F411CEU6 "Black Pill".
+ * Freya - WeAct STM32U585CIU6 core board.
  *
  * Every board Freya runs on supplies a header with this name holding the
  * chip's register definitions, the few strings the shell prints, and the
  * declarations of the bring-up hooks the generic drivers call.  src/freya.h
  * includes it and the Makefile puts the right boards/<board> directory on
  * the include path.
+ *
+ * The board is https://github.com/WeActStudio/WeActStudio.STM32U585Cx_CoreBoard:
+ * the Black Pill's outline and pinout with a Cortex-M33 on it, a 25 MHz
+ * crystal, the LED on PC13, KEY on PA0 and an empty SOP-8 footprint for a
+ * SPI NOR chip on SPI1 (PA4..PA7).  So the pin plan is the Black Pill's.
  */
 #ifndef FREYA_BOARD_H
 #define FREYA_BOARD_H
 
-#include "stm32f411.h"
+#include "stm32u585.h"
 
 /* ------------------------------------------------------------ identity */
-#define BOARD_NAME          "WeAct STM32F411CEU6 \"Black Pill\""
-#define BOARD_MCU           "STM32F411CEU6"
-#define BOARD_CORE          "ARM Cortex-M4F"
+#define BOARD_NAME          "WeAct STM32U585CIU6"
+#define BOARD_MCU           "STM32U585CIU6"
+#define BOARD_CORE          "ARM Cortex-M33F"
 #define BOARD_HSE_NAME      "HSE 25 MHz crystal"
 #define BOARD_HSI_NAME      "HSI 16 MHz oscillator"
 #define BOARD_CONSOLE_NAME  "USART2 921600 8N1 on PA2/PA3"
 #define BOARD_LED_NAME      "PC13"
-#define BOARD_FLASH_WS      3
+#define BOARD_FLASH_WS      4
 
 /* ------------------------------------------------------ internal flash */
-/* 512 KiB, well above the 128 KiB every supported board has.  The F4
- * erases in unequal sectors (16/16/16/16/64/128/128/128 KiB) and programs
- * 32-bit words.  BOARD_FLASH_PAGE_SIZE is the erase unit of the program
- * region's first sector (4), used for install progress and as the block
- * of the shell's flash_write(); the driver walks the real sector map, and
- * the two blocks inside each 128 KiB sector share an erase. */
-#define BOARD_FLASH_KIB         512U
-#define BOARD_FLASH_PAGE_SIZE   (64U * 1024U)
+/* 2 MiB in 8 KiB pages, two banks of 1 MiB, quad-word programming.  The
+ * system settings own the page at 0x0800C000, which holds nothing else. */
+#define BOARD_FLASH_KIB         2048U
+#define BOARD_FLASH_PAGE_SIZE   8192U
+
+/* ------------------------------------------------- the generation of IP */
+/* Peripherals the U5 replaced: src/ has a code path for each. */
+#define BOARD_USART_ISR     1           /* ISR/ICR/RDR/TDR, not SR/DR    */
+#define BOARD_SPI_FIFO      1           /* CFG1/CFG2, CSTART, TXDR/RXDR  */
+#define BOARD_EXTI_SPLIT    1           /* RPR1/FPR1, one IRQ per line   */
 
 /* ---------------------------------------------------------- SD on SPI1 */
 #define BOARD_SD_CS_PORT    GPIOA
 #define BOARD_SD_CS_PIN     4
-#define BOARD_SPI_HAS_I2S   1           /* SPI1 has the I2S registers    */
+#define BOARD_SPI_HAS_I2S   0           /* the FIFO SPI has no I2S part  */
 
 /* PA8 is the gate of a P-channel MOSFET that feeds the socket.  Low
  * applies VDD.  A pull-down on the gate keeps the card powered while
@@ -45,13 +52,14 @@
 #define BOARD_SD_PWR_ON     0
 
 /* Card identification has to sit in the 100-400 kHz window; the data rate
- * is whatever the card and the wiring stand.  PCLK2 is 96 MHz here. */
-#define BOARD_SPI_BR_SLOW   7           /* /256 = 375 kHz                */
-#define BOARD_SPI_BR_FAST   2           /* /8   =  12 MHz                */
+ * is whatever the card and the wiring stand.  PCLK2 is 80 MHz here, half
+ * of HCLK, so that /256 is still inside that window. */
+#define BOARD_SPI_BR_SLOW   7           /* /256 = 312.5 kHz              */
+#define BOARD_SPI_BR_FAST   2           /* /8   =  10 MHz                */
 
 /* The SOP-8 footprint on the back is a SPI NOR chip on SPI1, chip select
  * PA4 like the card: fit one or the other.  It is a LittleFS volume at
- * /spi1. */
+ * /spi1, as on the Black Pill. */
 #define BOARD_SPIFLASH      1
 
 /* ------------------------------------------------- pins and interrupts */
@@ -63,10 +71,11 @@
 #define BOARD_PIN_RESERVED  { 0x01FCU, 0x0000U, 0x0000U }
 
 /* ------------------------------------------- timers a program may open */
-/* TIM2..TIM4, all on APB1 and all clocked at twice PCLK1 because the
- * prescaler is not 1.  Each entry is { registers, IRQ, APB1ENR bit } in
- * the order src/timer.c hands them out and names their handlers.  TIM1,
- * TIM5 and TIM9..TIM11 are left alone. */
+/* TIM2..TIM4, all on APB1 and all clocked at twice PCLK1 (160 MHz)
+ * because the prescaler is not 1.  Each entry is { registers, IRQ,
+ * APB1ENR1 bit } in the order src/timer.c hands them out and names their
+ * handlers.  TIM1, TIM5 and the rest are left alone.  At 160 MHz the
+ * longest period that fits the 32-bit tick count is 26.8 s. */
 #define BOARD_TIMER_LIST \
     { { TIM2, TIM2_IRQn, RCC_APB1ENR_TIM2EN }, \
       { TIM3, TIM3_IRQn, RCC_APB1ENR_TIM3EN }, \
@@ -77,11 +86,10 @@
 /* ------------------------------------------- PWM outputs a program may open */
 /*
  * The pins those timers can drive: { pin, timer index in the list above,
- * channel 1..4, alternate function }.  The F4 reaches several pins per
- * channel and the F1 reaches one, so the list is the intersection - the
- * eight pins that mean the same thing on both boards with no remapping,
- * and none of them a pin Freya keeps (BOARD_PIN_RESERVED; 'make test'
- * checks that).  PA0 is also the Black Pill's KEY button.
+ * channel 1..4, alternate function }.  The same eight pins and the same
+ * alternate functions as the Black Pill: AF1 for TIM2, AF2 for TIM3 and
+ * TIM4.  None of them is a pin Freya keeps (BOARD_PIN_RESERVED; 'make
+ * test' checks that).  PA0 is also the board's KEY button.
  */
 #define BOARD_PWM_MAP \
     { { FREYA_PA(0), 0, 1, 1 }, { FREYA_PA(1), 0, 2, 1 },  \
@@ -91,26 +99,25 @@
 
 /* ----------------------------------------------- I2C a program may open */
 /* Each bus is { SCL pin, SDA pin }.  The master drives them as open-drain
- * GPIO.  Bus 1 is PB6/PB7, the pair every board has.  This package does
- * not bond PB11, so bus 2's SDA is PB9 instead of the Blue Pill's PB11;
- * PB9 is also a PWM pin, and can be only one. */
+ * GPIO.  Bus 1 is PB6/PB7, the pair every board has.  This package, like
+ * the F411's, does not bond PB11, so bus 2's SDA is PB9, as on the Black
+ * Pill; PB9 is also a PWM pin, and can be only one. */
 #define BOARD_I2C_MAP \
     { { FREYA_PB(6), FREYA_PB(7) }, \
       { FREYA_PB(10), FREYA_PB(9) } }
 #define BOARD_I2C_NAMES { "I2C1", "I2C2" }
 
 /* ----------------------------------------------- SPI a program may open */
-/* The card keeps SPI1.  What a program gets is SPI2, the controller both
- * boards bond to the same three pins: { regs, APB number, SCK, MISO,
- * MOSI, alternate function }.  The F1 has no alternate function number
- * and ignores the last field.  Chip select is not in the map; a program
- * drives that pin itself. */
+/* The card keeps SPI1.  What a program gets is SPI2 on PB13..PB15, AF5:
+ * { regs, APB number, SCK, MISO, MOSI, alternate function }.  Chip select
+ * is not in the map; a program drives that pin itself. */
 #define BOARD_SPI_MAP \
     { { SPI2, 1, FREYA_PB(13), FREYA_PB(14), FREYA_PB(15), 5 } }
 #define BOARD_SPI_NAMES { "SPI2" }
 
-/* ESP32-C6 network coprocessor on SPI2.  SPI2 is returned to the public
- * SPI API when the link is closed. */
+/* ESP32-C6 network coprocessor on SPI2, wired as on the Black Pill.  The
+ * transfers use GPDMA1 channels 0 (receive) and 1 (transmit).  SPI2 is
+ * returned to the public SPI API when the link is closed. */
 #define BOARD_NET_SUPPORTED  1
 #define BOARD_NET_SPI        SPI2
 #define BOARD_NET_SPI_BUS    1
@@ -120,11 +127,14 @@
 #define BOARD_NET_CS         FREYA_PB(12)
 #define BOARD_NET_READY      FREYA_PB(10)
 #define BOARD_NET_SPI_AF     5
-#define BOARD_NET_SPI_BR     2
+#define BOARD_NET_SPI_BR     1
 #define BOARD_ESP_LINK       1
 #define BOARD_ESP_CS         BOARD_NET_CS
 #define BOARD_ESP_READY      BOARD_NET_READY
 #define BOARD_ESP_SPI_AF     BOARD_NET_SPI_AF
+#define BOARD_ESP_GPDMA      1          /* GPDMA channels, not streams   */
+/* PCLK1 is 80 MHz: /4 is 20 MHz, close to the 21-24 MHz of the F4s. */
+#define BOARD_ESP_SPI_BR     1
 
 /* heatshrink LZSS in the kernel extension: compress() and decompress(). */
 #define BOARD_COMPRESS       1
@@ -143,16 +153,16 @@
 #define BOARD_SHELL_FLOAT    1
 
 /* --------------------------------------------------------------- ADC */
-/* ADC1 channels common to both supported boards and not kept by Freya.
- * The internal temperature sensor is channel 18 on the F4; Vref is 17. */
+/* ADC1 channels on the same pins as the other boards, numbered the U5's
+ * way.  The internal temperature sensor is channel 19; Vref is 0. */
 #define BOARD_ADC_MAP \
-    { { FREYA_PA(0), 0 }, { FREYA_PA(1), 1 }, \
-      { FREYA_PB(0), 8 }, { FREYA_PB(1), 9 }, \
-      { FREYA_PC(0), 10 }, { FREYA_PC(1), 11 }, \
-      { FREYA_PC(2), 12 }, { FREYA_PC(3), 13 }, \
-      { FREYA_PC(4), 14 }, { FREYA_PC(5), 15 } }
-#define BOARD_ADC_TEMP_CHANNEL  18
-#define BOARD_ADC_VREF_CHANNEL  17
+    { { FREYA_PA(0), 5 }, { FREYA_PA(1), 6 }, \
+      { FREYA_PB(0), 15 }, { FREYA_PB(1), 16 }, \
+      { FREYA_PC(0), 1 }, { FREYA_PC(1), 2 }, \
+      { FREYA_PC(2), 3 }, { FREYA_PC(3), 4 }, \
+      { FREYA_PC(4), 13 }, { FREYA_PC(5), 14 } }
+#define BOARD_ADC_TEMP_CHANNEL  19
+#define BOARD_ADC_VREF_CHANNEL  0
 
 /* --------------------------------------------------------------- hooks */
 void board_clock_init(void);            /* clock tree, fills g_clocks    */

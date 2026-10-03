@@ -1,0 +1,138 @@
+# Tests
+
+What `make test` checks on the host, without a board: the filesystem and
+XMODEM code, the samples that are worth testing, the exit status rule, the
+timer, PWM, I2C, SPI and 1-Wire arithmetic, the cipher, the coder, the virtual
+machine, BASIC, and the program image layout.
+
+`make test` compiles the filesystem and XMODEM sources **unchanged** for the
+host, points them at disk image files instead of a card, and checks the result
+with the system's own FAT tools.
+
+The FAT tests run against freshly formatted FAT16 and FAT32 images: directory
+creation, small and multi-cluster files, read-back verification, seeking,
+appending, long names and their generated 8.3 aliases, forty files in one
+directory, deletion, a check that every allocated cluster is returned, and
+rotation of `/freya.log` at 1 MiB via an atomic rename to `/freya.log.old`.
+`fsck.vfat` then confirms the images are consistent. An interoperability pass
+copies a 40 KB file that `mcopy` wrote, using only Freya calls, and verifies the
+copy is byte identical when read back with mtools.
+
+The XMODEM tests drive `src/xmodem.c` with an emulated sender that answers the
+receiver's own handshake: CRC mode and checksum fallback, 128 and 1024 byte
+packets, a packet corrupted in transit and retransmitted, a duplicated packet,
+line noise before the first packet, and the padding of the final block.
+
+The `forth` sample is a program rather than kernel code, but it is the one
+sample with enough behaviour to be worth testing, so it is built for the
+host too — unchanged, against a service table that captures what it prints
+— and driven a line at a time: arithmetic and the number bases, every
+control structure, defining words, string literals, recursion, a source
+file read through `include`, and each way the interpreter can fail. The
+same binary talks to a terminal with `-i`, which is the quickest way to
+try the language without a board.
+
+The `rustdemo` sample is built for the host the same way, against the
+Rust bindings, and run in a child process for each case, so that `exit()`
+and a panic end it as they would on a board. The cases cover the console,
+the heap, a file, a timer handler, a thread, a kernel table too short for a
+call, `exit()` from a handler, and the panic status. The case is skipped
+when `cargo` is not installed.
+
+The `altair` sample is tested the same way. The 8080's flags, `DAA`,
+timing, memory map, ports, loaders and tapes are always checked. The
+CPU exercisers and Altair BASIC itself cannot be committed, so they run
+only when `ALTAIR_TESTS`, `ALTAIR_BASIC` and `ALTAIR_MBL` point at them
+(`samples/altair/README.md`). Ctrl-C with the console raw and not raw
+is checked on `src/uart.c` itself, against a fake USART.
+
+A run's exit status is decided in one place — `freya_exit_status()` in the ABI
+header — so that the closing line of `run`, `$?`, the log line and a program
+asking `last_exit()` can never disagree. That rule is a pure function of how
+the run ended and what the program asked for, so it is checked on the host:
+the truncation to a byte, the `128 + reason` statuses Freya synthesises for
+Ctrl-C and the four faults, and the `FREYA_API_HAS` test a program uses on a
+service table older than itself.
+
+Neither a pin nor a timer exists on the host either, but the arithmetic behind
+them does not need one, and it is the part that would be quietly wrong: a
+period off by a factor of two looks like working code on the bench. So
+`src/timer.c` and `src/pwm.c` are compiled unchanged and their dividers driven
+over the whole range they accept — every period and every frequency at every
+clock either board can run at, checked against what the prescaler and the
+reload each chose will actually do. Periods come out inside 0.04% everywhere
+and exact on the round numbers; frequencies inside 0.6%, which is the counts
+running out at the top of the range rather than the arithmetic. The pin
+encoding is checked beside them, and so is the board's table of PWM channels:
+a hand written table whose two temptations are naming a pin the kernel keeps
+and giving one timer channel to two pins. The I2C half-period gets the same
+treatment: each half of the clock is a whole number of microseconds, rounded
+up, so the bus is the rate that was asked for or a little slower and never
+faster, and bus 1 of the pin table is PB6/PB7 on either board. The SPI
+baud tap gets the same treatment: of the eight power-of-two divisions of
+the bus clock, the one chosen is the fastest that does not exceed the
+rate asked for, at 48, 36 and 32 MHz, and bus 1 is SCK/MISO/MOSI on
+PB13/PB14/PB15 on either board. The 1-Wire
+ROM search and its CRC-8 get the same treatment, against device ids planted
+on the host: that walk is the part that would be quietly wrong.
+
+Ascon-AEAD128 is checked against the NIST SP 800-232 known answers.
+`src/aead.c` and the reference in `third_party/ascon` are compiled
+unchanged, an empty message, a byte with associated data and a 16-byte
+block have to come out as the published ciphertexts, and a flipped tag
+has to be refused with the output cleared. Built for the STM32F103, the
+same test checks that both calls answer `FREYA_ERR_UNSUPPORTED`.
+`tools/aead` generates a key from `/dev/urandom` and its `seal` has to
+write the same ciphertext the board call writes.
+
+heatshrink is checked against a stream the upstream tool wrote: `src/lz.c`
+and the library are compiled unchanged, the encoder has to produce those
+bytes and the decoder has to read them back, and then the bound, an output
+that is exactly large enough, every refusal, and the stream calls fed in
+odd-sized pieces. Built for the Blue Pill, the same test checks that both
+calls answer `FREYA_ERR_UNSUPPORTED`.
+
+The virtual machine is an instruction set, so what would be quietly wrong
+about it is the addressing and the flags rather than the arithmetic.
+`src/vm.c` is compiled unchanged and driven an instruction at a time: each
+of the eight modes, against both the value it produces and the register it
+stepped; the word a byte operand does not shorten on R6 and R7; the address
+JMP and JSR take, which is neither; MOVB into a register, which is the one
+byte instruction that reaches the whole of it; V and C on the shifts and
+the subtractions; a dividend whose high word is negative and the two ways a
+quotient can fail to exist; and every opcode the machine does not have,
+each of which has to leave R7 where a caller can read it.
+
+BASIC is checked in two layers. `basic/fpnat.c` is compiled natively
+and 330 000 results of its arithmetic, functions and number
+conversions are compared with libm: exactly for the arithmetic,
+reading and printing of numbers, and to a few units in the last place
+for the functions, with every overflow and domain error checked to
+raise its fault. Then the programs under `tests/basic` run on the
+interpreter compiled natively, each against its recorded output.
+The host build uses the same arithmetic as the board, so those outputs
+are what the board prints.
+
+The flash programming itself cannot be reached from the host, which is the main
+argument for keeping that driver small and its bounds check absolute. What can
+be checked off the board is the part most likely to be quietly wrong: a last
+pass builds a flash image and compares every field of the header
+`apps/common/app_start.c` emits against the section addresses the linker
+actually produced, and compares the regions declared in `include/freya_api.h`
+against the ones the linker scripts describe. A linker script cannot include a
+C header, so those two descriptions of the memory map are written down twice;
+the kernel compares them at boot, and this compares them at build time.
+
+```
+132 checks, 0 failures     FAT16
+132 checks, 0 failures     FAT32
+11 checks, 0 failures     interoperability
+18 checks, 0 failures     XMODEM
+79 checks, 0 failures     forth
+26 checks, 0 failures     exit status
+168 checks, 0 failures    pins, timers, PWM, I2C, 1-Wire and SPI
+136 checks, 0 failures    PDP-11 virtual machine
+330204 checks, 0 failures BASIC float floating point; 11 programs natively
+39 checks, 0 failures     program image layout
+ALL TESTS PASSED
+```

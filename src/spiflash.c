@@ -1,8 +1,9 @@
 /*
- * Freya - SPI NOR on the Black Pill's SOP-8 footprint.
+ * Freya - SPI NOR on the SOP-8 footprint of the Black Pill and of the
+ * WeAct STM32U585 board (BOARD_SPIFLASH).
  *
  * The chip shares SPI1 with the SD socket: CS, SCK and MOSI are PA4, PA5
- * and PA7, and MISO is PA6 or PB4 depending on the board revision.  Chip
+ * and PA7, and MISO is PA6, or PB4 on a v2.0 Black Pill.  Chip
  * select is the same pin as the card, so only one of the two is present.
  * A chip that answers JEDEC is a LittleFS volume at /spi1, the same calls
  * the card uses at /.  A blank chip is formatted on the first mount.
@@ -10,7 +11,7 @@
 #include "freya.h"
 #include "lfsvol.h"
 
-#if defined(FREYA_BOARD_BLACKPILL)
+#ifdef BOARD_SPIFLASH
 
 #define SPIFLASH_BUS    1
 #define SECTOR          4096
@@ -150,6 +151,7 @@ static int jedec(uint8_t id[3])
     return 0;
 }
 
+#ifdef FREYA_BOARD_BLACKPILL
 /* v2.0 boards wire the chip's DO to PB4.  PA6 is put back to an input
  * so it does not fight the controller's MISO. */
 static void miso_pb4(void)
@@ -173,6 +175,7 @@ static void miso_pa6(void)
     GPIOB->MODER &= ~(3UL << 8);
     board_spi_pins();
 }
+#endif /* FREYA_BOARD_BLACKPILL */
 
 #else /* FREYA_HOST */
 
@@ -418,6 +421,7 @@ int spiflash_probe(void)
         sdspi_set_speed(1);
         return 0;
     }
+#ifdef FREYA_BOARD_BLACKPILL
     miso_pb4();
     if (jedec(id) == 0) {
         accept_id(id);
@@ -425,6 +429,7 @@ int spiflash_probe(void)
         return 0;
     }
     miso_pa6();
+#endif
     s_ready = 0;
     return -1;
 #else

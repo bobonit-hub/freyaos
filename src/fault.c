@@ -130,6 +130,10 @@ void freya_fault_handler(uint32_t *frame, uint32_t kind)
 void NMI_Handler(void)
 {
     /* The clock security system raises NMI when HSE dies. */
+#ifdef RCC_CICR_CSSC
+    RCC->CICR = RCC_CICR_CSSC;          /* the U5 clears it in CICR */
+#else
     RCC->CIR |= (1UL << 23);            /* CSSC: clear the flag */
+#endif
     kprintf("\r\n[freya] HSE failure, running from HSI backup clock\r\n");
 }
