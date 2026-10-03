@@ -1091,6 +1091,7 @@ int main(void)
     rc = run("help wifi");
     expect_rc("help wifi succeeds", rc, 0);
     expect_has("help wifi shows an action", "\"connect\"");
+#if BOARD_ESP_LINK
     rc = run("wifi()");
     expect_rc("wifi status succeeds", rc, 0);
     expect_has("wifi status reports off", "wifi: off");
@@ -1100,6 +1101,17 @@ int main(void)
     rc = run("ping()");
     expect_rc("ping needs a host", rc, FREYA_EXIT_FAIL);
     expect_has("ping prints its usage", "usage: ping");
+#else
+    /* No ESP32-C6 link: the two commands stay in the table and say so. */
+    rc = run("wifi()");
+    expect_rc("wifi is unsupported on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("wifi says the network is unsupported",
+               "network unsupported on this board");
+    rc = run("ping(\"10.0.0.1\")");
+    expect_rc("ping is unsupported on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("ping says the network is unsupported",
+               "network unsupported on this board");
+#endif
 #if BOARD_ESP_LINK
     rc = run("help syslog");
     expect_rc("help syslog succeeds", rc, 0);
@@ -1136,15 +1148,11 @@ int main(void)
     rc = run("syslog(\"maybe\")");
     expect_rc("a bad syslog action fails", rc, FREYA_EXIT_FAIL);
 #endif
+#if BOARD_AEAD
     rc = run("help aead");
     expect_rc("help aead succeeds", rc, 0);
-#if BOARD_AEAD
     expect_exact("help aead shows call syntax",
                  "aead([\"-d\",] \"key\", \"nonce\", \"in\", \"out\")\r\n");
-#else
-    expect_exact("help aead shows call syntax", "aead()\r\n");
-#endif
-#if BOARD_AEAD
     rc = run("aead");
     expect_rc("aead with no arguments succeeds", rc, 0);
     expect_has("aead names the cipher", "Ascon-AEAD128");
@@ -1153,10 +1161,12 @@ int main(void)
     expect_rc("aead with one argument fails", rc, FREYA_EXIT_FAIL);
     expect_has("aead with one argument prints the usage", "usage: aead");
 #else
-    rc = run("aead 00 11 /a /b");
-    expect_rc("aead is unsupported on this board", rc, FREYA_EXIT_FAIL);
-    expect_has("aead says it is unsupported", "aead unsupported");
+    /* A board without the cipher does not carry the command at all. */
+    rc = run("help aead");
+    expect_rc("help aead fails on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("help aead finds no command", "no such command: aead");
 #endif
+#if BOARD_COMPRESS
     rc = run("help compress");
     expect_rc("help compress succeeds", rc, 0);
     expect_exact("help compress shows call syntax",
@@ -1165,7 +1175,6 @@ int main(void)
     expect_rc("help decompress succeeds", rc, 0);
     expect_exact("help decompress shows call syntax",
                  "decompress([\"in\", \"out\"])\r\n");
-#if BOARD_COMPRESS
     rc = run("compress");
     expect_rc("compress with no arguments succeeds", rc, 0);
     expect_has("compress names the coder", "heatshrink LZSS, 8-bit window");
@@ -1181,11 +1190,13 @@ int main(void)
     expect_rc("compress before mount fails", rc, FREYA_EXIT_FAIL);
     expect_has("compress asks for mount", "no filesystem mounted");
 #else
-    rc = run("compress /a /b");
-    expect_rc("compress is unsupported on this board", rc, FREYA_EXIT_FAIL);
-    expect_has("compress says it is unsupported", "compress unsupported");
-    rc = run("decompress /a /b");
-    expect_rc("decompress is unsupported on this board", rc, FREYA_EXIT_FAIL);
+    /* Nor does a board without the coder carry its two commands. */
+    rc = run("help compress");
+    expect_rc("help compress fails on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("help compress finds no command", "no such command: compress");
+    rc = run("help decompress");
+    expect_rc("help decompress fails on this board", rc, FREYA_EXIT_FAIL);
+    expect_has("help decompress finds no command", "no such command: decompress");
 #endif
 
     printf("commands\n");

@@ -284,9 +284,15 @@ echo "================= network framing ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_esp_link_test.c src/string.c -o "$OUT/hostnetframe"
 "$OUT/hostnetframe" || status=1
-# shellcheck disable=SC2086
-$CC $CFLAGS tests/host_net_test.c -o "$OUT/hostnet"
-"$OUT/hostnet" || status=1
+# The network calls are built only with the ESP32-C6 link.  Without it
+# src/net.c is the assembler stub that answers unsupported.
+if [ "$BOARD" != bluepill ]; then
+    # shellcheck disable=SC2086
+    $CC $CFLAGS tests/host_net_test.c -o "$OUT/hostnet"
+    "$OUT/hostnet" || status=1
+else
+    echo "  --    the Blue Pill has no network, so no network calls"
+fi
 
 # Single precision on the Cortex-M3: the helpers in src/softfp.c against
 # the host FPU, then a soft-float link that must not need libgcc for them.

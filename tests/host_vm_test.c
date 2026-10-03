@@ -559,8 +559,30 @@ static void test_step_limit(void)
     check("bounded run counted 5", 5, (long)ran);
 }
 
+#if !BOARD_VM
+/* A board that does not build the machine (the Blue Pill) keeps the three
+ * calls, and each one says so instead of running anything. */
+static void test_unsupported(void)
+{
+    freya_vm_t vm;
+    uint8_t mem[64];
+    uint32_t ran = 99;
+
+    check("vm_reset is unsupported", FREYA_ERR_UNSUPPORTED, vm_reset(&vm));
+    check("vm_step is unsupported", FREYA_ERR_UNSUPPORTED,
+          vm_step(&vm, mem, sizeof mem));
+    check("vm_run is unsupported", FREYA_ERR_UNSUPPORTED,
+          vm_run(&vm, mem, sizeof mem, 5, &ran));
+}
+#endif
+
 int main(void)
 {
+#if !BOARD_VM
+    test_unsupported();
+    printf("%d checks, %d failed\n", checks, fails);
+    return fails ? 1 : 0;
+#endif
     test_add();
     test_sob();
     test_flags();
