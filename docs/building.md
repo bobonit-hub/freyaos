@@ -22,6 +22,7 @@ make BOARD=stm32u585   # the same for the WeAct STM32U585CIU6 board
 make BOARD=stm32h523   # the same for the WeAct STM32H523CET6 board
 make BOARD=stm32h723   # the same for the WeAct MiniSTM32H723
 make RTC=ds3231        # also build the DS3231 driver (PB6 SCL, PB7 SDA)
+make RTC=internal      # or the driver for the chip's own calendar RTC
 make FIRMWARE_VERSION=3.1.1
                        # override the hardcoded firmware version
 make size              # section sizes
@@ -29,8 +30,10 @@ make test              # run the filesystem and XMODEM code on the host
 make clean
 ```
 
-`RTC=ds3231` and `FIRMWARE_VERSION=` combine with `BOARD=`. Leave `RTC`
-unset and the driver is left out of the image. The banner and the first
+`RTC=ds3231`, `RTC=internal` and `FIRMWARE_VERSION=` combine with
+`BOARD=`. Leave `RTC` unset and neither clock driver is in the image.
+`RTC=internal` is for the boards with a calendar RTC
+([rtc.md](rtc.md)) and is refused for the others. The banner and the first
 line of `sysinfo()` print the OS version from this documentation, 3.3.0
 "Poltergeist"; `FIRMWARE_VERSION` does not change that. The firmware
 version defaults to the value hardcoded in `src/freya.h`; an override must

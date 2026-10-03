@@ -22,6 +22,7 @@ same on every board is in [hardware.md](hardware.md).
 | SD identification clock | 375 kHz | 281 kHz | 328 kHz | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged |
 | SD data clock | 12 MHz | 9 MHz | 10.5 MHz | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured |
 | SPI flash volume (`/spi1`) | yes | no | no | no | yes | yes | yes, beside the card |
+| Calendar RTC (`RTC=internal`, [rtc.md](rtc.md)) | yes | no | yes | no | yes | yes | yes |
 
 ## What a board is
 

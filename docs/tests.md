@@ -76,6 +76,12 @@ PB13/PB14/PB15 on either board. The 1-Wire
 ROM search and its CRC-8 get the same treatment, against device ids planted
 on the host: that walk is the part that would be quietly wrong.
 
+The calendar RTC driver of `RTC=internal` is compiled for each board that
+has one and run against a stand-in register block: the BCD and the weekday
+it writes, the prescalers and the 24 hour format, the 2000..2099 range,
+reading back what was written, and each way the RTC can be unusable - never
+set, never in sync, no crystal, no init mode ([rtc.md](rtc.md)).
+
 Ascon-AEAD128 is checked against the NIST SP 800-232 known answers.
 `src/aead.c` and the reference in `third_party/ascon` are compiled
 unchanged, an empty message, a byte with associated data and a 16-byte

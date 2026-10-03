@@ -154,6 +154,22 @@
 #define BOARD_ADC_TEMP_CHANNEL  18
 #define BOARD_ADC_VREF_CHANNEL  17
 
+/* --------------------------------------------------------------- RTC */
+/* The calendar RTC, on the 32.768 kHz crystal, for RTC=internal
+ * (src/rtc.c): its base, where the F4 keeps CR, and what has to be turned on
+ * before its registers and the backup domain can be written. */
+#define BOARD_RTC_INTERNAL  1
+#define BOARD_RTC_BASE      0x40002800UL
+#define BOARD_RTC_CR_OFF    0x08
+#ifdef FREYA_RTC_INTERNAL
+static inline void board_rtc_access(void)
+{
+    RCC->APB1ENR |= RCC_APB1ENR_PWREN;
+    (void)RCC->APB1ENR;
+    PWR->CR |= PWR_CR_DBP;
+}
+#endif
+
 /* --------------------------------------------------------------- hooks */
 void board_clock_init(void);            /* clock tree, fills g_clocks    */
 void board_uart_pins(void);             /* console pins and USART clock  */

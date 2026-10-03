@@ -130,6 +130,8 @@ void freya_main(void)
     fw_cksum_show();
 #ifdef FREYA_RTC_DS3231
     ds3231_boot();
+#elif defined(FREYA_RTC_INTERNAL)
+    rtcin_boot();
 #endif
 
     boot_storage();

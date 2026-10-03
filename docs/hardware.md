@@ -91,6 +91,12 @@ and RST unconnected. The driver is compiled only with `make RTC=ds3231`. At
 boot a valid chip is copied into the software clock, and `date` writes both;
 the wiring and what `date` does with the chip are in [i2c.md](i2c.md).
 
+The boards with a calendar RTC can keep the time in the chip instead,
+with `make RTC=internal`: the 32.768 kHz crystal on PC14/PC15 is all it
+needs, and a coin cell on the board's `VB` pin keeps it through a power
+cut; where that pin is on each board, and which cells to use, is in
+[rtc.md](rtc.md#connecting-a-battery).
+
 ## 1-Wire
 
 1-Wire runs at standard speed on any spare pin: presence, byte reads and

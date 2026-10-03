@@ -183,6 +183,9 @@ SECTIONS
          * such object, and this wildcard then matches nothing. */
         *ds3231.o(.text .text.*)
         *ds3231.o(.rodata .rodata.*)
+        /* The chip's own RTC, RTC=internal; likewise absent otherwise. */
+        *rtc.o(.text .text.*)
+        *rtc.o(.rodata .rodata.*)
         . = ALIGN(4);
         __kext_end = .;
     } > KEXT

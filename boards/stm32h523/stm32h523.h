@@ -118,6 +118,7 @@ typedef struct {
 #define RCC_APB1ENR_SPI2EN  (1UL << 14)
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB2ENR_SPI1EN  (1UL << 12)
+#define RCC_APB3ENR_RTCAPBEN (1UL << 21)
 
 /* SPI1 and SPI2 take their kernel clock from PLL1Q (SPIxSEL = 0, the
  * reset value), not from the APB bus.  USART2 takes PCLK1 and the ADC
@@ -134,6 +135,9 @@ typedef struct {
     uint32_t      RES0[2];     /* 0x08 */
     __IO uint32_t VOSCR;       /* 0x10 */
     __IO uint32_t VOSSR;       /* 0x14 */
+    uint32_t      RES1[2];     /* 0x18 */
+    __IO uint32_t BDCR;        /* 0x20 */
+    __IO uint32_t DBPCR;       /* 0x24 */
 } PWR_TypeDef;
 
 #define PWR                 ((PWR_TypeDef *)0x44020800UL)
@@ -141,6 +145,7 @@ typedef struct {
 #define PWR_VOSCR_VOS0      (3UL << 4)    /* up to 250 MHz              */
 #define PWR_VOSSR_VOSRDY    (1UL << 3)
 #define PWR_VOSSR_ACTVOSRDY (1UL << 13)
+#define PWR_DBPCR_DBP       (1UL << 0)    /* backup domain writable     */
 
 /* -------------------------------------------------------------- FLASH */
 typedef struct {

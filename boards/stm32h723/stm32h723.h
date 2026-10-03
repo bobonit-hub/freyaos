@@ -52,7 +52,10 @@ typedef struct {
     __IO uint32_t CIER;        /* 0x060 */
     __IO uint32_t CIFR;        /* 0x064 */
     __IO uint32_t CICR;        /* 0x068 */
-    uint32_t      RES4[25];    /* 0x06C .. 0x0CC */
+    uint32_t      RES4;        /* 0x06C */
+    __IO uint32_t BDCR;        /* 0x070, the backup domain */
+    __IO uint32_t CSR;         /* 0x074 */
+    uint32_t      RES5[22];    /* 0x078 .. 0x0CC */
     __IO uint32_t RSR;         /* 0x0D0 */
     __IO uint32_t AHB3ENR;     /* 0x0D4 */
     __IO uint32_t AHB1ENR;     /* 0x0D8 */
@@ -132,6 +135,7 @@ typedef struct {
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB2ENR_SPI1EN  (1UL << 12)
 #define RCC_APB4ENR_SYSCFGEN (1UL << 1)
+#define RCC_APB4ENR_RTCAPBEN (1UL << 16)
 
 /* Reset flags live in RSR, at bits of their own; src/system.c reads them
  * through the BOARD_RSTF_* names in board.h. */
@@ -149,6 +153,7 @@ typedef struct {
 } PWR_TypeDef;
 
 #define PWR                 ((PWR_TypeDef *)0x58024800UL)
+#define PWR_CR1_DBP         (1UL << 8)    /* backup domain writable     */
 #define PWR_CR3_BYPASS      (1UL << 0)
 #define PWR_CR3_LDOEN       (1UL << 1)
 #define PWR_CR3_SCUEN       (1UL << 2)    /* supply configuration lock   */

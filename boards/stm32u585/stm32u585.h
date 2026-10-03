@@ -127,6 +127,7 @@ typedef struct {
 #define RCC_APB1ENR_SPI2EN  (1UL << 14)
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB2ENR_SPI1EN  (1UL << 12)
+#define RCC_APB3ENR_RTCAPBEN (1UL << 21)
 
 /* The kernel clock of ADC1: HCLK, divided again in ADC12_COMMON->CCR. */
 #define RCC_CCIPR3_ADCDACSEL_MASK (7UL << 12)
@@ -144,6 +145,12 @@ typedef struct {
     __IO uint32_t CR3;         /* 0x08 */
     __IO uint32_t VOSR;        /* 0x0C */
     __IO uint32_t SVMCR;       /* 0x10 */
+    __IO uint32_t WUCR1;       /* 0x14 */
+    __IO uint32_t WUCR2;       /* 0x18 */
+    __IO uint32_t WUCR3;       /* 0x1C */
+    __IO uint32_t BDCR1;       /* 0x20 */
+    __IO uint32_t BDCR2;       /* 0x24 */
+    __IO uint32_t DBPR;        /* 0x28 */
 } PWR_TypeDef;
 
 #define PWR                 ((PWR_TypeDef *)0x46020800UL)
@@ -153,6 +160,7 @@ typedef struct {
 #define PWR_VOSR_VOS_RANGE1 (3UL << 16)
 #define PWR_VOSR_BOOSTEN    (1UL << 18)
 #define PWR_SVMCR_ASV       (1UL << 30)  /* VDDA valid: the ADC may run */
+#define PWR_DBPR_DBP        (1UL << 0)   /* backup domain writable      */
 
 /* -------------------------------------------------------------- FLASH */
 typedef struct {

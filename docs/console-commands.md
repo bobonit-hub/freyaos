@@ -42,7 +42,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `autostart(["on"\|"off"])` | run the flash program or script automatically at boot |
 | `ramdump(["on"\|"off"])` | write SRAM to `/freya.ram` after a BusFault (default off) |
 | `password(["xxxxxxxx"\|"off"])` | set or clear the 8-byte terminal password in the auto-start slot |
-| `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps; with `RTC=ds3231`, also the chip on PB6/PB7 |
+| `date(["YYYY-MM-DD HH:MM:SS"])` | show or set the clock used for file timestamps; with `RTC=ds3231`, also the chip on PB6/PB7, and with `RTC=internal` the chip's own RTC |
 | `loglevel(["off"\|"error"\|"warn"\|"info"\|"debug"\|0..4])` | show or set the file log level |
 | `log("error"\|"warn"\|"info"\|"debug"\|1..4, message)` | append one line to the file log |
 | `pin("pin" [, "in"\|"up"\|"down"\|"out"\|"od"\|"analog"\|0\|1\|"toggle" [, 0\|1\|"toggle"]])` | read a pin, set its mode, or drive it |
@@ -192,7 +192,8 @@ the software clock. Setting the date writes the chip first. A date the
 chip cannot store is refused and the software clock is left as it was.
 If the chip does not answer, the software clock is still set and the
 command says the chip was not written. The wiring is in
-[i2c.md](i2c.md).
+[i2c.md](i2c.md). A kernel built with `make RTC=internal` does the same
+with the chip's own calendar RTC ([rtc.md](rtc.md)).
 
 ## I2C at the prompt
 

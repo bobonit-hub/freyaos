@@ -16,6 +16,7 @@ host tools.
 | `src/pwm.c` | the compare channels of those timers, driving pins |
 | `src/i2c.c` | I2C master, on the buses the board header names |
 | `src/ds3231.c` | optional DS3231 clock, built with `RTC=ds3231`; SCL is PB6, SDA is PB7 |
+| `src/rtc.c` | optional driver for the chip's own calendar RTC, built with `RTC=internal` on the boards that have one |
 | `src/w1.c` | 1-Wire master, standard speed, on a pin a program names |
 | `src/aead.c`, `third_party/ascon/` | Ascon-AEAD128, for a program and for `aead`; not built into the STM32F103. Keys come from `tools/aead` |
 | `src/lz.c`, `third_party/heatshrink/` | heatshrink LZSS, for a program and for `compress` / `decompress`; not built into the Blue Pill |
@@ -50,6 +51,7 @@ host tools.
 | `docs/console-commands.md` | full command list, and the six that were Blue Pill only |
 | `docs/interrupts.md` | the pin, timer, PWM and interrupt API, and what a handler may do |
 | `docs/i2c.md` | the I2C master API, the pins, the optional DS3231, and the `i2c` command |
+| `docs/rtc.md` | the chip's own calendar RTC, `RTC=internal`, and connecting its battery |
 | `docs/spi.md` | the SPI master API, the pins, and the `spi` command |
 | `docs/network.md` | ESP32-C6 wiring, Wi-Fi commands and the asynchronous network API |
 | `docs/w1.md` | the 1-Wire master API, the pin, and the `w1` command |

@@ -71,6 +71,7 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 * PWM on eight pins, 1 Hz to 1 MHz, from a program or the console ([docs/interrupts.md](docs/interrupts.md)).
 * An ADC: one raw 12-bit sample of a pin, the temperature sensor or the reference ([docs/adc.md](docs/adc.md)).
 * I2C master, 10 kHz to 400 kHz, and an optional DS3231 clock ([docs/i2c.md](docs/i2c.md)).
+* An optional driver for the chip's own calendar RTC on the F4, U5, H5 and H7 boards ([docs/rtc.md](docs/rtc.md)).
 * 1-Wire master on any spare pin ([docs/w1.md](docs/w1.md)).
 * SPI master on SPI2 for a program ([docs/spi.md](docs/spi.md)).
 * heatshrink LZSS compression, not on the Blue Pill ([docs/compress.md](docs/compress.md)).
@@ -114,6 +115,7 @@ writing one.
 | [docs/threads.md](docs/threads.md) | the thread calls |
 | [docs/adc.md](docs/adc.md) | the ADC call and the `adc` command |
 | [docs/i2c.md](docs/i2c.md) | the I2C master API, the pins, the optional DS3231, and the `i2c` command |
+| [docs/rtc.md](docs/rtc.md) | the chip's own calendar RTC, `make RTC=internal`, and connecting its battery |
 | [docs/spi.md](docs/spi.md) | the SPI master API, the pins, and the `spi` command |
 | [docs/w1.md](docs/w1.md) | the 1-Wire master API, the pin, and the `w1` command |
 | [docs/network.md](docs/network.md) | ESP32-C6 wiring, Wi-Fi commands and the asynchronous network API |

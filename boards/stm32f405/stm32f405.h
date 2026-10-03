@@ -98,6 +98,7 @@ typedef struct {
 
 #define PWR_BASE            0x40007000UL
 #define PWR                 ((PWR_TypeDef *)PWR_BASE)
+#define PWR_CR_DBP          (1UL << 8)    /* backup domain writable    */
 #define PWR_CR_VOS_SCALE1   (3UL << 14)
 #define PWR_CR_VOS_MASK     (3UL << 14)
 #define PWR_CSR_VOSRDY      (1UL << 14)

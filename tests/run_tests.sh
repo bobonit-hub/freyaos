@@ -255,6 +255,19 @@ for b in blackpill bluepill stm32f405 blackpill2; do
 done
 
 echo
+echo "================= calendar RTC ================="
+# Optional too, and only for the boards whose chip has the calendar RTC.
+for b in blackpill stm32f405 stm32u585 stm32h523 stm32h723; do
+    bdef="-DFREYA_BOARD_$(echo "$b" | tr '[:lower:]' '[:upper:]')"
+    # shellcheck disable=SC2086
+    $CC -std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
+        -Iinclude -Isrc -Iboards/$b $bdef -DFREYA_HOST -DFREYA_RTC_INTERNAL \
+        tests/host_rtc_test.c src/rtc.c -o "$OUT/hostrtc-$b"
+    "$OUT/hostrtc-$b" > "$OUT/hostrtc-$b.log" || { cat "$OUT/hostrtc-$b.log"; status=1; }
+    echo "  $b: $(tail -1 "$OUT/hostrtc-$b.log")"
+done
+
+echo
 echo "================= firmware sum ================="
 # shellcheck disable=SC2086
 $CC $CFLAGS tests/host_cksum_test.c src/cksum.c -o "$OUT/hostcksum"

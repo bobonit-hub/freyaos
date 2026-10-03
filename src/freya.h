@@ -127,6 +127,19 @@ void     ds3231_test_save(uint8_t *dst, int n);
 #endif
 #endif
 
+#ifdef FREYA_RTC_INTERNAL
+/* The chip's own calendar RTC, built with RTC=internal (src/rtc.c).
+ * rtcin_read(): 0 the time is valid and *t was filled, FREYA_ERR_ARG the
+ * RTC runs but was never set, FREYA_ERR_IO it does not run. */
+int      rtcin_read(rtc_time_t *t);
+int      rtcin_write(const rtc_time_t *t);    /* 0, or FREYA_ERR_*       */
+void     rtcin_boot(void);          /* read the RTC into the software clock */
+#ifdef FREYA_HOST
+void     rtcin_test_regs(uint32_t **tr, uint32_t **dr, uint32_t **isr,
+                         uint32_t **prer, uint32_t **cr, uint32_t **bdcr);
+#endif
+#endif
+
 /* --------------------------------------------------------------- uart */
 void uart_init(uint32_t baud);
 void uart_putc(char c);

@@ -11,7 +11,8 @@ the F4 sector layout, the flash size register — are in
   `?` on display.
 * File timestamps come from a software clock that starts at 2026-01-01 and is
   set with `date`. A build with `RTC=ds3231` also keeps that time on a DS3231
-  wired to PB6 (SCL) and PB7 (SDA).
+  wired to PB6 (SCL) and PB7 (SDA), and one with `RTC=internal` in the
+  chip's own calendar RTC ([rtc.md](rtc.md)), for the years 2000 to 2099.
 * One program at a time. Its main thread is the shell's stack; any thread
   it creates has a 1 KiB stack of its own. There is no MPU isolation.
 * A pin interrupt is one of sixteen hardware lines, and line *n* serves pin

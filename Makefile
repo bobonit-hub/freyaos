@@ -9,6 +9,8 @@
 #   make BOARD=stm32h723    build for the WeAct MiniSTM32H723 (STM32H723VGT6)
 #   make rust               build the Rust samples (needs cargo; see rust/README.md)
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
+#   make RTC=internal       also build the driver for the chip's own
+#                           calendar RTC (boards whose board.mk allows it)
 #   make FIRMWARE_VERSION=3.1.1
 #                           override the firmware version
 #   make flash              flash the image with st-flash
@@ -104,16 +106,24 @@ LDFLAGS   := $(CPUFLAGS) -nostdlib -T $(LDSCRIPT) \
 
 # The DS3231 driver is left out unless the build asks for it.  The pins
 # are PB6 (SCL) and PB7 (SDA) on every board; INT/SQW, 32 kHz and RST
-# are not connected.  The software clock is built either way.
+# are not connected.  RTC=internal is the chip's own calendar RTC, on the
+# 32.768 kHz crystal, for a board whose board.mk sets RTC_INTERNAL.  The
+# software clock is built either way.
 RTC ?=
 # src/softfp.c is for programs only (APP_SOFTFP below).  The FPU boards
 # have no use for it, and the Blue Pill shell has no float values.
-CSRC      := $(filter-out $(SRC_DIR)/ds3231.c $(SRC_DIR)/softfp.c,$(wildcard $(SRC_DIR)/*.c))
+CSRC      := $(filter-out $(SRC_DIR)/ds3231.c $(SRC_DIR)/rtc.c $(SRC_DIR)/softfp.c,$(wildcard $(SRC_DIR)/*.c))
 ifeq ($(RTC),ds3231)
 CFLAGS    += -DFREYA_RTC_DS3231
 CSRC      += $(SRC_DIR)/ds3231.c
+else ifeq ($(RTC),internal)
+ifneq ($(RTC_INTERNAL),1)
+$(error RTC=internal: '$(BOARD)' has no calendar RTC driver - use RTC=ds3231, or leave RTC unset)
+endif
+CFLAGS    += -DFREYA_RTC_INTERNAL
+CSRC      += $(SRC_DIR)/rtc.c
 else ifneq ($(RTC),)
-$(error RTC='$(RTC)' is not a supported clock - use RTC=ds3231, or leave RTC unset)
+$(error RTC='$(RTC)' is not a supported clock - use RTC=ds3231 or RTC=internal, or leave RTC unset)
 endif
 
 # main.c and shell.c compile different code when RTC changes, and the
@@ -123,7 +133,7 @@ $(BUILD)/rtc.stamp: FORCE | $(BUILD)
 	@echo '$(RTC)' > $@.tmp
 	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
 
-$(BUILD)/main.o $(BUILD)/shell.o $(BUILD)/ds3231.o: $(BUILD)/rtc.stamp
+$(BUILD)/main.o $(BUILD)/shell.o $(BUILD)/ds3231.o $(BUILD)/rtc.o: $(BUILD)/rtc.stamp
 
 # Command-line flag changes are not visible to make's dependency scanner.
 # Keep the shell object, which displays the version, tied to the value.

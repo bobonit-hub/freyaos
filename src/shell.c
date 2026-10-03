@@ -1736,6 +1736,9 @@ int DATE_TEXT rtc_apply(const rtc_time_t *t)
 #ifdef FREYA_RTC_DS3231
     rc = ds3231_write(t);
     if (rc == FREYA_ERR_ARG) return FREYA_ERR_ARG;
+#elif defined(FREYA_RTC_INTERNAL)
+    rc = rtcin_write(t);
+    if (rc == FREYA_ERR_ARG) return FREYA_ERR_ARG;
 #endif
     rtc_set(t);
     return rc;
@@ -1823,6 +1826,10 @@ static int DATE_TEXT cmd_date(int argc, char **argv)
     else if (ds3231_read(&t) == 0) {
         rtc_set(&t);
     }
+#elif defined(FREYA_RTC_INTERNAL)
+    else if (rtcin_read(&t) == 0) {
+        rtc_set(&t);
+    }
 #endif
 
     rtc_get(&t);
@@ -1833,6 +1840,11 @@ static int DATE_TEXT cmd_date(int argc, char **argv)
 #ifdef FREYA_RTC_DS3231
     if (date_arg && wr != 0) {
         kprintf("date: DS3231 was not written\r\n");
+        return -1;
+    }
+#elif defined(FREYA_RTC_INTERNAL)
+    if (date_arg && wr != 0) {
+        kprintf("date: the RTC was not written\r\n");
         return -1;
     }
 #endif

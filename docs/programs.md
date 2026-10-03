@@ -123,7 +123,7 @@ The service table (`include/freya_api.h`) gives a program console I/O and
 interrupts, Ascon-AEAD128 (`aead_encrypt`,
 `aead_decrypt`), heatshrink LZSS (`compress`,
 `decompress`), the civil clock (`rtc_get`, `rtc_set`, which also
-writes the DS3231 when one is fitted; not on the Blue Pill, whose
+writes the DS3231 or the chip's RTC when the image has one; not on the Blue Pill, whose
 kernel extension had no room, though its clock still keeps file
 timestamps), a raw console (`console_raw`,
 which hands Ctrl-C to the program as an ordinary key, as an emulator needs;
