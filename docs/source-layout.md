@@ -34,6 +34,7 @@ host tools.
 | `src/heap.c`, `src/print.c`, `src/string.c` | allocator, formatting, freestanding libc |
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
 | `rust/freya/` | Rust bindings to the program ABI, checked against `freya_api.h` when they build ([rust/README.md](../rust/README.md)) |
+| `coprocessor/esp32c6/` | the ESP32-C6 network coprocessor firmware, in Rust on ESP-IDF ([README](../coprocessor/esp32c6/README.md)) |
 | `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `aead`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic11`, and `rustdemo` in Rust |
 | `qbe/` | QBE target and cproc patch for the virtual machine, and `as.py`, the assembler that makes an image |
 | `basic/` | BASIC-11 style interpreter for the FPU boards: the interpreter, its `float` arithmetic, the PC build it is tested on |

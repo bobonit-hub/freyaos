@@ -128,4 +128,5 @@ writing one.
 | [docs/tests.md](docs/tests.md) | what `make test` checks on the host |
 | [docs/limits.md](docs/limits.md) | notes and limits |
 | [rust/README.md](rust/README.md) | the Rust bindings |
+| [coprocessor/esp32c6/README.md](coprocessor/esp32c6/README.md) | the ESP32-C6 firmware, in Rust: building, flashing and the SPI protocol |
 | [basic/README.md](basic/README.md) | the BASIC-11 style interpreter |

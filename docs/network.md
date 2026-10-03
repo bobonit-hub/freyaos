@@ -14,7 +14,7 @@ Use the following bench-tested pinout with 3.3 V logic and a common ground:
 - PB12 CS → C6 GPIO14
 - PB10 READY ← C6 GPIO4
 
-Flash and copy the firmware described in
+Build and flash the Rust firmware described in
 [`coprocessor/esp32c6/README.md`](../coprocessor/esp32c6/README.md). Hardware
 interoperability was verified with this pinout on an ESP32-C6FH4; verify signal
 integrity again if the module, wiring length or SPI clock changes.
