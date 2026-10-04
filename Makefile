@@ -18,6 +18,9 @@
 #   make http               the HTTP client library programs link,
 #                           build/<board>/http/libfreya_http.a (plain
 #                           'make' builds it too; not on the Blue Pill)
+#   make json               cJSON for programs, build/<board>/json/
+#                           libfreya_cjson.a (plain 'make' builds it too;
+#                           not on the Blue Pill)
 #   make CODECS=1           also the codec pack, a library programs link:
 #                           G.711 and Opus, and the opusrec sample (and
 #                           dictophone on the WeAct STM32F4 board)
@@ -109,6 +112,23 @@ HTTP_INC  := -I$(HTTP_DIR)
 HTTP_SAMPLES := wget
 SMPL_CFLAGS_wget := $(HTTP_INC)
 SMPL_LIBS_wget   := $(HTTP_LIB)
+endif
+
+# cJSON 1.7.19, third_party/cjson unchanged, with cJSON_Utils (JSON
+# Pointer, Patch and Merge Patch): build/<board>/json/libfreya_cjson.a,
+# a library programs link, on the same boards as the HTTP library.
+# json/port.c is the C library it calls, named apart from the real one by
+# json/cjson_port.h, which is included ahead of the cJSON sources.
+# samples/jsonget uses both libraries.  See docs/json.md.
+JSON_DIR  := json
+CJSON_DIR := third_party/cjson
+ifeq ($(NET),1)
+JSON_LIB  := $(BUILD)/json/libfreya_cjson.a
+JSON_INC  := -I$(JSON_DIR) -I$(CJSON_DIR)
+JSON_OBJS := $(BUILD)/json/cJSON.o $(BUILD)/json/cJSON_Utils.o $(BUILD)/json/port.o
+HTTP_SAMPLES += jsonget
+SMPL_CFLAGS_jsonget := $(HTTP_INC) $(JSON_INC)
+SMPL_LIBS_jsonget   := $(HTTP_LIB) $(JSON_LIB)
 endif
 
 CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) $(HS_FLAGS) $(ASCON_FLAGS) \
@@ -559,10 +579,10 @@ else
 FLASH_IMAGE := $(BUILD)/$(TARGET).bin
 endif
 
-.PHONY: all apps samples rust size clean flash bootloader openocd image test dfu linux codecs http
+.PHONY: all apps samples rust size clean flash bootloader openocd image test dfu linux codecs http json
 .SECONDARY:
 
-all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size $(CODEC_LIB) $(HTTP_LIB)
+all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size $(CODEC_LIB) $(HTTP_LIB) $(JSON_LIB)
 
 $(BUILD):
 	@mkdir -p $(BUILD)/board $(BUILD)/apps $(BUILD)/samples
@@ -756,6 +776,29 @@ $(HTTP_LIB): $(BUILD)/http/http.o
 	@$(CROSS)ar rcs $@ $^
 
 $(BUILD)/samples/wget.elf $(BUILD)/samples/wget.xip.elf: $(HTTP_LIB)
+
+json: $(JSON_LIB)
+
+JSON_CFLAGS = $(APP_CFLAGS) -fno-tree-loop-distribute-patterns $(JSON_INC)
+
+$(BUILD)/json/cJSON.o $(BUILD)/json/cJSON_Utils.o: $(BUILD)/json/%.o: \
+    $(CJSON_DIR)/%.c $(CJSON_DIR)/cJSON.h $(CJSON_DIR)/cJSON_Utils.h $(JSON_DIR)/cjson_port.h | $(BUILD)
+	@mkdir -p $(@D)
+	@echo "  JSON  $<"
+	@$(CC) $(JSON_CFLAGS) -include $(JSON_DIR)/cjson_port.h -c $< -o $@
+
+$(BUILD)/json/port.o: $(JSON_DIR)/port.c $(JSON_DIR)/cjson_port.h $(JSON_DIR)/freya_cjson.h \
+    include/freya_api.h | $(BUILD)
+	@mkdir -p $(@D)
+	@echo "  JSON  $<"
+	@$(CC) $(JSON_CFLAGS) -c $< -o $@
+
+$(JSON_LIB): $(JSON_OBJS)
+	@echo "  AR    $@"
+	@rm -f $@
+	@$(CROSS)ar rcs $@ $^
+
+$(BUILD)/samples/jsonget.elf $(BUILD)/samples/jsonget.xip.elf: $(HTTP_LIB) $(JSON_LIB)
 endif
 
 # ----------------------------------------------------------------- misc

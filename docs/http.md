@@ -23,6 +23,9 @@ It is one source with two uses:
 | Response | the status, every head line to a callback, `Content-Length`, a chunked or close-delimited body read in pieces |
 | Not done | redirects (the caller follows them, as `curl --location` does), gzip, cookies, keep-alive, proxies |
 
+To parse or build the JSON a web API speaks, link cJSON as well
+([json.md](json.md)); `samples/jsonget` uses the two together.
+
 A request is one connection: the library sends `Connection: close`. It
 takes one of the four C6 sockets while it is open. Nothing is
 allocated; the state is a `freya_http_t` of about 800 bytes that the

@@ -61,6 +61,17 @@ with an extension and a trailer, and by the close, a skipped `100 Continue`,
 bad URLs and headers, a name that does not resolve, a timeout and a cancel,
 with every socket given back.
 
+The cJSON test builds `third_party/cjson` as the program library builds it,
+with `json/cjson_port.h` in front, against a service table that counts the
+blocks it lends and, like the kernel, lends no more than 32: a document parses, reads back, prints compact and indented
+and is freed whole; numbers print as cJSON prints them with a C library; `\u`
+escapes and surrogate pairs decode; 2000 values fit in those 32 blocks; a
+large print grows its buffer through `realloc()`; 300 strings of up to 600
+bytes print and parse back; JSON Patch and Merge Patch apply; broken JSON is refused; and no
+block is left. `json/port.c`'s `%g` and `strtod()` are then checked against the
+host C library's on random doubles, on 1 to 25 digits, at ties and at both
+ends of the range.
+
 The XMODEM tests drive `src/xmodem.c` with an emulated sender that answers the
 receiver's own handshake: CRC mode and checksum fallback, 128 and 1024 byte
 packets, a packet corrupted in transit and retransmitted, a duplicated packet,

@@ -429,6 +429,21 @@ echo "================= HTTP client ================="
 $CC $CFLAGS -Ihttp tests/host_http_test.c http/http.c -o "$OUT/hosthttp"
 "$OUT/hosthttp" || status=1
 
+# cJSON as the program library builds it: the upstream sources with
+# json/cjson_port.h in front, against json/port.c, and its numbers
+# against the host C library's.
+echo
+echo "================= cJSON ================="
+JSON_FLAGS="-Ijson -Ithird_party/cjson"
+# shellcheck disable=SC2086
+$CC $CFLAGS $JSON_FLAGS -include json/cjson_port.h -c third_party/cjson/cJSON.c \
+    -o "$OUT/cJSON.o" &&
+$CC $CFLAGS $JSON_FLAGS -include json/cjson_port.h -c third_party/cjson/cJSON_Utils.c \
+    -o "$OUT/cJSON_Utils.o" &&
+$CC $CFLAGS $JSON_FLAGS tests/host_json_test.c json/port.c "$OUT/cJSON.o" \
+    "$OUT/cJSON_Utils.o" -lm -o "$OUT/hostjson" || status=1
+"$OUT/hostjson" || status=1
+
 # Single precision on the Cortex-M3: the helpers in src/softfp.c against
 # the host FPU, then a soft-float link that must not need libgcc for them.
 echo
