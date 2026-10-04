@@ -89,7 +89,7 @@ an existing configuration, so after changing an option there run `cargo
 clean` before building.
 
 `cargo test-host` runs the unit tests of the parts that do not touch
-ESP-IDF (`src/lib.rs`: frames, rings, request parsing, the gzip header)
+ESP-IDF (`src/lib.rs`: frames, rings, request parsing)
 on the build machine. The alias is for x86-64 Linux.
 
 ## Source
@@ -99,11 +99,11 @@ on the build machine. The alias is for x86-64 Linux.
 | `src/main.rs` | start-up, the SPI slave and the frame exchange |
 | `src/dispatch.rs` | the RPC operations: Wi-Fi, NVS credentials, sockets, TLS clients, syslog |
 | `src/ping.rs` | the asynchronous ping |
-| `src/http.rs` | the `curl` job |
+| `src/dns.rs` | name lookups for plain TCP connections (`OP_RESOLVE`) |
 | `src/term.rs` | the TLS terminal on port 8022 |
 | `src/web.rs` | the HTTPS server on port 443 |
 | `src/os.rs` | lwIP sockets, the TLS server session, tasks, the link-up flag |
-| `src/lib.rs`, `src/frame.rs`, `src/ring.rs`, `src/request.rs`, `src/gzip.rs` | the host-testable parts |
+| `src/lib.rs`, `src/frame.rs`, `src/ring.rs`, `src/request.rs` | the host-testable parts |
 
 The ESP32 NVS namespace `freya` stores the SSID and password as strings
 (`ssid`, `pass`). RPC never provides a credential-read operation. Entering
@@ -151,8 +151,8 @@ it. All C6 sockets are nonblocking. WLAN and socket readiness changes raise an
 event through the same READY/fetch handshake. Wi-Fi uses DHCP; no
 static-address RPC is provided in this version.
 
-The shell `curl` command uses a separate bounded HTTP job on the C6. Redirects
-and chunked transfer coding are handled by ESP-IDF, gzip responses are expanded
-with the C6 ROM inflater, and at most 192 KiB of response body is retained.
-Certificate verification remains the default; `curl --insecure` opts out for
-that request only.
+`OP_RESOLVE` (a host name) looks the name up on a task of its own and
+answers AGAIN until it is done, then the IPv4 address. Freya's HTTP client
+(`http/` in the Freya tree, behind the shell's `curl`) uses it for `http://`
+hosts; it runs on the STM32 over the ordinary sockets. The C6's own HTTP job,
+ops 22 to 25, is gone, and those numbers are not reused.

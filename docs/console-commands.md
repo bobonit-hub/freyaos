@@ -55,7 +55,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `wifi(["on"\|"off"\|"status"\|"scan"\|"connect"\|"disconnect"\|"credentials", ...])` | control the ESP32-C6 Wi-Fi coprocessor |
 | `ping("host" [, timeout_ms])` | resolve and ping a host through the ESP32-C6 |
 | `syslog(["on"\|"off"\|"server", "a.b.c.d" [, port]])` | show, set or switch remote syslog over UDP through the ESP32-C6 (not on the Blue Pill) |
-| `curl(["--basic", "user:password",] ["--compressed",] ["--data", text,] ["--output", file,] ["--user-agent", text,] ["--insecure",] ["--verbose",] "http[s]://...")` | make a bounded HTTP request through the ESP32-C6 |
+| `curl(["--basic", "user:password",] ["--data", text,] ["--header", "Name: value",] ["--location",] ["--output", file,] ["--request", method,] ["--user-agent", text,] ["--verbose",] "http[s]://...")` | make an HTTP request with the HTTP client library |
 | `w1(["pin" [, "off"\|"reset"\|"search"]])` | list open 1-Wire pins, or open one, check presence, or walk the ROMs |
 | `aead(["-d",] "key", "nonce", "in", "out")` | Ascon-AEAD128: seal a file, or open it with `-d` (not on the Blue Pill) |
 | `compress(["in", "out"])` | pack a file with heatshrink LZSS (not on the Blue Pill) |
@@ -115,18 +115,31 @@ does not expose a read-back operation; the entered command is still present
 in shell history. See [network.md](network.md) for wiring, firmware and API
 limits. Blue Pill commands report that the transport is unsupported.
 
-`curl` supports only `--basic user:password`, `--compressed`, `--data text`,
-`--output file`, `--user-agent text`, `--insecure`, and `--verbose`.
-`--data` selects POST; without it the method is GET. `--compressed` requests
-gzip and returns the decompressed body. A response is bounded to 192 KiB.
-`--insecure` disables HTTPS certificate and hostname verification for that
-request and prints a warning with `--verbose`; ordinary TLS calls remain
-verified. Examples:
+`curl` is built on the HTTP client library ([http.md](http.md)), which runs
+on the STM32 over a C6 socket, so the body streams to the console or to
+`--output file` and has no size limit. Its options:
+
+- `--data text` sends `text` as the body; the method is then POST.
+- `--request method` sets the method: `PUT`, `DELETE`, `HEAD`, ...
+- `--header "Name: value"` adds a request header, up to eight of them.
+- `--basic user:password` adds Basic authorization.
+- `--location` follows a redirect (301, 302, 303, 307, 308) to an
+  absolute URL or an absolute path, five at most. A 303, and a 301 or
+  302 after a POST, go on as a GET without the body, as curl does.
+- `--output file` writes the body to a file.
+- `--user-agent text` replaces `Freya-curl/2.0`.
+- `--verbose` prints the request line, the headers it adds, and every
+  line of the response head.
+
+HTTPS is TLS 1.3 only, and the certificate and host name are always
+checked. A response is not decompressed. The command fails, with status
+-1, on a status of 400 or more. Ctrl-C stops it.
 
 ```text
 curl("https://example.com/")
-curl("--compressed", "--output", "/page.html", "https://example.com/")
+curl("--location", "--output", "/page.html", "http://example.com/")
 curl("--basic", "user:password", "--data", "a=1", "https://example.com/form")
+curl("--request", "PUT", "--header", "Content-Type: text/plain", "--data", "on", "http://192.168.1.10:8080/lamp")
 ```
 
 ## Pins and PWM at the prompt

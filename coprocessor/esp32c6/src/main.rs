@@ -8,7 +8,7 @@
 //! number, so a retried command does not repeat its side effect.
 
 mod dispatch;
-mod http;
+mod dns;
 mod os;
 mod ping;
 mod term;

@@ -1,7 +1,6 @@
 //! One asynchronous ICMP echo at a time.  OP_PING_START resolves the name
 //! and pings on a task of its own; OP_PING_RESULT collects the outcome.
 
-use std::net::{IpAddr, ToSocketAddrs};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -9,6 +8,7 @@ use esp_idf_svc::ping::{Configuration, EspPing, Reply};
 use freya_c6::status::{AGAIN, ARG, IO};
 use freya_c6::{cstr, get32, put32};
 
+use crate::dns::resolve;
 use crate::os::{self, lock};
 
 struct State {
@@ -21,13 +21,6 @@ struct State {
 
 static STATE: Mutex<State> =
     Mutex::new(State { active: false, finished: false, address: 0, elapsed: 0, replies: 0 });
-
-fn resolve(name: &str) -> Option<std::net::Ipv4Addr> {
-    (name, 0).to_socket_addrs().ok()?.find_map(|a| match a.ip() {
-        IpAddr::V4(ip) => Some(ip),
-        IpAddr::V6(_) => None,
-    })
-}
 
 fn worker(timeout_ms: u32, name: String) {
     if let Some(ip) = resolve(&name) {

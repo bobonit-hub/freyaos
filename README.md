@@ -68,7 +68,7 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 * A shell language with variables, functions, loops and scripts, also built for Linux as `fsh` ([docs/shell.md](docs/shell.md), [docs/linux.md](docs/linux.md)).
 * SD / SDHC cards over SPI with FAT16 / FAT32 that reads and writes, and a switchable socket supply, built with `make SD=1`; a FAT USB stick at `/usb` on the OTG boards with `make USB=1` ([docs/usb.md](docs/usb.md)), or a USB headset for 8 / 16 kHz call audio with `AUDIO=1` on the boards with more than 512 KiB of flash ([docs/audio.md](docs/audio.md)), with G.711 and Opus in a codec pack programs link, `CODECS=1` ([docs/codecs.md](docs/codecs.md)); LittleFS on the SPI flash of the Black Pill, the STM32U585, the STM32H523 and the STM32H723 ([docs/files.md](docs/files.md)).
 * XMODEM / XMODEM-1K over the console, and `tools/fremote.py` on the host ([docs/files.md](docs/files.md)).
-* Wi-Fi, DNS, ping, TCP/UDP sockets and TLS 1.3 through an optional ESP32-C6, on every board but the Blue Pill ([docs/network.md](docs/network.md)).
+* Wi-Fi, DNS, ping, TCP/UDP sockets and TLS 1.3 through an optional ESP32-C6, on every board but the Blue Pill ([docs/network.md](docs/network.md)), and an HTTP/1.1 client library behind `curl` that programs link ([docs/http.md](docs/http.md)).
 * A dated log in `/freya.log` from programs, the shell and the kernel, rotated at 1 MiB ([docs/programs.md](docs/programs.md#the-service-table)).
 * Programs loaded from the card into RAM and run as machine code, in C or Rust ([docs/programs.md](docs/programs.md)).
 * Spare pins, pin interrupts and three timers for a program ([docs/interrupts.md](docs/interrupts.md)).
@@ -128,6 +128,7 @@ writing one.
 | [docs/spi.md](docs/spi.md) | the SPI master API, the pins, and the `spi` command |
 | [docs/w1.md](docs/w1.md) | the 1-Wire master API, the pin, and the `w1` command |
 | [docs/network.md](docs/network.md) | ESP32-C6 wiring, Wi-Fi commands and the asynchronous network API |
+| [docs/http.md](docs/http.md) | the HTTP client library: `curl`, `libfreya_http.a`, `samples/wget` |
 | [docs/aead.md](docs/aead.md) | the Ascon-AEAD128 API, the `aead` command and `tools/aead` |
 | [docs/compress.md](docs/compress.md) | the heatshrink API and the `compress` / `decompress` commands |
 | [docs/vm.md](docs/vm.md) | the PDP-11 virtual machine calls |

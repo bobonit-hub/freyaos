@@ -22,6 +22,7 @@ host tools.
 | `src/lz.c`, `third_party/heatshrink/` | heatshrink LZSS, for a program and for `compress` / `decompress`; not built into the Blue Pill |
 | `src/fat.c` | FAT16 / FAT32, including long file names and writing; built, with `src/sd.c`, only with `SD=1` |
 | `src/usbh.c`, `src/usbdev.c`, `src/usbmsc.c`, `src/usbvol.c` | USB host on the Synopsys OTG core, enumeration, mass storage over Bulk-Only Transport and SCSI, and the stick as a second FAT volume at `/usb`; built only with `USB=1` ([usb.md](usb.md)) |
+| `http/` | the HTTP client library: HTTP/1.1 over the network calls, built into the kernel for `curl` and as a library programs link ([http.md](http.md)) |
 | `codecs/`, `third_party/opus/` | the codec pack, a library programs link with `CODECS=1`: G.711, Opus (libopus 1.5.2, fixed point) and an Ogg Opus writer ([codecs.md](codecs.md)) |
 | `src/uac.c`, `src/audio.c` | USB Audio Class 1 headsets, and the audio calls: rings, resampling, gain; `src/uac.c` is built only with `AUDIO=1`, and `src/audio.c` is then stubs ([audio.md](audio.md)) |
 | `src/nosd.c` | the file calls without `SD=1` or `USB=1`: `/spi1` goes to LittleFS, every other path has no filesystem |

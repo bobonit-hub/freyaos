@@ -15,6 +15,9 @@
 #                           (boards whose board.mk sets USB_HOST)
 #   make USB=1 AUDIO=1      also a USB headset (UAC1) behind the audio calls
 #                           (boards whose board.mk sets USB_AUDIO)
+#   make http               the HTTP client library programs link,
+#                           build/<board>/http/libfreya_http.a (plain
+#                           'make' builds it too; not on the Blue Pill)
 #   make CODECS=1           also the codec pack, a library programs link:
 #                           G.711 and Opus, and the opusrec sample (and
 #                           dictophone on the WeAct STM32F4 board)
@@ -93,6 +96,21 @@ HS_FLAGS  := -I$(HS_DIR)
 ASCON_DIR := third_party/ascon
 ASCON_FLAGS := -I$(ASCON_DIR)
 
+# The HTTP client library, http/: HTTP/1.1 over the network calls.  The
+# kernel compiles it for curl, into the extension beside curl.o.  On a
+# board with the ESP32-C6 link the same source is also a library programs
+# link, build/<board>/http/libfreya_http.a, compiled with the programs'
+# flags; samples/wget uses it.  See docs/http.md.
+HTTP_DIR  := http
+NET       := $(shell grep -Eq 'define[[:space:]]+BOARD_ESP_LINK[[:space:]]+1' $(BOARD_DIR)/board.h && echo 1)
+ifeq ($(NET),1)
+HTTP_LIB  := $(BUILD)/http/libfreya_http.a
+HTTP_INC  := -I$(HTTP_DIR)
+HTTP_SAMPLES := wget
+SMPL_CFLAGS_wget := $(HTTP_INC)
+SMPL_LIBS_wget   := $(HTTP_LIB)
+endif
+
 CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) $(HS_FLAGS) $(ASCON_FLAGS) \
              -std=gnu11 -Os -g3 \
              -ffreestanding -fno-common -fno-builtin \
@@ -103,7 +121,7 @@ CFLAGS    := $(CPUFLAGS) $(BOARD_DEF) $(LFS_FLAGS) $(HS_FLAGS) $(ASCON_FLAGS) \
              -falign-functions=2 -falign-jumps=2 -falign-loops=2 \
              -Wall -Wextra -Wshadow -Wundef \
              -Wno-unused-parameter \
-             -Iinclude -I$(SRC_DIR) -I$(BOARD_DIR)
+             -Iinclude -I$(SRC_DIR) -I$(BOARD_DIR) -I$(HTTP_DIR)
 
 # With no override, src/freya.h supplies the hardcoded firmware version.
 # An override must remain the same three-component numeric form.
@@ -319,7 +337,7 @@ OBJS      := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(filter %.c,$(CSRC))) \
              $(patsubst $(BOARD_DIR)/%.s,$(BUILD)/board/%.o,$(BASRC)) \
              $(if $(SPIFLASH),$(BUILD)/lfs.o $(BUILD)/lfs_util.o) \
              $(BUILD)/heatshrink_encoder.o $(BUILD)/heatshrink_decoder.o \
-             $(BUILD)/ascon.o
+             $(BUILD)/ascon.o $(BUILD)/http.o
 DEPS      := $(OBJS:.o=.d)
 
 # User programs, one directory per program under apps/
@@ -354,7 +372,7 @@ SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 aead compress fl
 # short of the Altair's 48 KiB.
 SKIP_bluepill := altair httpd echo
 SKIP_blackpill2 := altair
-SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES)) $(CODEC_SAMPLES)
+SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES)) $(CODEC_SAMPLES) $(HTTP_SAMPLES)
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
 # whole of the Blue Pill's RAM window before its dictionary is counted, and
@@ -541,10 +559,10 @@ else
 FLASH_IMAGE := $(BUILD)/$(TARGET).bin
 endif
 
-.PHONY: all apps samples rust size clean flash bootloader openocd image test dfu linux codecs
+.PHONY: all apps samples rust size clean flash bootloader openocd image test dfu linux codecs http
 .SECONDARY:
 
-all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size $(CODEC_LIB)
+all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size $(CODEC_LIB) $(HTTP_LIB)
 
 $(BUILD):
 	@mkdir -p $(BUILD)/board $(BUILD)/apps $(BUILD)/samples
@@ -582,6 +600,10 @@ $(BUILD)/heatshrink_%.o: $(HS_DIR)/heatshrink_%.c | $(BUILD)
 	@$(CC) $(CFLAGS) -Wno-implicit-fallthrough -MMD -MP -c $< -o $@
 
 $(BUILD)/ascon.o: $(ASCON_DIR)/aead.c | $(BUILD)
+	@echo "  CC    $<"
+	@$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD)/http.o: $(HTTP_DIR)/http.c | $(BUILD)
 	@echo "  CC    $<"
 	@$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
@@ -717,6 +739,23 @@ $(CODEC_LIB): $(CODEC_OBJS)
 
 $(BUILD)/samples/opusrec.elf $(BUILD)/samples/opusrec.xip.elf \
 $(BUILD)/samples/dictophone.elf $(BUILD)/samples/dictophone.xip.elf: $(CODEC_LIB)
+endif
+
+ifeq ($(NET),1)
+http: $(HTTP_LIB)
+
+# The library has no memcpy to call, so gcc may not make its loops into one.
+$(BUILD)/http/http.o: $(HTTP_DIR)/http.c $(HTTP_DIR)/freya_http.h include/freya_api.h | $(BUILD)
+	@mkdir -p $(@D)
+	@echo "  HTTP  $<"
+	@$(CC) $(APP_CFLAGS) -fno-tree-loop-distribute-patterns -c $< -o $@
+
+$(HTTP_LIB): $(BUILD)/http/http.o
+	@echo "  AR    $@"
+	@rm -f $@
+	@$(CROSS)ar rcs $@ $^
+
+$(BUILD)/samples/wget.elf $(BUILD)/samples/wget.xip.elf: $(HTTP_LIB)
 endif
 
 # ----------------------------------------------------------------- misc

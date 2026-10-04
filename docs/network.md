@@ -60,12 +60,20 @@ certificate-name verification against ESP-IDF's built-in CA bundle. The C6
 also obtains UTC with SNTP before its first handshake.
 
 Only TLS 1.3 is enabled for these connections. TLS 1.2 and older peers are
-rejected, and the program API cannot disable certificate verification. The
-shell's `curl --insecure` is an explicit per-request diagnostic exception. TLS
+rejected, and nothing, the shell's `curl` included, can disable certificate
+verification. TLS
 terminates on the ESP32-C6: keys, certificates and cryptographic state never
 enter STM32 memory, while application plaintext does cross the SPI connection.
 The SPI link is therefore not confidential against physical probing.
 The socket API has no TLS server or DTLS calls.
+
+A plain `net_connect()` takes an IPv4 address. When
+`FREYA_API_HAS(api, net_resolve)` is true, `api->net_resolve(host, &addr)`
+looks a name up on the C6 (`OP_RESOLVE`), nonblocking like the rest: retry
+after `FREYA_ERR_AGAIN`, and `FREYA_ERR_IO` is a name with no IPv4 address.
+
+For HTTP and HTTPS, link the HTTP client library instead of writing the
+protocol over these calls ([http.md](http.md)).
 
 ```c
 int s = api->net_socket(FREYA_AF_INET, FREYA_SOCK_STREAM, FREYA_IPPROTO_TCP);

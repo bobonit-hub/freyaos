@@ -93,6 +93,7 @@ SECTIONS
         *switch.o(.text .text.*)
         *net.o(.text .text.* .rodata .rodata.*)
         *curl.o(.text .text.* .rodata .rodata.*)
+        *http.o(.text .text.* .rodata .rodata.*)
         *shell.o(.text.cmd_spi)
         *spi.o(.text.spi_*)
         *adc.o(.text .text.*)

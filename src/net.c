@@ -209,8 +209,11 @@ int net_close(int socket)
     if (local_socket(socket) < 0) return FREYA_ERR_ARG;
     socket_request(b, socket);
     rc = rpc(ESP_OP_CLOSE, b, sizeof b, NULL, &n);
-    if (rc == 0) memset(&s_socket[socket], 0, sizeof s_socket[socket]);
-    return rc;
+    /* Any answer but AGAIN is final.  The C6 forgets a TLS slot whose
+     * connection failed and then answers ARG; the slot is gone there,
+     * so it is gone here too. */
+    if (rc != FREYA_ERR_AGAIN) memset(&s_socket[socket], 0, sizeof s_socket[socket]);
+    return rc == FREYA_ERR_ARG ? 0 : rc;
 }
 
 static uint16_t add_addr(uint8_t *b, int socket, const freya_net_addr_t *addr)
@@ -386,54 +389,22 @@ void net_release(void)
     }
 }
 
-int net_http_start(uint8_t flags, const char *url, const char *user_agent,
-                   const char *basic, const char *data)
+int net_resolve(const char *host, uint32_t *addr)
 {
-    uint8_t b[ESP_FRAME_PAYLOAD];
-    const char *field[4] = { url, user_agent, basic, data };
-    uint16_t used = 1, n = 0;
-
-    if (!url || !*url) return FREYA_ERR_ARG;
-    b[0] = flags;
-    for (int i = 0; i < 4; i++) {
-        const char *s = field[i] ? field[i] : "";
-        uint32_t length = strlen(s) + 1;
-        if (length > ESP_FRAME_PAYLOAD - used) return FREYA_ERR_ARG;
-        memcpy(b + used, s, length);
-        used = (uint16_t)(used + length);
-    }
-    return rpc(ESP_OP_HTTP_START, b, used, NULL, &n);
-}
-
-int net_http_info(freya_http_info_t *info)
-{
-    uint16_t n = sizeof *info;
+    uint8_t reply[4];
+    uint32_t n;
+    uint16_t z = sizeof reply;
     int rc;
 
-    if (!info) return FREYA_ERR_ARG;
-    rc = rpc(ESP_OP_HTTP_INFO, NULL, 0, info, &n);
-    if (rc == 0 && n != sizeof *info) return FREYA_ERR_IO;
-    return rc;
-}
-
-int net_http_read(void *buf, int len)
-{
-    uint8_t request[2];
-    uint16_t n;
-    int rc;
-
-    if (!buf || len < 1 || len > FREYA_NET_PAYLOAD_MAX) return FREYA_ERR_ARG;
-    put16(request, (uint16_t)len);
-    n = (uint16_t)len;
-    rc = rpc(ESP_OP_HTTP_READ, request, sizeof request, buf, &n);
-    if (rc >= 0 && (rc != n || rc > len)) return FREYA_ERR_IO;
-    return rc;
-}
-
-int net_http_close(void)
-{
-    uint16_t n = 0;
-    return rpc(ESP_OP_HTTP_CLOSE, NULL, 0, NULL, &n);
+    if (!host || !*host || !addr) return FREYA_ERR_ARG;
+    n = strlen(host);
+    if (n > 253) return FREYA_ERR_ARG;
+    rc = rpc(ESP_OP_RESOLVE, host, (uint16_t)(n + 1), reply, &z);
+    if (rc != 0) return rc;
+    if (z != sizeof reply) return FREYA_ERR_IO;
+    *addr = (uint32_t)reply[0] | (uint32_t)reply[1] << 8 |
+            (uint32_t)reply[2] << 16 | (uint32_t)reply[3] << 24;
+    return 0;
 }
 
 /*
@@ -649,7 +620,7 @@ __asm__(
     ".global ping_start, ping_result, net_socket, net_close, net_connect\n"
     ".global net_tls_connect, net_bind, net_listen, net_accept, net_send, net_recv\n"
     ".global net_sendto, net_recvfrom, net_poll, net_release\n"
-    ".global net_http_start, net_http_info, net_http_read, net_http_close\n"
+    ".global net_resolve\n"
     ".global web_take, web_begin, web_body, web_end, web_read\n"
     ".thumb_set wifi_on, net_unsupported\n"
     ".thumb_set wifi_off, net_unsupported\n"
@@ -674,10 +645,7 @@ __asm__(
     ".thumb_set net_recvfrom, net_unsupported\n"
     ".thumb_set net_poll, net_unsupported\n"
     ".thumb_set net_release, net_unsupported\n"
-    ".thumb_set net_http_start, net_unsupported\n"
-    ".thumb_set net_http_info, net_unsupported\n"
-    ".thumb_set net_http_read, net_unsupported\n"
-    ".thumb_set net_http_close, net_unsupported\n"
+    ".thumb_set net_resolve, net_unsupported\n"
     ".thumb_set web_take, net_unsupported\n"
     ".thumb_set web_begin, net_unsupported\n"
     ".thumb_set web_body, net_unsupported\n"

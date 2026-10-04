@@ -43,13 +43,10 @@ enum {
     ESP_OP_SENDTO,
     ESP_OP_RECVFROM,
     ESP_OP_TLS_CONNECT,
-    ESP_OP_HTTP_START,
-    ESP_OP_HTTP_INFO,
-    ESP_OP_HTTP_READ,
-    ESP_OP_HTTP_CLOSE,
-    ESP_OP_TERM,
+    ESP_OP_TERM = 26,           /* 22..25 were the old curl's HTTP job */
     ESP_OP_WEB,
     ESP_OP_SYSLOG,
+    ESP_OP_RESOLVE,
     ESP_OP_EVENT = 0x8000
 };
 

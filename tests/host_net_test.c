@@ -9,7 +9,7 @@ static uint16_t last_op, last_len;
 static uint8_t last_data[ESP_FRAME_PAYLOAD];
 static int next_socket;
 static int tls_attempts;
-static int http_reads;
+static int tls_failed;        /* the mock C6 has forgotten the slot */
 static int web_reads;
 static int web_post;          /* the mock C6 holds a POST, not a GET */
 static uint32_t ticks;
@@ -57,22 +57,19 @@ int esp_link_response(uint16_t op, void *p, uint16_t *n)
     } else if (op == ESP_OP_TLS_CONNECT) {
         status = tls_attempts++ ? 0 : FREYA_ERR_AGAIN;
         if (n) *n = 0;
-    } else if (op == ESP_OP_HTTP_INFO) {
-        freya_http_info_t info;
-        memset(&info, 0, sizeof info);
-        info.body_length = 2;
-        info.status = 200;
-        if (!n || *n < sizeof info) return FREYA_ERR_ARG;
-        memcpy(p, &info, sizeof info);
-        *n = sizeof info;
-    } else if (op == ESP_OP_HTTP_READ) {
-        if (http_reads++ == 0) {
-            memcpy(p, "ok", 2);
-            *n = 2;
-            status = 2;
-        } else {
+    } else if (op == ESP_OP_RESOLVE) {
+        uint8_t *a = p;
+        if (strcmp((char *)last_data, "nowhere.test") == 0) {
+            status = FREYA_ERR_IO;
             *n = 0;
+        } else {
+            /* 93.184.215.14, low byte first on the link */
+            a[0] = 14; a[1] = 215; a[2] = 184; a[3] = 93;
+            *n = 4;
         }
+    } else if (op == ESP_OP_CLOSE && tls_failed) {
+        status = FREYA_ERR_ARG;
+        if (n) *n = 0;
     } else if (op == ESP_OP_WEB && last_data[0] == 0) {
         /* The request: method, path, query, and for a POST the length. */
         uint8_t *r = p;
@@ -167,23 +164,28 @@ int main(void)
     check(net_send(s, data, sizeof data + 1) == FREYA_ERR_ARG,
           "socket fragments are explicitly bounded");
 
-    FINISH(net_http_start(HTTP_FLAG_COMPRESSED | HTTP_FLAG_INSECURE,
-                          "https://example.test/", "agent", "u:p", "a=1"), rc);
-    check(rc == 0 && last_op == ESP_OP_HTTP_START &&
-          last_data[0] == (HTTP_FLAG_COMPRESSED | HTTP_FLAG_INSECURE) &&
-          strcmp((char *)last_data + 1, "https://example.test/") == 0,
-          "curl options and URL are packed into a bounded RPC");
     {
-        freya_http_info_t info;
-        FINISH(net_http_info(&info), rc);
-        check(rc == 0 && info.status == 200 && info.body_length == 2,
-              "curl response metadata decodes");
+        uint32_t addr = 0;
+        FINISH(net_resolve("example.test", &addr), rc);
+        check(rc == 0 && last_op == ESP_OP_RESOLVE &&
+              strcmp((char *)last_data, "example.test") == 0 &&
+              addr == 0x5DB8D70EU,
+              "a host name resolves to the address order of freya_net_addr_t");
+        FINISH(net_resolve("nowhere.test", &addr), rc);
+        check(rc == FREYA_ERR_IO, "an unknown host name is an error");
+        check(net_resolve("", &addr) == FREYA_ERR_ARG &&
+              net_resolve("example.test", NULL) == FREYA_ERR_ARG,
+              "resolve needs a name and somewhere to put the address");
     }
-    FINISH(net_http_read(data, sizeof data), rc);
-    check(rc == 2 && memcmp(data, "ok", 2) == 0,
-          "curl response body streams back to Freya");
-    FINISH(net_http_close(), rc);
-    check(rc == 0, "curl response resources close");
+    {
+        int t;
+        FINISH(net_socket(FREYA_AF_INET, FREYA_SOCK_STREAM, FREYA_IPPROTO_TCP), t);
+        tls_failed = 1;
+        FINISH(net_close(t), rc);
+        tls_failed = 0;
+        check(t == 1 && rc == 0 && !s_socket[t].used,
+              "a slot the C6 dropped after a TLS failure is freed by close");
+    }
 
     {
         freya_web_req_t req;

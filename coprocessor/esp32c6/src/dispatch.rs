@@ -1,6 +1,6 @@
 //! The RPC operations: Wi-Fi, the four application sockets (plain or TLS
-//! client) and the syslog socket, and the hand-offs to the ping, HTTP,
-//! terminal and web services.
+//! client) and the syslog socket, and the hand-offs to the ping, name
+//! lookup, terminal and web services.
 
 use core::ffi::c_int;
 use core::mem::zeroed;
@@ -16,7 +16,7 @@ use freya_c6::status::{AGAIN, ARG, IO, NACK};
 use freya_c6::{cstr, get16, get32, put16, put32};
 
 use crate::os::{self, errno_status};
-use crate::{http, ping, term, web};
+use crate::{dns, ping, term, web};
 
 const MAX_SOCKETS: usize = 4;
 const RECV_MAX: usize = 480;
@@ -45,13 +45,12 @@ mod op {
     pub const SENDTO: u16 = 19;
     pub const RECVFROM: u16 = 20;
     pub const TLS_CONNECT: u16 = 21;
-    pub const HTTP_START: u16 = 22;
-    pub const HTTP_INFO: u16 = 23;
-    pub const HTTP_READ: u16 = 24;
-    pub const HTTP_CLOSE: u16 = 25;
+    // 22..25 were the HTTP job of the shell's old curl; Freya's HTTP
+    // client now runs on the STM32 over the sockets.
     pub const TERM: u16 = 26;
     pub const WEB: u16 = 27;
     pub const SYSLOG: u16 = 28;
+    pub const RESOLVE: u16 = 29;
 }
 pub use op::FETCH;
 
@@ -535,10 +534,7 @@ impl Coproc {
             op::SCAN_NEXT => return self.scan_next(reply),
             op::PING_START => return only(ping::start(data)),
             op::PING_RESULT => return ping::result(reply),
-            op::HTTP_START => return only(http::start(data)),
-            op::HTTP_INFO => return http::info(reply),
-            op::HTTP_READ => return http::read(data, reply),
-            op::HTTP_CLOSE => return only(http::close()),
+            op::RESOLVE => return dns::handle(data, reply),
             op::SOCKET => return only(self.socket(data)),
             _ => {}
         }

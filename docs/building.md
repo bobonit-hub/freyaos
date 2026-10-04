@@ -45,7 +45,9 @@ needs `USB=1` and is for the boards with more than 512 KiB of flash: the
 two STM32F405 boards, the STM32U585 and the STM32H723 ([audio.md](audio.md)).
 `CODECS=1` builds `build/<board>/codecs/libfreya_codecs.a` and, where there
 is audio, `samples/opusrec`; `OPUS_SCRATCH=` sizes libopus's scratch, 24 KiB
-by default ([codecs.md](codecs.md)). Leave `SD` unset and the card is not in the image (see below).
+by default ([codecs.md](codecs.md)). On every board but the Blue Pill, plain
+`make` also builds the HTTP client library,
+`build/<board>/http/libfreya_http.a`, and `samples/wget` ([http.md](http.md)). Leave `SD` unset and the card is not in the image (see below).
 Leave `RTC` unset and neither clock driver is in the image.
 `RTC=internal` is for the boards with a calendar RTC
 ([rtc.md](rtc.md)) and is refused for the others. The banner and the first

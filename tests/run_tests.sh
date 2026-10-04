@@ -421,6 +421,14 @@ else
     echo "  --    the Blue Pill has no network, so no network calls"
 fi
 
+# The HTTP client library (http/) against a scripted server behind the
+# network calls of freya_api_t.  It is board-independent C.
+echo
+echo "================= HTTP client ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS -Ihttp tests/host_http_test.c http/http.c -o "$OUT/hosthttp"
+"$OUT/hosthttp" || status=1
+
 # Single precision on the Cortex-M3: the helpers in src/softfp.c against
 # the host FPU, then a soft-float link that must not need libgcc for them.
 echo

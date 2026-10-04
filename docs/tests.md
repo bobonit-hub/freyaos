@@ -49,6 +49,18 @@ level within 1.5 dB, ffprobe must see 5.000 s of mono Opus in Ogg, and ffmpeg
 must decode it to the same tone. Every mono stream at 8, 16 and 48 kHz, in
 both modes and at three complexities, must stay 2 KiB inside the scratch.
 
+The HTTP client test compiles `http/http.c` against a service table whose
+network calls are a scripted server: every call answers `FREYA_ERR_AGAIN` at
+random, a send takes only part of what it is given, and the response comes
+back a few bytes at a time. It checks the request head byte for byte (the
+request line, `Host` with and without a port, Basic authorization, a body
+announced up front and written in parts), a name looked up for `http://` and
+not for `https://` or an IPv4 address, bodies ended by a length, by chunks
+with an extension and a trailer, and by the close, a skipped `100 Continue`,
+`HEAD` and `204`, and the errors: a body cut short, a reply that is not HTTP,
+bad URLs and headers, a name that does not resolve, a timeout and a cancel,
+with every socket given back.
+
 The XMODEM tests drive `src/xmodem.c` with an emulated sender that answers the
 receiver's own handshake: CRC mode and checksum fallback, 128 and 1024 byte
 packets, a packet corrupted in transit and retransmitted, a duplicated packet,

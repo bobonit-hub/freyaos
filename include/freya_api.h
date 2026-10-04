@@ -545,7 +545,8 @@ enum {
 };
 
 typedef struct {
-    uint32_t addr;      /* IPv4 in network byte order */
+    uint32_t addr;      /* IPv4, first octet in the top byte:
+                         * 192.168.1.2 is 0xC0A80102 */
     uint16_t port;      /* host byte order             */
     uint16_t reserved;
 } freya_net_addr_t;
@@ -1101,6 +1102,16 @@ typedef struct freya_api {
     int      (*audio_write)(const int16_t *buf, int count);
     int      (*audio_status)(freya_audio_status_t *st);
     int      (*audio_gain)(int dirs, int gain);
+
+    /* appended: look a host name up through the ESP32-C6's resolver.
+     * Nonblocking like every network call: FREYA_ERR_AGAIN until the
+     * lookup ends (poll and call again with the same name), then 0 with
+     * *addr set, in the byte order of freya_net_addr_t.addr, or
+     * FREYA_ERR_IO for a name that has no IPv4 address.  The C6 runs one
+     * lookup at a time.  net_tls_connect() looks its host up itself; this
+     * is for net_connect() and net_sendto().  The HTTP client library
+     * (http/freya_http.h) uses it for http:// URLs. */
+    int      (*net_resolve)(const char *host, uint32_t *addr);
 } freya_api_t;
 
 /*

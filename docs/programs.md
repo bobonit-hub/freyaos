@@ -39,6 +39,8 @@ loops SPI back to itself (`samples/spi/README.md`), `samples/w1`
 reads a 1-Wire thermometer (`samples/w1/README.md`),
 `samples/compress` packs and unpacks a file with heatshrink
 (`samples/compress/README.md`),
+`samples/wget` fetches a URL with the HTTP client library
+(`samples/wget/README.md`; every board but the Blue Pill),
 `samples/flashprobe`
 finds out how much
 internal flash the chip really has (`samples/flashprobe/README.md`),

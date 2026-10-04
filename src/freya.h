@@ -401,21 +401,7 @@ int      net_poll(uint32_t timeout_ms);
 void     net_release(void);
 int      net_unsupported(void);          /* compact Blue Pill API stub */
 
-#define HTTP_FLAG_COMPRESSED  0x01U
-#define HTTP_FLAG_INSECURE    0x02U
-#define HTTP_FLAG_VERBOSE     0x04U
-#define HTTP_HEADERS_MAX      400U
-typedef struct {
-    uint32_t body_length;
-    uint16_t status;
-    uint16_t header_length;
-    char headers[HTTP_HEADERS_MAX];
-} freya_http_info_t;
-int      net_http_start(uint8_t flags, const char *url, const char *user_agent,
-                        const char *basic, const char *data);
-int      net_http_info(freya_http_info_t *info);
-int      net_http_read(void *buf, int len);
-int      net_http_close(void);
+int      net_resolve(const char *host, uint32_t *addr);
 int      web_take(freya_web_req_t *req);
 int      web_begin(int status, const char *type, uint32_t length);
 int      web_body(const void *data, int len);

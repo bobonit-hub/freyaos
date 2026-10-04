@@ -91,6 +91,7 @@ SECTIONS
         *net.o(.text .text.* .rodata .rodata.*)
         *syslog.o(.text .text.* .rodata .rodata.*)
         *curl.o(.text .text.* .rodata .rodata.*)
+        *http.o(.text .text.* .rodata .rodata.*)
         *shell.o(.rodata.s_cmds)
         *shell.o(.text.cmd_stop)
         *shell.o(.text.cmd_threads)

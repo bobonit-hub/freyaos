@@ -10,7 +10,6 @@ extern crate alloc;
 extern crate std;
 
 pub mod frame;
-pub mod gzip;
 pub mod request;
 pub mod ring;
 

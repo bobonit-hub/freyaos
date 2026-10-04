@@ -3492,7 +3492,7 @@ static const command_t s_cmds[] = {
     { "syslog",   cmd_syslog,   s_help_syslog },
 #endif
 #ifndef FREYA_LINUX
-    { "curl",     cmd_curl,     "curl([\"--basic\", \"user:password\",] [\"--compressed\",] [\"--data\", text,] [\"--output\", file,] [\"--user-agent\", text,] [\"--insecure\",] [\"--verbose\",] \"http[s]://...\")" },
+    { "curl",     cmd_curl,     "curl([\"--basic\", \"user:password\",] [\"--data\", text,] [\"--header\", \"Name: value\",] [\"--location\",] [\"--output\", file,] [\"--request\", method,] [\"--user-agent\", text,] [\"--verbose\",] \"http[s]://...\")" },
     { "w1",       cmd_w1,       "w1([\"pin\" [, \"off\"|\"reset\"|\"search\"]])" },
 #endif
     /* A board that builds none of the cipher or the coder does not
