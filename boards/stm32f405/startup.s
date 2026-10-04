@@ -96,27 +96,27 @@ g_pfnVectors:
     .word  SPI3_IRQHandler
     .word  0
     .word  0
-    .word  DMA2_Stream0_IRQHandler
+    .word  0
+    .word  0
+    .word  DMA2_Stream0_IRQHandler           /* 56 */
     .word  DMA2_Stream1_IRQHandler
     .word  DMA2_Stream2_IRQHandler
     .word  DMA2_Stream3_IRQHandler
     .word  DMA2_Stream4_IRQHandler
+    .word  0                                 /* 61 */
     .word  0
-    .word  0                                 /* 60 */
     .word  0
     .word  0
-    .word  OTG_FS_IRQHandler
+    .word  0
+    .word  0
+    .word  OTG_FS_IRQHandler                 /* 67 */
     .word  DMA2_Stream5_IRQHandler
     .word  DMA2_Stream6_IRQHandler
     .word  DMA2_Stream7_IRQHandler
     .word  USART6_IRQHandler
     .word  I2C3_EV_IRQHandler
     .word  I2C3_ER_IRQHandler
-    .word  0                                 /* 70 */
-    .word  0
-    .word  0
-    .word  0
-    .word  0
+    .word  0                                 /* 74 */
     .word  0
     .word  0
     .word  0

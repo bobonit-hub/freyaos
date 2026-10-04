@@ -9,6 +9,10 @@
 #   make BOARD=stm32h562    build for the WeAct STM32H5 64-pin board (STM32H562RGT6)
 #   make BOARD=stm32h723    build for the WeAct MiniSTM32H723 (STM32H723VGT6)
 #   make rust               build the Rust samples (needs cargo; see rust/README.md)
+#   make SD=1               also build the SD card and FAT16/FAT32 code
+#   make USB=1              also build the USB host: a FAT stick at /usb
+#                           (boards whose board.mk sets USB_HOST)
+#   make USB=1 AUDIO=1      also a USB headset (UAC1) behind the audio calls
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
 #   make RTC=internal       also build the driver for the chip's own
 #                           calendar RTC (boards whose board.mk allows it)
@@ -122,7 +126,10 @@ LDFLAGS   := $(CPUFLAGS) -nostdlib -T $(LDSCRIPT) \
 RTC ?=
 # src/softfp.c is for programs only (APP_SOFTFP below).  The FPU boards
 # have no use for it, and the Blue Pill shell has no float values.
-CSRC      := $(filter-out $(SRC_DIR)/ds3231.c $(SRC_DIR)/rtc.c $(SRC_DIR)/softfp.c,$(wildcard $(SRC_DIR)/*.c))
+CSRC      := $(filter-out $(SRC_DIR)/ds3231.c $(SRC_DIR)/rtc.c $(SRC_DIR)/softfp.c \
+                          $(SRC_DIR)/sd.c $(SRC_DIR)/fat.c $(SRC_DIR)/nosd.c \
+                          $(SRC_DIR)/usbh.c $(SRC_DIR)/usbdev.c $(SRC_DIR)/usbmsc.c \
+                          $(SRC_DIR)/usbvol.c $(SRC_DIR)/uac.c,$(wildcard $(SRC_DIR)/*.c))
 ifeq ($(RTC),ds3231)
 CFLAGS    += -DFREYA_RTC_DS3231
 CSRC      += $(SRC_DIR)/ds3231.c
@@ -134,6 +141,62 @@ CFLAGS    += -DFREYA_RTC_INTERNAL
 CSRC      += $(SRC_DIR)/rtc.c
 else ifneq ($(RTC),)
 $(error RTC='$(RTC)' is not a supported clock - use RTC=ds3231 or RTC=internal, or leave RTC unset)
+endif
+
+# The SD card and the FAT16/FAT32 code are left out unless the build asks
+# for them with SD=1.  Without them src/nosd.c answers the file calls: a
+# path under /spi<n> still reaches the SPI flash's LittleFS volume on a
+# board that has one, and every other path has no filesystem.  The card
+# socket, its power switch and its pins stay as the board sets them.
+SD ?=
+ifeq ($(SD),1)
+CFLAGS    += -DFREYA_SD
+CSRC      += $(SRC_DIR)/sd.c
+else ifneq ($(SD),)
+$(error SD='$(SD)' - use SD=1, or leave it unset)
+endif
+
+# USB=1 adds the USB host, for a mass storage stick mounted as FAT at
+# /usb, beside the card.  It needs a USB OTG core that can be the host,
+# which a board declares with USB_HOST := 1 in its board.mk; the Blue
+# Pill's and the Black Pill 2's USB is device only.  The board keeps
+# PA11 and PA12 for it.  See docs/usb.md.
+USB ?=
+ifeq ($(USB),1)
+ifneq ($(USB_HOST),1)
+$(error USB=1: '$(BOARD)' has no USB host controller - leave USB unset)
+endif
+CFLAGS    += -DFREYA_USB
+CSRC      += $(SRC_DIR)/usbh.c $(SRC_DIR)/usbdev.c $(SRC_DIR)/usbmsc.c \
+             $(SRC_DIR)/usbvol.c
+else ifneq ($(USB),)
+$(error USB='$(USB)' - use USB=1, or leave it unset)
+endif
+
+# AUDIO=1 adds USB Audio Class 1 headsets behind the program's audio
+# calls: 8 or 16 kHz mono, streamed from the USB interrupt once a
+# millisecond.  It needs the USB host.  Without it src/audio.c keeps only
+# the calls, which answer unsupported.  See docs/audio.md.
+AUDIO ?=
+ifeq ($(AUDIO),1)
+ifneq ($(USB),1)
+$(error AUDIO=1 needs the USB host - add USB=1)
+endif
+CFLAGS    += -DFREYA_AUDIO
+CSRC      += $(SRC_DIR)/uac.c
+else ifneq ($(AUDIO),)
+$(error AUDIO='$(AUDIO)' - use AUDIO=1, or leave it unset)
+endif
+
+# The resampling filters run in the USB interrupt every millisecond.
+$(BUILD)/audio.o: CFLAGS += -O2
+
+# The FAT code serves the card and the stick; with neither, src/nosd.c
+# answers the file calls.
+ifneq ($(SD)$(USB),)
+CSRC      += $(SRC_DIR)/fat.c
+else
+CSRC      += $(SRC_DIR)/nosd.c
 endif
 
 # NOSHELL=1 leaves the shell out; src/shell.c then compiles to the two
@@ -166,6 +229,28 @@ $(BUILD)/rtc.stamp: FORCE | $(BUILD)
 	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
 
 $(BUILD)/main.o $(BUILD)/shell.o $(BUILD)/ds3231.o $(BUILD)/rtc.o: $(BUILD)/rtc.stamp
+
+# The same for SD: every object that asks FREYA_SD.
+$(BUILD)/sd.stamp: FORCE | $(BUILD)
+	@echo '$(SD)' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
+
+$(BUILD)/main.o $(BUILD)/shell.o $(BUILD)/power.o $(BUILD)/ramdump.o \
+    $(BUILD)/fat.o: $(BUILD)/sd.stamp
+
+$(BUILD)/usb.stamp: FORCE | $(BUILD)
+	@echo '$(USB)' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
+
+$(BUILD)/main.o $(BUILD)/shell.o $(BUILD)/fat.o $(BUILD)/gpio.o \
+    $(BUILD)/board/board.o: $(BUILD)/usb.stamp
+
+$(BUILD)/audio.stamp: FORCE | $(BUILD)
+	@echo '$(AUDIO)' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
+
+$(BUILD)/audio.o $(BUILD)/usbh.o $(BUILD)/usbdev.o $(BUILD)/shell.o: \
+    $(BUILD)/audio.stamp
 
 # Command-line flag changes are not visible to make's dependency scanner.
 # Keep the shell object, which displays the version, tied to the value.
@@ -210,15 +295,17 @@ APP_GC     :=
 endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
-SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 aead compress flashprobe threads vm \
+SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 aead compress flashprobe threads vm echo \
              basic11 altair altair16 httpd
 # A sample a board has no room for at all is not built there.  The 48 KiB
 # Altair keeps the 8080's RAM in the program region.  The Blue Pill's
 # window is 8 KiB of a 20 KiB SRAM, which cannot hold that.  httpd keeps
 # a 4 KiB page beside its upload buffers and needs the ESP32-C6, which
-# the Blue Pill has no link for.  The Black Pill 2's window is 40 KiB,
+# the Blue Pill has no link for; echo's 32 KB delay line is for a
+# headset, which needs a USB host the Blue Pill does not have.  The
+# Black Pill 2's window is 40 KiB,
 # short of the Altair's 48 KiB.
-SKIP_bluepill := altair httpd
+SKIP_bluepill := altair httpd echo
 SKIP_blackpill2 := altair
 SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # A sample whose code is larger than a board's program RAM region is built

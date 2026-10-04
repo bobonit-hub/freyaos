@@ -8,7 +8,8 @@ reader, XMODEM over the console with `download` and `upload`,
 
 Freya reads SD and SDHC cards over SPI, and its FAT16 / FAT32 implementation
 reads *and* writes: files, directories, long file names, MBR partitions. The
-card is ordinary FAT, so a card reader works. On the Black Pill a SPI NOR chip
+card is ordinary FAT, so a card reader works. The card code is optional:
+build with `make SD=1` to have it ([building.md](building.md#the-sd-card)). On the Black Pill a SPI NOR chip
 on the board's footprint is mounted at `/spi1` as LittleFS, with the same file
 calls ([hardware.md](hardware.md#sd-card-and-spi-flash)). What the FAT code
 does not do is in [limits.md](limits.md).

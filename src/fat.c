@@ -15,8 +15,18 @@
  */
 #include "freya.h"
 #include "fat.h"
-#ifdef BOARD_SPIFLASH
 #include "lfsvol.h"
+
+#if !defined(FREYA_SD) && !defined(FREYA_USB)
+#error "src/fat.c is compiled only with SD=1 or USB=1"
+#endif
+
+/* More than one volume goes through this code when the board has SPI
+ * flash (LittleFS at /spi<n>, routed past the FAT code) or the build has
+ * USB=1 (a second FAT volume, the stick at /usb, in src/usbvol.c).  A
+ * file or directory then remembers which volume it is on. */
+#if defined(BOARD_SPIFLASH) || defined(FREYA_USB)
+#define FAT_VOLS 1
 #endif
 
 fat_fs_t g_fs;
@@ -48,8 +58,8 @@ static uint8_t  s_fat[512];
 static uint32_t s_fat_sec = NO_LBA;         /* sector index inside a FAT */
 static uint8_t  s_fat_dirty;
 
-#ifdef BOARD_SPIFLASH
-/* NULL means the SD card.  A bound device is the SPI flash volume. */
+#ifdef FAT_VOLS
+/* NULL means the SD card.  A bound device is another volume's. */
 static fat_rd_fn s_read;
 static fat_wr_fn s_write;
 static fat_sy_fn s_sync;
@@ -57,21 +67,29 @@ static fat_sy_fn s_sync;
 static int io_read(uint32_t lba, uint8_t *buf)
 {
     if (s_read) return s_read(lba, buf);
+#ifdef FREYA_SD
     return sd_read_block(lba, buf);
+#else
+    return -1;
+#endif
 }
 
 static int io_write(uint32_t lba, const uint8_t *buf)
 {
     if (s_write) return s_write(lba, buf);
+#ifdef FREYA_SD
     return sd_write_block(lba, buf);
+#else
+    return -1;
+#endif
 }
 #else
 #define io_read  sd_read_block
 #define io_write sd_write_block
 #endif
 
-/* The defaults keep every path on the card.  The flash driver replaces
- * them, and a board without that driver never links the replacements. */
+/* The defaults keep every path on the card.  src/usbvol.c replaces them
+ * in a build with USB=1. */
 __attribute__((weak, noinline, section(".text.fat_volw")))
 int vol_enter(const char *path, char *local, int size)
 {
@@ -90,7 +108,7 @@ int vol_sd_mounted(void) { return g_fs.mounted; }
 __attribute__((weak, noinline, section(".text.fat_volw")))
 void vol_sync_other(void) { }
 
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
 static int enter(const char *path, char *local)
     __attribute__((noinline, section(".text.fat_volw")));
 static int enter(const char *path, char *local)
@@ -212,7 +230,7 @@ int fat_sync_here(void)
 
     if (a != FAT_OK) return a;
     if (b != FAT_OK) return b;
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (s_sync) s_sync();
     if (lfsvol_mounted() && lfsvol_sync() != FAT_OK && c == FAT_OK)
         c = FAT_ERR_IO;
@@ -224,13 +242,13 @@ int fat_sync(void)
 {
     int rc = fat_sync_here();
 
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     vol_sync_other();
 #endif
     return rc;
 }
 
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
 void fat_bind(fat_rd_fn rd, fat_wr_fn wr, fat_sy_fn sync)
     __attribute__((noinline, section(".text.fat_vol")));
 void fat_bind(fat_rd_fn rd, fat_wr_fn wr, fat_sy_fn sync)
@@ -240,36 +258,37 @@ void fat_bind(fat_rd_fn rd, fat_wr_fn wr, fat_sy_fn sync)
     s_sync = sync;
 }
 
-void fat_snap_save(fat_snap_t *s)
+static void swap_bytes(uint8_t *a, uint8_t *b, uint32_t n)
     __attribute__((noinline, section(".text.fat_vol")));
-void fat_snap_save(fat_snap_t *s)
+static void swap_bytes(uint8_t *a, uint8_t *b, uint32_t n)
 {
-    s->fs = g_fs;
-    memcpy(s->buf, s_buf, 512);
-    s->buf_lba = s_buf_lba;
-    s->buf_dirty = s_buf_dirty;
-    memcpy(s->fat, s_fat, 512);
-    s->fat_sec = s_fat_sec;
-    s->fat_dirty = s_fat_dirty;
-    s->rd = s_read;
-    s->wr = s_write;
-    s->sync = s_sync;
+    while (n--) {
+        uint8_t t = *a;
+        *a++ = *b;
+        *b++ = t;
+    }
 }
 
-void fat_snap_load(const fat_snap_t *s)
+#define SWAP(a, b) do { __typeof__(a) t_ = (a); (a) = (b); (b) = t_; } while (0)
+
+/* Exchanges the live volume - its geometry, both sector caches with
+ * whatever is dirty in them, and its device - with the one parked in *s.
+ * Nothing is written: a dirty sector goes out later, through the device
+ * it came from. */
+void fat_snap_swap(fat_snap_t *s)
     __attribute__((noinline, section(".text.fat_vol")));
-void fat_snap_load(const fat_snap_t *s)
+void fat_snap_swap(fat_snap_t *s)
 {
-    g_fs = s->fs;
-    memcpy(s_buf, s->buf, 512);
-    s_buf_lba = s->buf_lba;
-    s_buf_dirty = s->buf_dirty;
-    memcpy(s_fat, s->fat, 512);
-    s_fat_sec = s->fat_sec;
-    s_fat_dirty = s->fat_dirty;
-    s_read = s->rd;
-    s_write = s->wr;
-    s_sync = s->sync;
+    SWAP(g_fs, s->fs);
+    swap_bytes(s_buf, s->buf, sizeof(s_buf));
+    SWAP(s_buf_lba, s->buf_lba);
+    SWAP(s_buf_dirty, s->buf_dirty);
+    swap_bytes(s_fat, s->fat, sizeof(s_fat));
+    SWAP(s_fat_sec, s->fat_sec);
+    SWAP(s_fat_dirty, s->fat_dirty);
+    SWAP(s_read, s->rd);
+    SWAP(s_write, s->wr);
+    SWAP(s_sync, s->sync);
 }
 #endif
 
@@ -278,6 +297,18 @@ static void cache_reset(void)
     s_buf_lba = NO_LBA;  s_buf_dirty = 0;
     s_fat_sec = NO_LBA;  s_fat_dirty = 0;
 }
+
+#ifdef FAT_VOLS
+/* Unmounts the live volume without writing anything: for a device that
+ * is gone, or about to be. */
+void fat_drop(void)
+    __attribute__((noinline, section(".text.fat_vol")));
+void fat_drop(void)
+{
+    g_fs.mounted = 0;
+    cache_reset();
+}
+#endif
 
 /* -------------------------------------------------------- FAT accessors */
 static uint32_t clus2lba(uint32_t clus)
@@ -481,10 +512,14 @@ int fat_mount(void)
     memset(&g_fs, 0, sizeof(g_fs));
     cache_reset();
 
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (!s_read) {
         vol_use(0);
+#ifdef FREYA_SD
         if (!g_sd.initialised && sd_init() != 0) return FAT_ERR_IO;
+#else
+        return FAT_ERR_NOFS;            /* no card in this build */
+#endif
     }
 #else
     if (!g_sd.initialised && sd_init() != 0) return FAT_ERR_IO;
@@ -520,7 +555,7 @@ int fat_mount(void)
 
 void fat_unmount(void)
 {
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     vol_use(0);
 #endif
     fat_sync();
@@ -530,7 +565,7 @@ void fat_unmount(void)
 
 int fat_mounted(void)
 {
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (vol_current() != 0) return vol_sd_mounted();
 #endif
     return g_fs.mounted;
@@ -561,25 +596,6 @@ int fat_free_clusters(uint32_t *free_clus)
     g_fs.fsinfo_dirty = 1;
     fsinfo_write();
     return FAT_OK;
-}
-
-const char *fat_err_str(int err)
-{
-    switch (err) {
-    case FAT_OK:           return "ok";
-    case FAT_ERR_IO:       return "I/O error";
-    case FAT_ERR_NOFS:     return "no FAT filesystem";
-    case FAT_ERR_NOENT:    return "no such file or directory";
-    case FAT_ERR_EXIST:    return "already exists";
-    case FAT_ERR_NOSPC:    return "no space left";
-    case FAT_ERR_INVAL:    return "invalid argument";
-    case FAT_ERR_NOTDIR:   return "not a directory";
-    case FAT_ERR_ISDIR:    return "is a directory";
-    case FAT_ERR_NOTEMPTY: return "directory not empty";
-    case FAT_ERR_NOFILE:   return "not a regular file";
-    case FAT_ERR_RDONLY:   return "read-only";
-    default:               return "unknown error";
-    }
 }
 
 /* ---------------------------------------------------- directory scanner */
@@ -958,7 +974,7 @@ static int resolve(const char *path, uint32_t *parent, char *leaf,
 
 int fat_stat(const char *path, fat_dirent_t *e)
 {
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     char local[FAT_MAX_PATH];
     int rc;
 
@@ -1242,12 +1258,12 @@ int fat_open(fat_file_t *f, const char *path, int flags)
     entpos_t pos;
     uint32_t parent;
     char leaf[FAT_MAX_NAME];
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     char local[FAT_MAX_PATH];
 #endif
     int rc;
 
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (lfsvol_owns(path)) return lfsvol_open(f, path, flags);
     rc = enter(path, local);
     if (rc != 0) return rc;
@@ -1312,7 +1328,7 @@ int fat_read(fat_file_t *f, void *buf, uint32_t len, uint32_t *got)
     int rc = FAT_OK;
 
     if (!f->open || !(f->flags & (FAT_READ | FAT_WRITE))) return FAT_ERR_INVAL;
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (f->dev & 0x80) return lfsvol_read(f, buf, len, got);
     vol_use(f->dev);
 #endif
@@ -1347,7 +1363,7 @@ int fat_write(fat_file_t *f, const void *buf, uint32_t len, uint32_t *put)
     int rc = FAT_OK;
 
     if (!f->open || !(f->flags & FAT_WRITE)) return FAT_ERR_INVAL;
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (f->dev & 0x80) return lfsvol_write(f, buf, len, put);
     vol_use(f->dev);
 #endif
@@ -1387,7 +1403,7 @@ int fat_write(fat_file_t *f, const void *buf, uint32_t len, uint32_t *put)
 int fat_seek(fat_file_t *f, uint32_t pos)
 {
     if (!f->open) return FAT_ERR_INVAL;
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (f->dev & 0x80) return lfsvol_seek(f, pos);
 #endif
     if (pos > f->size) pos = f->size;
@@ -1400,7 +1416,7 @@ int fat_close(fat_file_t *f)
     int rc = FAT_OK;
 
     if (!f->open) return FAT_ERR_INVAL;
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (f->dev & 0x80) return lfsvol_close(f);
     vol_use(f->dev);
 #endif
@@ -1415,7 +1431,7 @@ int fat_opendir(fat_dir_t *d, const char *path)
 {
     fat_dirent_t e;
     int rc;
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     char local[FAT_MAX_PATH];
 
     if (lfsvol_owns(path)) return lfsvol_opendir(d, path);
@@ -1432,7 +1448,7 @@ int fat_opendir(fat_dir_t *d, const char *path)
     rc = scan_open(&d->scan, e.clus);
     if (rc != FAT_OK) return rc;
     d->open = 1;
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     d->dev = (uint8_t)vol_current();
 #endif
     return FAT_OK;
@@ -1443,7 +1459,7 @@ int fat_readdir(fat_dir_t *d, fat_dirent_t *e)
     int rc;
 
     if (!d->open) return FAT_ERR_INVAL;
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (d->dev & 0x80) return lfsvol_readdir(d, e);
     vol_use(d->dev);
 #endif
@@ -1458,7 +1474,7 @@ int fat_readdir(fat_dir_t *d, fat_dirent_t *e)
 
 int fat_closedir(fat_dir_t *d)
 {
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (d->dev & 0x80) return lfsvol_closedir(d);
 #endif
     d->open = 0;
@@ -1470,12 +1486,12 @@ int fat_mkdir(const char *path)
     fat_dirent_t e;
     uint32_t parent, clus;
     char leaf[FAT_MAX_NAME];
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     char local[FAT_MAX_PATH];
 #endif
     int rc;
 
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (lfsvol_owns(path)) return lfsvol_mkdir(path);
     rc = enter(path, local);
     if (rc != 0) return rc;
@@ -1546,12 +1562,12 @@ int fat_unlink(const char *path)
     entpos_t pos;
     uint32_t parent;
     char leaf[FAT_MAX_NAME];
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     char local[FAT_MAX_PATH];
 #endif
     int rc;
 
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (lfsvol_owns(path)) return lfsvol_unlink(path);
     rc = enter(path, local);
     if (rc != 0) return rc;
@@ -1619,13 +1635,13 @@ int fat_rename(const char *src, const char *dst)
     entpos_t spos, dpos;
     uint32_t sparent, dparent;
     char sleaf[FAT_MAX_NAME], dleaf[FAT_MAX_NAME];
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     char slocal[FAT_MAX_PATH], dlocal[FAT_MAX_PATH];
     int sdev, ddev;
 #endif
     int rc;
 
-#ifdef BOARD_SPIFLASH
+#ifdef FAT_VOLS
     if (lfsvol_owns(src) || lfsvol_owns(dst)) return lfsvol_rename(src, dst);
     rc = enter(src, slocal);
     if (rc != 0) return rc;

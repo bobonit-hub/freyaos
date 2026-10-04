@@ -318,3 +318,26 @@ void led_toggle(void)
 {
     LED_PORT->ODR ^= (1UL << LED_PIN);
 }
+
+/* ------------------------------------------------------------ USB host */
+#ifdef FREYA_USB
+#define RCC_AHB2ENR_OTGFSEN (1UL << 7)
+
+/* OTG_FS takes its 48 MHz from PLLQ, which board_clock_init() already
+ * set.  From the crystal it is exact; on the HSI fallback it is only as
+ * good as the HSI, and a stick may not keep up with that. */
+int board_usb_init(void)
+{
+    board_pin_af(GPIOA, 11, 10);        /* OTG_FS_DM */
+    board_pin_af(GPIOA, 12, 10);        /* OTG_FS_DP */
+    GPIOA->OSPEEDR |= (3UL << 22) | (3UL << 24);
+    RCC->AHB2ENR |= RCC_AHB2ENR_OTGFSEN;
+    (void)RCC->AHB2ENR;
+    return 0;
+}
+
+void board_usb_off(void)
+{
+    RCC->AHB2ENR &= ~RCC_AHB2ENR_OTGFSEN;
+}
+#endif

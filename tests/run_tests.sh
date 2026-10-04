@@ -16,20 +16,21 @@ mkdir -p "$OUT"
 # is in progress. Drop them on the way out, including after a failure.
 cleanup() {
     rm -f "$OUT/fat16.img" "$OUT/fat32.img" "$OUT/interop.img" "$OUT/xmodem.img" \
-          "$OUT/spiflash.img"
+          "$OUT/spiflash.img" "$OUT/usb-card.img" "$OUT/usb-stick.img"
 }
 trap cleanup EXIT
 
 CC=${CC:-cc}
 
 # The sources under test pull in freya.h, which pulls in the board header;
-# any board will do on the host, so use the one being built.
+# any board will do on the host, so use the one being built.  The card and
+# FAT code are optional in the kernel (SD=1); the tests build them in.
 BOARD=${BOARD:-blackpill}
 BOARD_DEF="-DFREYA_BOARD_$(echo "$BOARD" | tr '[:lower:]' '[:upper:]')"
 
 CFLAGS="-std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
         -Iinclude -Isrc -Ithird_party/littlefs -Ithird_party/heatshrink \
-        -Iboards/$BOARD $BOARD_DEF -DFREYA_HOST \
+        -Iboards/$BOARD $BOARD_DEF -DFREYA_HOST -DFREYA_SD \
         -DLFS_NO_MALLOC -DLFS_NO_ASSERT -DLFS_NO_DEBUG -DLFS_NO_WARN -DLFS_NO_ERROR \
         -DLFS_NAME_MAX=63"
 
@@ -39,7 +40,7 @@ HS_SRC="third_party/heatshrink/heatshrink_encoder.c third_party/heatshrink/heats
 HS_CFLAGS="-Wno-implicit-fallthrough"
 
 # shellcheck disable=SC2086
-$CC $CFLAGS tests/host_fat_test.c src/fat.c src/log.c src/string.c src/print.c \
+$CC $CFLAGS tests/host_fat_test.c src/fat.c src/fs.c src/log.c src/string.c src/print.c \
     -o "$OUT/hosttest"
 
 # shellcheck disable=SC2086
@@ -48,9 +49,16 @@ $CC $CFLAGS tests/host_xmodem_test.c src/xmodem.c src/fat.c src/fs.c \
 
 if grep -q "^SPIFLASH *:= *1" "boards/$BOARD/board.mk"; then
     # shellcheck disable=SC2086
-    $CC $CFLAGS tests/host_spiflash_test.c src/spiflash.c src/lfsvol.c src/fat.c \
+    $CC $CFLAGS tests/host_spiflash_test.c src/spiflash.c src/lfsvol.c src/fat.c src/fs.c \
         third_party/littlefs/lfs.c third_party/littlefs/lfs_util.c \
         src/string.c src/print.c -o "$OUT/hostspiflash"
+    # The same volume in a kernel built without SD=1: src/nosd.c in place
+    # of the card and the FAT code.
+    # shellcheck disable=SC2086
+    $CC $(echo "$CFLAGS" | sed 's/-DFREYA_SD//') tests/host_spiflash_test.c \
+        src/spiflash.c src/lfsvol.c src/nosd.c src/fs.c \
+        third_party/littlefs/lfs.c third_party/littlefs/lfs_util.c \
+        src/string.c src/print.c -o "$OUT/hostspiflash-nosd"
 fi
 
 status=0
@@ -90,6 +98,10 @@ if grep -q "^SPIFLASH *:= *1" "boards/$BOARD/board.mk"; then
     if ! "$OUT/hostspiflash"; then
         status=1
     fi
+    echo "--- built without SD=1 ---"
+    if ! "$OUT/hostspiflash-nosd"; then
+        status=1
+    fi
 fi
 
 echo
@@ -124,6 +136,41 @@ else
     status=1
 fi
 fsck.vfat -n "$img" >/dev/null 2>&1 || { echo "  FAIL  interop image is inconsistent"; status=1; }
+
+# The USB stick (USB=1): enumeration, Bulk-Only Transport and SCSI against
+# a simulated stick, as a second FAT volume at /usb beside the card.  The
+# hardware layer, src/usbh.c, is the one part that only runs on a board.
+echo
+echo "================= USB stick ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS -DFREYA_USB tests/host_usb_test.c src/usbdev.c src/usbmsc.c src/usbvol.c \
+    src/fat.c src/fs.c src/string.c src/print.c -o "$OUT/hostusb"
+card="$OUT/usb-card.img"
+stick="$OUT/usb-stick.img"
+rm -f "$card" "$stick"
+dd if=/dev/zero of="$card" bs=1024 count=65536 status=none
+mkfs.vfat -F 32 -n CARD "$card" >/dev/null
+dd if=/dev/zero of="$stick" bs=1024 count=32768 status=none
+mkfs.vfat -F 16 -n STICK "$stick" >/dev/null
+"$OUT/hostusb" "$card" "$stick" || status=1
+fsck.vfat -n "$card" >/dev/null 2>&1 || { echo "  FAIL  the card is inconsistent"; status=1; }
+fsck.vfat -n "$stick" >/dev/null 2>&1 || { echo "  FAIL  the stick is inconsistent"; status=1; }
+if MTOOLS_SKIP_CHECK=1 mtype -i "$stick" ::/sub/rel.txt | grep -q relative; then
+    echo "  ok    Linux reads the file Freya wrote to the stick"
+else
+    echo "  FAIL  the stick's file is not readable by mtools"
+    status=1
+fi
+
+# USB headsets (AUDIO=1): a UAC1 configuration descriptor, and tones
+# through the speaker's and the microphone's resamplers, measured on the
+# far side, with the USB interrupt simulated a millisecond at a time.
+echo
+echo "================= USB headset ================="
+# shellcheck disable=SC2086
+$CC $CFLAGS -DFREYA_USB -DFREYA_AUDIO tests/host_audio_test.c src/uac.c src/audio.c \
+    src/usbdev.c src/string.c src/print.c -lm -o "$OUT/hostaudio"
+"$OUT/hostaudio" || status=1
 
 # XMODEM receiver against an emulated sender.
 echo

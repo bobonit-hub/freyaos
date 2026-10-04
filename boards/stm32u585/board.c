@@ -373,3 +373,49 @@ void led_toggle(void)
 {
     LED_PORT->ODR ^= (1UL << LED_PIN);
 }
+
+/* ------------------------------------------------------------ USB host */
+#ifdef FREYA_USB
+/* OTG_FS wants 48 MHz, which PLL1's 320 MHz VCO does not divide down to.
+ * PLL2 makes it from the same 5 MHz (crystal / 5) or 4 MHz (HSI / 4)
+ * input PLL1 uses: * 48 or * 60 = 240 MHz, / 5 = 48 MHz.  The HSI48
+ * would do without a PLL, but a host has nothing to trim it against. */
+int board_usb_init(void)
+{
+    uint32_t t;
+
+    if (!(RCC->CR & RCC_CR_PLL2RDY)) {
+        if (g_clocks.clock_source) {
+            RCC->PLL2CFGR = RCC_PLL1CFGR_SRC_HSE | RCC_PLL1CFGR_RGE_4_8 |
+                            RCC_PLL1CFGR_M(5) | RCC_PLL2CFGR_QEN;
+            RCC->PLL2DIVR = RCC_PLL1DIVR_N(48) | RCC_PLL1DIVR_P(2) |
+                            RCC_PLL1DIVR_Q(5) | RCC_PLL1DIVR_R(2);
+        } else {
+            RCC->PLL2CFGR = RCC_PLL1CFGR_SRC_HSI | RCC_PLL1CFGR_RGE_4_8 |
+                            RCC_PLL1CFGR_M(4) | RCC_PLL2CFGR_QEN;
+            RCC->PLL2DIVR = RCC_PLL1DIVR_N(60) | RCC_PLL1DIVR_P(2) |
+                            RCC_PLL1DIVR_Q(5) | RCC_PLL1DIVR_R(2);
+        }
+        RCC->CR |= RCC_CR_PLL2ON;
+        for (t = 0; t < 1000000; t++)
+            if (RCC->CR & RCC_CR_PLL2RDY) break;
+        if (!(RCC->CR & RCC_CR_PLL2RDY)) return -1;
+    }
+    RCC->CCIPR1 = (RCC->CCIPR1 & ~RCC_CCIPR1_ICLKSEL_MASK) |
+                  RCC_CCIPR1_ICLKSEL_PLL2Q;
+
+    PWR->SVMCR |= PWR_SVMCR_USV;        /* VDDUSB is the board's 3.3 V   */
+
+    board_pin_af(GPIOA, 11, 10);        /* OTG_FS_DM */
+    board_pin_af(GPIOA, 12, 10);        /* OTG_FS_DP */
+    GPIOA->OSPEEDR |= (3UL << 22) | (3UL << 24);
+    RCC->AHB2ENR1 |= RCC_AHB2ENR1_OTGEN;
+    (void)RCC->AHB2ENR1;
+    return 0;
+}
+
+void board_usb_off(void)
+{
+    RCC->AHB2ENR1 &= ~RCC_AHB2ENR1_OTGEN;
+}
+#endif

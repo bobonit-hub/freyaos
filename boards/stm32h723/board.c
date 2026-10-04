@@ -31,6 +31,7 @@ _Static_assert(offsetof(RCC_TypeDef, D3CCIPR) == 0x58, "RCC D3CCIPR");
 _Static_assert(offsetof(RCC_TypeDef, CICR) == 0x68, "RCC CICR");
 _Static_assert(offsetof(RCC_TypeDef, RSR) == 0xD0, "RCC RSR");
 _Static_assert(offsetof(RCC_TypeDef, AHB4ENR) == 0xE0, "RCC AHB4ENR");
+_Static_assert(offsetof(RCC_TypeDef, AHB1LPENR) == 0x100, "RCC AHB1LPENR");
 _Static_assert(offsetof(RCC_TypeDef, APB1LENR) == 0xE8, "RCC APB1LENR");
 _Static_assert(offsetof(RCC_TypeDef, APB4ENR) == 0xF4, "RCC APB4ENR");
 _Static_assert(offsetof(PWR_TypeDef, D3CR) == 0x18, "PWR D3CR");
@@ -459,3 +460,49 @@ void led_toggle(void)
 {
     LED_PORT->ODR ^= (1UL << LED_PIN);
 }
+
+/* ------------------------------------------------------------ USB host */
+#ifdef FREYA_USB
+/* OTG_HS on its embedded full speed PHY wants 48 MHz.  PLL3 makes it from
+ * 5 MHz (crystal / 5) or 4 MHz (HSI / 16): * 96 or * 120 = 480 MHz,
+ * / 10 = 48 MHz.  VDD33USB is the board's 3.3 V, so the USB regulator
+ * stays off and only its level detector is turned on. */
+int board_usb_init(void)
+{
+    uint32_t t;
+
+    if (!(RCC->CR & RCC_CR_PLL3RDY)) {
+        RCC->PLLCKSELR = (RCC->PLLCKSELR & ~RCC_PLLCKSELR_DIVM3_MASK) |
+                         RCC_PLLCKSELR_DIVM3(g_clocks.clock_source ? 5 : 16);
+        RCC->PLLCFGR = (RCC->PLLCFGR & ~RCC_PLLCFGR_PLL3_MASK) |
+                       RCC_PLLCFGR_PLL3RGE_4_8 | RCC_PLLCFGR_DIVQ3EN;
+        RCC->PLL3DIVR = RCC_PLL1DIVR_N(g_clocks.clock_source ? 96 : 120) |
+                        RCC_PLL1DIVR_P(2) | RCC_PLL1DIVR_Q(10) |
+                        RCC_PLL1DIVR_R(2);
+        RCC->CR |= RCC_CR_PLL3ON;
+        for (t = 0; t < 1000000; t++)
+            if (RCC->CR & RCC_CR_PLL3RDY) break;
+        if (!(RCC->CR & RCC_CR_PLL3RDY)) return -1;
+    }
+    RCC->D2CCIP2R = (RCC->D2CCIP2R & ~RCC_D2CCIP2R_USBSEL_MASK) |
+                    RCC_D2CCIP2R_USBSEL_PLL3Q;
+
+    PWR->CR3 |= PWR_CR3_USB33DEN;
+    for (t = 0; t < 1000000; t++)
+        if (PWR->CR3 & PWR_CR3_USB33RDY) break;
+    if (!(PWR->CR3 & PWR_CR3_USB33RDY)) return -1;
+
+    board_pin_af(GPIOA, 11, 10);        /* OTG_HS_DM */
+    board_pin_af(GPIOA, 12, 10);        /* OTG_HS_DP */
+    GPIOA->OSPEEDR |= (3UL << 22) | (3UL << 24);
+    RCC->AHB1LPENR &= ~RCC_AHB1LPENR_USB1OTGHSULPILPEN;
+    RCC->AHB1ENR |= RCC_AHB1ENR_USB1OTGHSEN;
+    (void)RCC->AHB1ENR;
+    return 0;
+}
+
+void board_usb_off(void)
+{
+    RCC->AHB1ENR &= ~RCC_AHB1ENR_USB1OTGHSEN;
+}
+#endif

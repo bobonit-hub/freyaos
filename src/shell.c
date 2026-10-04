@@ -431,15 +431,33 @@ static void attr_string(uint8_t attr, char *out)
 static const char *onoff(int v) { return v ? "on" : "off"; }
 #endif /* FREYA_LINUX */
 
+#ifdef FREYA_USB
+static void usb_info(void);
+#endif
+
+/* The card, the SPI flash or the USB stick: any volume at all. */
+static int any_fs(void)
+{
+    if (fat_mounted()) return 1;
+#ifdef BOARD_SPIFLASH
+    if (spiflash_mounted()) return 1;
+#endif
+#ifdef FREYA_USB
+    if (usbvol_mounted()) return 1;
+#endif
+    return 0;
+}
+
 static int need_fs(void)
 {
-#ifdef BOARD_SPIFLASH
-    vol_use(0);
-    if (fat_mounted() || spiflash_mounted()) return 1;
-#else
-    if (fat_mounted()) return 1;
-#endif
+    if (any_fs()) return 1;
+#if defined(FREYA_SD) || defined(BOARD_SPIFLASH)
     kprintf("no filesystem mounted - run 'mount'\r\n");
+#elif defined(FREYA_USB)
+    kprintf("no filesystem mounted - run 'usb(\"mount\")'\r\n");
+#else
+    kprintf("no filesystem - built without SD=1\r\n");
+#endif
     return 0;
 }
 
@@ -606,6 +624,7 @@ static int cmd_sysinfo(int argc, char **argv)
     inf("checksum");
     fw_cksum_show();
 
+#ifdef FREYA_SD
     inf("sd card");
     if (!sd_powered()) {
         kprintf("power off\r\n");
@@ -618,9 +637,7 @@ static int cmd_sysinfo(int argc, char **argv)
         }
         kprintf("\r\n");
     }
-#ifdef BOARD_SPIFLASH
     vol_use(0);
-#endif
     if (fat_mounted()) {
         kprintf("  filesystem : %s", fat_type_str());
         if (g_fs.label[0]) kprintf(" \"%s\"", g_fs.label);
@@ -630,8 +647,12 @@ static int cmd_sysinfo(int argc, char **argv)
     } else {
         kprintf("  filesystem : not mounted\r\n");
     }
+#endif /* FREYA_SD */
 #ifdef BOARD_SPIFLASH
     spiflash_info();
+#endif
+#ifdef FREYA_USB
+    usb_info();
 #endif
 
     if (g_app.loaded) {
@@ -759,12 +780,18 @@ static int cmd_meminfo(int argc, char **argv)
     return 0;
 }
 
+#if defined(FREYA_SD) || defined(BOARD_SPIFLASH)
 static int cmd_mount(int argc, char **argv)
 {
+#ifdef FREYA_SD
     int rc;
+#endif
 
     (void)argc; (void)argv;
     fs_close_all();                     /* nothing may survive a remount */
+#ifndef FREYA_SD
+    return spiflash_mount_cmd();        /* no card in this build */
+#else
     kprintf("initialising SD card ... ");
     if (sd_init() != 0) {
         kprintf("failed (no card, or wiring/level problem)\r\n");
@@ -776,14 +803,18 @@ static int cmd_mount(int argc, char **argv)
     }
     kprintf("%s\r\n", sd_type_str());
 
+    vol_use(0);
     rc = fat_mount();
     if (rc != FAT_OK) return fs_fail("mount", NULL, rc);
     kprintf("mounted %s", fat_type_str());
     if (g_fs.label[0]) kprintf(" \"%s\"", g_fs.label);
     kprintf(" on /\r\n");
     return 0;
+#endif
 }
+#endif
 
+#ifdef FREYA_SD
 /* --------------------------------------------------------------- power */
 /* Its own section, so the Black Pill linker can keep it out of the
  * 48 KiB image.  The Blue Pill image still has room and leaves it there. */
@@ -817,6 +848,177 @@ static int POWER_TEXT cmd_power(int argc, char **argv)
     kprintf("sd %s\r\n", on ? "on" : "off");
     return 0;
 }
+#endif /* FREYA_SD */
+
+#ifdef FREYA_USB
+/* ------------------------------------------------------------ USB stick */
+#define USB_USAGE  "usb([\"mount\"|\"eject\"])"
+
+static void usb_info(void)
+{
+    inf("usb");
+    if (g_usbdev.kind == USB_KIND_NONE) {
+        kprintf("nothing attached\r\n");
+        return;
+    }
+    kprintf("%s (%04x:%04x)\r\n", usbdev_name(), g_usbdev.vid, g_usbdev.pid);
+    if (g_usb.present) {
+        kprintf("  usb stick  : ");
+        kput_size((uint64_t)g_usb.blocks * 512ULL);
+        kprintf(" (%s %s)\r\n", g_usb.vendor, g_usb.product);
+        if (usbvol_mounted()) {
+            vol_use(1);
+            kprintf("  filesystem : %s", fat_type_str());
+            if (g_fs.label[0]) kprintf(" \"%s\"", g_fs.label);
+            kprintf(" on /usb\r\n");
+            vol_use(0);
+        } else {
+            kprintf("  filesystem : not mounted\r\n");
+        }
+    }
+#ifdef FREYA_AUDIO
+    if (g_usbdev.kind == USB_KIND_AUDIO) uac_info();
+#endif
+}
+
+static int cmd_usb(int argc, char **argv)
+{
+    if (argc == 1) {
+        usb_info();
+        return 0;
+    }
+    if (argc != 2) return usage(USB_USAGE);
+    if (strcmp(argv[1], "mount") == 0) {
+        fs_close_all();                 /* nothing may survive a remount */
+        return usb_attach(0);
+    }
+    if (strcmp(argv[1], "eject") == 0) {
+        fs_close_all();
+        usb_detach();
+        if (strncmp(fs_cwd(), "/usb", 4) == 0 &&
+            (fs_cwd()[4] == '\0' || fs_cwd()[4] == '/'))
+            (void)fs_chdir("/");
+        kprintf("USB: let go, safe to unplug\r\n");
+        return 0;
+    }
+    return usage(USB_USAGE);
+}
+
+#ifdef FREYA_AUDIO
+/* --------------------------------------------------------------- audio */
+#define AUDIO_USAGE "audio([\"tone\", hz | \"loop\"] [, seconds [, 8000|16000]])"
+#define AUDIO_CHUNK 160         /* 10 ms at 16 kHz */
+
+/* sin(2 pi phase / 2^32) * amp, by Bhaskara's approximation: within
+ * 0.2 %.  Single precision, which every board with USB does in
+ * hardware; 64-bit integer division would pull libgcc into the image. */
+static int16_t tone_sample(uint32_t phase, int amp)
+{
+    float p = (float)((phase >> 16) & 0x7FFF) / 32768.0f;   /* 0..1: half a cycle */
+    float v = (float)amp * 16.0f * p * (1.0f - p) / (5.0f - 4.0f * p * (1.0f - p));
+
+    return (int16_t)((phase & 0x80000000UL) ? -v : v);
+}
+
+static void audio_report(void)
+{
+    freya_audio_status_t st;
+
+    if (audio_status(&st) != 0) return;
+    kprintf("%u frames, %u underruns, %u overruns, %u lost packets\r\n",
+            st.frames, st.underruns, st.overruns, st.errors);
+}
+
+static int audio_fail(int rc)
+{
+    switch (rc) {
+    case FREYA_ERR_IO:          kprintf("audio: no headset - plug one in, then usb(\"mount\")\r\n"); break;
+    case FREYA_ERR_UNSUPPORTED: kprintf("audio: the headset has no format for that\r\n"); break;
+    case FREYA_ERR_BUSY:        kprintf("audio: a program has it open\r\n"); break;
+    default:                    kprintf("audio: error %d\r\n", rc); break;
+    }
+    return -1;
+}
+
+/*
+ * audio() shows the headset; "tone" plays a sine on its speaker, "loop"
+ * plays its microphone back on its speaker: the whole path a call takes,
+ * resampling included.  Both run for 'seconds' (default 5) or until
+ * Ctrl-C.
+ */
+static int cmd_audio(int argc, char **argv)
+{
+    int16_t buf[AUDIO_CHUNK];
+    uint32_t hz = 0, secs = 5, rate = FREYA_AUDIO_RATE, start, last;
+    uint32_t phase = 0, step = 0;
+    int loop, rc, peak = 0;
+
+    if (argc == 1) {
+        if (g_usbdev.kind != USB_KIND_AUDIO) {
+            kprintf("no headset attached\r\nusage: %s\r\n", AUDIO_USAGE);
+            return 0;
+        }
+        kprintf("%s\r\n", usbdev_name());
+        uac_info();
+        return 0;
+    }
+    loop = strcmp(argv[1], "loop") == 0;
+    if (!loop && strcmp(argv[1], "tone") != 0) return usage(AUDIO_USAGE);
+    if (!loop && (argc < 3 || str_to_u32(argv[2], &hz) != 0 || hz == 0 || hz > 7000))
+        return usage(AUDIO_USAGE);
+    argv += loop ? 2 : 3;
+    argc -= loop ? 2 : 3;
+    if (argc > 0 && str_to_u32(argv[0], &secs) != 0) return usage(AUDIO_USAGE);
+    if (argc > 1 && str_to_u32(argv[1], &rate) != 0) return usage(AUDIO_USAGE);
+
+    rc = audio_open(rate, loop ? (FREYA_AUDIO_MIC | FREYA_AUDIO_SPK) : FREYA_AUDIO_SPK);
+    if (rc == FREYA_ERR_ARG) return usage(AUDIO_USAGE);
+    if (rc != 0) return audio_fail(rc);
+    if (!loop) step = (uint32_t)((float)hz / (float)rate * 4294967296.0f);
+    kprintf("%s for %u s at %u Hz - Ctrl-C stops it\r\n",
+            loop ? "microphone to speaker" : "tone", secs, rate);
+
+    start = last = sys_ticks();
+    while ((uint32_t)(sys_ticks() - start) < secs * 1000U && !uart_take_ctrlc()) {
+        int n;
+
+        if (loop) {
+            n = audio_read(buf, AUDIO_CHUNK);
+            for (int i = 0; i < n; i++) {
+                int a = buf[i] < 0 ? -buf[i] : buf[i];
+                if (a > peak) peak = a;
+            }
+        } else {
+            n = AUDIO_CHUNK;
+            for (int i = 0; i < n; i++, phase += step)
+                buf[i] = tone_sample(phase, 16000);     /* -6 dBFS */
+        }
+        if (n < 0) {
+            kprintf("audio: the headset is gone\r\n");
+            break;
+        }
+        for (int done = 0; done < n; ) {
+            int w = audio_write(buf + done, n - done);
+            if (w < 0) break;
+            if (w == 0) {
+                if (loop) break;        /* a full speaker drops, not waits */
+                sys_delay_ms(1);
+            }
+            done += w;
+        }
+        if (loop && (uint32_t)(sys_ticks() - last) >= 1000U) {
+            kprintf("  microphone peak %d %%\r\n", peak * 100 / 32768);
+            peak = 0;
+            last = sys_ticks();
+        }
+        if (loop && n == 0) sys_delay_ms(1);
+    }
+    audio_report();
+    (void)audio_close();
+    return 0;
+}
+#endif /* FREYA_AUDIO */
+#endif /* FREYA_USB */
 #endif /* FREYA_LINUX */
 
 static int cmd_ls(int argc, char **argv)
@@ -1223,47 +1425,63 @@ static int cmd_flashdump(int argc, char **argv)
     return write_mem_file("flashdump", name, (const uint8_t *)0x08000000UL, size);
 }
 
-static int cmd_df(int argc, char **argv)
+#if defined(FREYA_SD) || defined(FREYA_USB)
+/* The live FAT volume's space, 'where' after its label (or nothing). */
+static int df_fat(const char *where)
 {
     uint32_t free_clus = 0;
     uint32_t total_clus;
 
+    if (g_fs.free_valid) {
+        free_clus = g_fs.free_count;        /* maintained since the last scan */
+    } else {
+        kprintf("scanning the allocation table ...\r\n");
+        if (fat_free_clusters(&free_clus) != FAT_OK) {
+            kprintf("df: I/O error\r\n");
+            return -1;
+        }
+    }
+    total_clus = g_fs.clus_count;
+
+    kprintf("  filesystem : %s", fat_type_str());
+    if (g_fs.label[0]) kprintf(" \"%s\"", g_fs.label);
+    kprintf("%s\r\n  capacity   : ", where);
+    kput_size((uint64_t)total_clus * g_fs.bytes_per_clus);
+    kprintf("\r\n  free       : ");
+    kput_size((uint64_t)free_clus * g_fs.bytes_per_clus);
+    kprintf("\r\n  used       : ");
+    kput_size((uint64_t)(total_clus - free_clus) * g_fs.bytes_per_clus);
+    kprintf("\r\n  cluster    : ");
+    kput_size(g_fs.bytes_per_clus);
+    kprintf(" (%u sectors)\r\n     ", g_fs.sec_per_clus);
+    print_bar(total_clus - free_clus, total_clus);
+    kprintf("\r\n");
+    return 0;
+}
+#endif
+
+static int cmd_df(int argc, char **argv)
+{
+    int rc = 0;
+
     (void)argc; (void)argv;
     if (!need_fs()) return -1;
 
-#ifdef BOARD_SPIFLASH
+#if defined(FREYA_SD) || defined(FREYA_USB)
     vol_use(0);
+    if (fat_mounted()) rc |= df_fat("");
 #endif
-    if (fat_mounted()) {
-        if (g_fs.free_valid) {
-            free_clus = g_fs.free_count;        /* maintained since the last scan */
-        } else {
-            kprintf("scanning the allocation table ...\r\n");
-            if (fat_free_clusters(&free_clus) != FAT_OK) {
-                kprintf("df: I/O error\r\n");
-                return -1;
-            }
-        }
-        total_clus = g_fs.clus_count;
-
-        kprintf("  filesystem : %s", fat_type_str());
-        if (g_fs.label[0]) kprintf(" \"%s\"", g_fs.label);
-        kprintf("\r\n  capacity   : ");
-        kput_size((uint64_t)total_clus * g_fs.bytes_per_clus);
-        kprintf("\r\n  free       : ");
-        kput_size((uint64_t)free_clus * g_fs.bytes_per_clus);
-        kprintf("\r\n  used       : ");
-        kput_size((uint64_t)(total_clus - free_clus) * g_fs.bytes_per_clus);
-        kprintf("\r\n  cluster    : ");
-        kput_size(g_fs.bytes_per_clus);
-        kprintf(" (%u sectors)\r\n     ", g_fs.sec_per_clus);
-        print_bar(total_clus - free_clus, total_clus);
-        kprintf("\r\n");
-    }
 #ifdef BOARD_SPIFLASH
     spiflash_df();
 #endif
-    return 0;
+#ifdef FREYA_USB
+    if (usbvol_mounted()) {
+        vol_use(1);
+        rc |= df_fat(" on /usb");
+        vol_use(0);
+    }
+#endif
+    return rc;
 }
 
 static int cmd_load(int argc, char **argv)
@@ -1891,11 +2109,7 @@ static int cmd_reboot(int argc, char **argv)
 {
     (void)argc; (void)argv;
     if (page_blocked("reboot")) return -1;
-#ifdef BOARD_SPIFLASH
-    if (fat_mounted() || spiflash_mounted()) fat_sync();
-#else
-    if (fat_mounted()) fat_sync();
-#endif
+    if (any_fs()) fat_sync();
     kprintf("rebooting ...\r\n");
     sys_reboot();
     return 0;
@@ -3212,8 +3426,18 @@ static const command_t s_cmds[] = {
     { "sysinfo",  cmd_sysinfo,  "sysinfo()" },
     { "cksum",    cmd_cksum,    "cksum()" },
     { "meminfo",  cmd_meminfo,  "meminfo()" },
+#endif
+#if !defined(FREYA_LINUX) && (defined(FREYA_SD) || defined(BOARD_SPIFLASH))
     { "mount",    cmd_mount,    "mount()" },
+#endif
+#if !defined(FREYA_LINUX) && defined(FREYA_SD)
     { "power",    cmd_power,    "power([\"sd\" [, \"on\"|\"off\"]])" },
+#endif
+#if !defined(FREYA_LINUX) && defined(FREYA_USB)
+    { "usb",      cmd_usb,      USB_USAGE },
+#endif
+#if !defined(FREYA_LINUX) && defined(FREYA_AUDIO)
+    { "audio",    cmd_audio,    AUDIO_USAGE },
 #endif
     { "ls",       cmd_ls,       "ls([\"-l\"] [, \"path\"])" },
     { "cd",       cmd_cd,       "cd([\"path\"])" },
@@ -9882,12 +10106,7 @@ void shell_run(void)
         int n, st;
 
         if (s_script_len) uart_puts("> ");
-        else kprintf("freya:%s> ",
-#ifdef BOARD_SPIFLASH
-                    (fat_mounted() || spiflash_mounted()) ? fs_cwd() : "(no fs)");
-#else
-                    fat_mounted() ? fs_cwd() : "(no fs)");
-#endif
+        else kprintf("freya:%s> ", any_fs() ? fs_cwd() : "(no fs)");
 
         n = readline(line, (int)sizeof line, 0);
 #ifdef FREYA_LINUX

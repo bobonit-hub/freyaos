@@ -28,6 +28,9 @@ DFU_VID    := 0x0483
 DFU_PID    := 0xDF11
 DFU_DEVICE := 0xFFFF
 
+# The OTG core can be the USB host: make USB=1 mounts a stick at /usb.
+USB_HOST       := 1
+
 # The chip's calendar RTC on the 32.768 kHz crystal: make RTC=internal.
 RTC_INTERNAL   := 1
 

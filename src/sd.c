@@ -8,6 +8,10 @@
  */
 #include "freya.h"
 
+#ifndef FREYA_SD
+#error "src/sd.c is compiled only with SD=1"
+#endif
+
 sd_info_t g_sd;
 
 #define CMD0    0       /* GO_IDLE_STATE           */

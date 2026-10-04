@@ -91,6 +91,8 @@ typedef struct {
 #define RCC_CR_CSSON        (1UL << 19)
 #define RCC_CR_PLL1ON       (1UL << 24)
 #define RCC_CR_PLL1RDY      (1UL << 25)
+#define RCC_CR_PLL2ON       (1UL << 26)
+#define RCC_CR_PLL2RDY      (1UL << 27)
 
 #define RCC_CFGR1_SW_MASK   (3UL << 0)
 #define RCC_CFGR1_SW_PLL    (3UL << 0)
@@ -112,6 +114,12 @@ typedef struct {
 #define RCC_PLL1DIVR_P(n)   ((((uint32_t)(n) - 1U) & 0x7FUL) << 9)
 #define RCC_PLL1DIVR_Q(n)   ((((uint32_t)(n) - 1U) & 0x7FUL) << 16)
 #define RCC_PLL1DIVR_R(n)   ((((uint32_t)(n) - 1U) & 0x7FUL) << 24)
+/* PLL2 has PLL1's fields, less the booster.  It makes the USB clock. */
+#define RCC_PLL2CFGR_QEN    (1UL << 17)
+
+/* CCIPR1.ICLKSEL: the 48 MHz clock of OTG_FS (and SDMMC, RNG). */
+#define RCC_CCIPR1_ICLKSEL_MASK  (3UL << 26)
+#define RCC_CCIPR1_ICLKSEL_PLL2Q (1UL << 26)
 
 #define RCC_CICR_CSSC       (1UL << 10)
 
@@ -120,6 +128,7 @@ typedef struct {
 #define RCC_AHB2ENR1_GPIOBEN (1UL << 1)
 #define RCC_AHB2ENR1_GPIOCEN (1UL << 2)
 #define RCC_AHB2ENR1_ADC12EN (1UL << 10)
+#define RCC_AHB2ENR1_OTGEN  (1UL << 14)
 #define RCC_AHB3ENR_PWREN   (1UL << 2)
 #define RCC_APB1ENR_TIM2EN  (1UL << 0)
 #define RCC_APB1ENR_TIM3EN  (1UL << 1)
@@ -159,6 +168,7 @@ typedef struct {
 #define PWR_VOSR_VOS_MASK   (3UL << 16)
 #define PWR_VOSR_VOS_RANGE1 (3UL << 16)
 #define PWR_VOSR_BOOSTEN    (1UL << 18)
+#define PWR_SVMCR_USV       (1UL << 28)  /* VDDUSB valid: OTG_FS may run */
 #define PWR_SVMCR_ASV       (1UL << 30)  /* VDDA valid: the ADC may run */
 #define PWR_DBPR_DBP        (1UL << 0)   /* backup domain writable      */
 

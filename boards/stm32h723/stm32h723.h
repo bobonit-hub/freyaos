@@ -69,6 +69,9 @@ typedef struct {
     __IO uint32_t APB1HENR;    /* 0x0EC */
     __IO uint32_t APB2ENR;     /* 0x0F0 */
     __IO uint32_t APB4ENR;     /* 0x0F4 */
+    uint32_t      RES6;        /* 0x0F8 */
+    __IO uint32_t AHB3LPENR;   /* 0x0FC */
+    __IO uint32_t AHB1LPENR;   /* 0x100 */
 } RCC_TypeDef;
 
 #define RCC                 ((RCC_TypeDef *)0x58024400UL)
@@ -81,6 +84,8 @@ typedef struct {
 #define RCC_CR_CSSON        (1UL << 19)   /* CSSHSEON                    */
 #define RCC_CR_PLL1ON       (1UL << 24)
 #define RCC_CR_PLL1RDY      (1UL << 25)
+#define RCC_CR_PLL3ON       (1UL << 28)
+#define RCC_CR_PLL3RDY      (1UL << 29)
 
 #define RCC_CFGR_SW_MASK    (7UL << 0)
 #define RCC_CFGR_SW_PLL1    (3UL << 0)
@@ -110,6 +115,17 @@ typedef struct {
 #define RCC_PLL1DIVR_P(n)   ((((uint32_t)(n) - 1U) & 0x7FUL) << 9)
 #define RCC_PLL1DIVR_Q(n)   ((((uint32_t)(n) - 1U) & 0x7FUL) << 16)
 #define RCC_PLL1DIVR_R(n)   ((((uint32_t)(n) - 1U) & 0x7FUL) << 24)
+/* PLL3, for the USB clock: PLL1's fields, moved up. */
+#define RCC_PLLCKSELR_DIVM3(m)  (((uint32_t)(m) & 0x3FUL) << 20) /* not m-1 */
+#define RCC_PLLCKSELR_DIVM3_MASK (0x3FUL << 20)
+#define RCC_PLLCFGR_PLL3_MASK   (0xFUL << 8)
+#define RCC_PLLCFGR_PLL3RGE_4_8 (2UL << 10)
+#define RCC_PLLCFGR_DIVQ3EN     (1UL << 23)
+/* PLL3DIVR has PLL1DIVR's layout. */
+
+/* D2CCIP2R.USBSEL: the 48 MHz clock of OTG_HS's full speed PHY. */
+#define RCC_D2CCIP2R_USBSEL_MASK  (3UL << 20)
+#define RCC_D2CCIP2R_USBSEL_PLL3Q (2UL << 20)
 
 /* Kernel clocks.  SPI1/2/3 take PLL1Q and USART2 PCLK1, their reset
  * choices.  The ADCs take per_ck, which is HSI. */
@@ -122,6 +138,10 @@ typedef struct {
 
 #define RCC_AHB1ENR_DMA1EN  (1UL << 0)
 #define RCC_AHB1ENR_ADC12EN (1UL << 5)
+#define RCC_AHB1ENR_USB1OTGHSEN (1UL << 25)
+/* The ULPI clock is for an external PHY.  Left on in sleep it stops the
+ * embedded one, so it is turned off for WFI. */
+#define RCC_AHB1LPENR_USB1OTGHSULPILPEN (1UL << 26)
 #define RCC_AHB4ENR_GPIOAEN (1UL << 0)
 #define RCC_AHB4ENR_GPIOBEN (1UL << 1)
 #define RCC_AHB4ENR_GPIOCEN (1UL << 2)
@@ -157,6 +177,8 @@ typedef struct {
 #define PWR_CR3_BYPASS      (1UL << 0)
 #define PWR_CR3_LDOEN       (1UL << 1)
 #define PWR_CR3_SCUEN       (1UL << 2)    /* supply configuration lock   */
+#define PWR_CR3_USB33DEN    (1UL << 24)   /* VDD33USB level detector     */
+#define PWR_CR3_USB33RDY    (1UL << 26)
 #define PWR_CSR1_ACTVOSRDY  (1UL << 13)
 #define PWR_D3CR_VOS_MASK   (3UL << 14)
 #define PWR_D3CR_VOS0       (3UL << 14)

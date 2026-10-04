@@ -610,6 +610,12 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .rtc_set         = api_rtc_set,
     .flash_text_save = api_flash_text_save,
     .autostart_set   = api_autostart_set,
+    .audio_open      = audio_open,
+    .audio_close     = audio_close,
+    .audio_read      = audio_read,
+    .audio_write     = audio_write,
+    .audio_status    = audio_status,
+    .audio_gain      = audio_gain,
 };
 
 const freya_api_t *app_api(void)
@@ -1793,8 +1799,10 @@ int app_run(int argc, char **argv)
     /* Nothing belonging to the program may still be able to run: its pin
      * and timer interrupts are dropped before the memory their handlers
      * were using is handed back, its PWM pins stop driving whatever they
-     * were driving, and an I2C, SPI or 1-Wire bus it opened is released
-     * even if a transfer was abandoned halfway through a byte. */
+     * were driving, an I2C, SPI or 1-Wire bus it opened is released
+     * even if a transfer was abandoned halfway through a byte, and a
+     * headset it was streaming to stops. */
+    audio_release();
     gpio_irq_release();
     pwm_release();
     timer_release();

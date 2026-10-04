@@ -100,10 +100,18 @@ int main(void)
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
     api.size = sizeof(freya_api_t);
-    check("autostart_set is the last call in the table",
+    check("audio_gain is the last call in the table",
           (int)sizeof(freya_api_t),
+          (int)(__builtin_offsetof(freya_api_t, audio_gain) +
+                sizeof(api.audio_gain)));
+    check("the six audio calls follow autostart_set, in order",
+          (int)__builtin_offsetof(freya_api_t, audio_open),
           (int)(__builtin_offsetof(freya_api_t, autostart_set) +
                 sizeof(api.autostart_set)));
+    check("audio_open, close, read, write, status, gain",
+          (int)(5 * sizeof(api.audio_open)),
+          (int)(__builtin_offsetof(freya_api_t, audio_gain) -
+                __builtin_offsetof(freya_api_t, audio_open)));
     check("flash_text_save comes just before it",
           (int)__builtin_offsetof(freya_api_t, autostart_set),
           (int)(__builtin_offsetof(freya_api_t, flash_text_save) +

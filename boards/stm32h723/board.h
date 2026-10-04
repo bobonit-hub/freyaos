@@ -87,7 +87,19 @@
  * program may drive as a pin or through api->led().  PB6 also selects the
  * OSPI NOR, which ignores it while its clock (PB2) is still. */
 #define BOARD_PIN_PORTS     5
+#ifdef FREYA_USB
+/* USB=1 also keeps PA11 and PA12, the USB socket's D- and D+. */
+#define BOARD_PIN_RESERVED  { 0x180CU, 0x0018U, 0x1F00U, 0x00C4U, 0x0000U }
+#else
 #define BOARD_PIN_RESERVED  { 0x000CU, 0x0018U, 0x1F00U, 0x00C4U, 0x0000U }
+#endif
+
+/* ------------------------------------------------------------ USB host */
+/* USB=1: OTG_HS on its full speed PHY as the host, on PA11/PA12 (AF10), the board's
+ * USB socket.  src/usbh.c drives it; board_usb_init() clocks it. */
+#define BOARD_USB_OTG_BASE  0x40040000UL
+#define BOARD_USB_IRQn      77
+#define BOARD_USB_IRQ_HANDLER OTG_HS_IRQHandler
 
 /* ------------------------------------------- timers a program may open */
 /* TIM2..TIM4, all on APB1 and all clocked at twice PCLK1 (260 MHz)

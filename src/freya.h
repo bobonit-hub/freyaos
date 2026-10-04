@@ -45,13 +45,15 @@
 /*
  * Interrupt priorities, in the four bits these parts implement (the
  * NVIC helpers shift them up).  The console is highest so that no
- * character is lost and Ctrl-C always arrives; a program's pin and timer
+ * character is lost and Ctrl-C always arrives; the USB frame of a
+ * headset comes next, so a call does not stutter; a program's pin and timer
  * handlers share one level below it, which keeps them from preempting
  * each other; SysTick and PendSV keep the bottom, so a program abort
  * or a thread switch always runs with the thread's exception frame on
  * top of that thread's stack.
  */
 #define IRQ_PRIO_CONSOLE   2
+#define IRQ_PRIO_USB       3    /* a headset's 1 ms frame (AUDIO=1)    */
 #define IRQ_PRIO_HANDLER   14
 
 /* Symbols provided by the linker script (addresses, not objects). */
@@ -500,6 +502,140 @@ int         sd_read_block(uint32_t lba, uint8_t *buf);
 int         sd_read_blocks(uint32_t lba, uint8_t *buf, uint32_t count);
 int         sd_write_block(uint32_t lba, const uint8_t *buf);
 const char *sd_type_str(void);
+
+/* ----------------------------------------------------------- USB host */
+/*
+ * USB=1, on a board whose USB OTG core can be the host (BOARD_USB_OTG):
+ * a mass storage stick in the board's USB socket, mounted as FAT at
+ * /usb.  src/usbh.c drives the core, polled, at full speed; src/usbmsc.c
+ * enumerates the stick and speaks Bulk-Only Transport and SCSI to it;
+ * src/usbvol.c is the second FAT volume.
+ */
+enum {
+    USBH_OK      =  0,
+    USBH_STALL   = -1,        /* the endpoint answered STALL             */
+    USBH_TIMEOUT = -2,        /* no answer, or NAK past the deadline     */
+    USBH_ERR     = -3,        /* transaction errors, three in a row      */
+    USBH_GONE    = -4,        /* the device was unplugged                */
+    USBH_NODEV   = -5,        /* nothing in the socket                   */
+    USBH_UNSUP   = -6         /* not a stick Freya can use               */
+};
+
+int         board_usb_init(void);         /* clock, pins, PHY supply     */
+void        board_usb_off(void);
+int         usbh_open(uint32_t wait_ms);  /* power, connect, reset       */
+void        usbh_close(void);
+int         usbh_connected(void);
+int         usbh_control(uint8_t addr, uint8_t mps0, const uint8_t setup[8],
+                         void *data, uint16_t *len);
+int         usbh_bulk(uint8_t addr, uint8_t ep, uint16_t mps, uint8_t *toggle,
+                      void *buf, uint32_t len, uint32_t *done,
+                      uint32_t wait_ms);
+const char *usbh_err_str(int err);
+
+enum { USB_KIND_NONE, USB_KIND_MSC, USB_KIND_AUDIO, USB_KIND_OTHER };
+
+typedef struct {
+    uint8_t  addr;
+    uint8_t  mps0;
+    uint8_t  kind;           /* USB_KIND_*                              */
+    uint8_t  config;         /* bConfigurationValue                     */
+    uint16_t vid, pid;
+    uint16_t cfg_len;
+    uint8_t  cfg[512];       /* a headset's runs past 256 bytes         */
+    char     maker[32];
+    char     product[32];
+} usb_dev_t;
+
+extern usb_dev_t g_usbdev;
+
+int         usbdev_open(uint32_t wait_ms);   /* port, enumerate, configure */
+void        usbdev_close(void);
+int         usbdev_control(uint8_t type, uint8_t req, uint16_t value,
+                           uint16_t index, void *data, uint16_t len,
+                           uint16_t *got);
+const char *usbdev_name(void);
+int         usb_attach(int boot);         /* reports, 0 when in use      */
+void        usb_detach(void);
+
+typedef struct {
+    uint8_t  present;        /* answering SCSI                          */
+    uint8_t  ep_in, ep_out;  /* bulk endpoints, ep_in with bit 7 set    */
+    uint8_t  tog_in, tog_out;
+    uint8_t  iface;
+    uint8_t  lun;
+    uint16_t mps_in, mps_out;
+    uint32_t blocks;         /* 512 byte blocks                         */
+    uint32_t tag;
+    char     vendor[9];
+    char     product[17];
+} usb_msc_t;
+
+extern usb_msc_t g_usb;
+
+int         usbmsc_start(void);
+void        usbmsc_stop(void);
+int         usbmsc_read_block(uint32_t lba, uint8_t *buf);
+int         usbmsc_write_block(uint32_t lba, const uint8_t *buf);
+
+int         usbvol_attach(int boot);      /* reports, 0 when mounted     */
+void        usbvol_unmount(void);
+int         usbvol_mounted(void);
+
+/* -------------------------------------------------------------- audio */
+/* The calls of freya_api_t.  Without AUDIO=1 they answer unsupported. */
+int         audio_open(uint32_t rate, int dirs);
+int         audio_close(void);
+int         audio_read(int16_t *buf, int count);
+int         audio_write(const int16_t *buf, int count);
+int         audio_status(freya_audio_status_t *st);
+int         audio_gain(int dirs, int gain);
+void        audio_release(void);          /* the run that opened it ended */
+
+#ifdef FREYA_AUDIO
+/* One direction of the stream, as src/uac.c set it up. */
+typedef struct {
+    uint8_t  ep;             /* endpoint address, 0 when not used       */
+    uint8_t  channels;
+    uint16_t mps;
+    uint32_t rate;           /* the headset's                           */
+} audio_stream_t;
+
+/* Called from the USB interrupt once a frame (src/usbh.c). */
+int         audio_frame_out(uint8_t *pkt, int max);
+void        audio_frame_in(const uint8_t *pkt, int len);
+void        audio_frame_error(void);
+void        audio_gone(void);
+
+int         usbh_iso_start(uint8_t out_ep, uint16_t out_mps,
+                           uint8_t in_ep, uint16_t in_mps);
+void        usbh_iso_stop(void);
+
+#define UAC_MAX_ALTS    8
+#define UAC_MAX_FREQ    6
+
+/* One alternate setting of an audio streaming interface. */
+typedef struct {
+    uint8_t  iface, alt;
+    uint8_t  ep;             /* the isochronous data endpoint           */
+    uint8_t  interval;
+    uint8_t  channels, subframe, bits;
+    uint8_t  freq_ctl;       /* the endpoint takes SET_CUR frequency    */
+    uint16_t mps;
+    uint8_t  nfreq;          /* 0: continuous, freq[0] to freq[1]       */
+    uint32_t freq[UAC_MAX_FREQ];
+} uac_alt_t;
+
+int         uac_parse(const uint8_t *cfg, uint16_t len);
+const uac_alt_t *uac_pick(int in, uint32_t rate, uint32_t *dev_rate);
+const uac_alt_t *uac_alts(int *n);
+int         uac_attach(int boot);
+void        uac_stop(void);
+void        uac_info(void);
+int         uac_stream_start(uint32_t rate, int dirs, audio_stream_t *mic,
+                             audio_stream_t *spk);
+void        uac_stream_stop(void);
+#endif
 
 /* ----------------------------------------------------------- SPI flash */
 /* Black Pill SOP-8 NOR on SPI1.  The mount point is /spi<bus>.  On a

@@ -139,12 +139,13 @@ int  fat_mount(void);
 void fat_unmount(void);
 int  fat_mounted(void);
 void fat_bind(fat_rd_fn rd, fat_wr_fn wr, fat_sy_fn sync);
-void fat_snap_save(fat_snap_t *s);
-void fat_snap_load(const fat_snap_t *s);
+void fat_snap_swap(fat_snap_t *s);
+void fat_drop(void);
 int  fat_sync_here(void);
 
-/* The SD card is dev 0.  A board with SPI flash overrides these and
- * routes paths under /spi<num> at the second device. */
+/* The SD card is dev 0.  With USB=1 src/usbvol.c overrides these and
+ * routes paths under /usb at dev 1, the stick.  LittleFS on the SPI flash
+ * is routed before these are asked, and its files carry 0x80 | slot. */
 int  vol_enter(const char *path, char *local, int size);
 void vol_use(int dev);
 int  vol_current(void);

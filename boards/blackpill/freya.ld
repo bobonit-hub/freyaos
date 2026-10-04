@@ -190,6 +190,19 @@ SECTIONS
         /* The chip's own RTC, RTC=internal; likewise absent otherwise. */
         *rtc.o(.text .text.*)
         *rtc.o(.rodata .rodata.*)
+        /* The USB host and the stick at /usb, USB=1; likewise absent
+         * otherwise.  Mounted after boot, not needed to get there. */
+        *usbh.o(.text .text.* .rodata .rodata.*)
+        *usbmsc.o(.text .text.* .rodata .rodata.*)
+        *usbvol.o(.text .text.* .rodata .rodata.*)
+        *usbdev.o(.text .text.* .rodata .rodata.*)
+        *uac.o(.text .text.* .rodata .rodata.*)
+        *audio.o(.text .text.* .rodata .rodata.*)
+        *shell.o(.text.cmd_audio .text.tone_sample .text.audio_report .text.audio_fail)
+        *shell.o(.rodata.cmd_audio* .rodata.audio_report* .rodata.audio_fail*)
+        *board.o(.text.board_usb_*)
+        *shell.o(.text.cmd_usb .text.usb_info .text.df_fat)
+        *shell.o(.rodata.cmd_usb* .rodata.usb_info* .rodata.df_fat*)
         . = ALIGN(4);
         __kext_end = .;
     } > KEXT

@@ -28,7 +28,9 @@ the adapter with the board.
 
 ## SD card and SPI flash
 
-The card is SPI1 on PA4 to PA7 on every board. Those pins sit in different
+The card is used only by a kernel built with `make SD=1`
+([building.md](building.md#the-sd-card)); the wiring below is the same
+either way. The card is SPI1 on PA4 to PA7 on every board. Those pins sit in different
 places on the headers; the slot drawings are in [sd-slot.txt](sd-slot.txt).
 VDD is switched: PA8 drives the gate of a P-channel MOSFET, low to power the
 socket. A pull-down on that gate keeps the card on through reset. The
@@ -63,7 +65,8 @@ program's to drive or take interrupts on. The STM32H723 board keeps PA2
 and PA3, PC8 to PC12 and PD2 for the card, and PB3, PB4, PD6 and PD7 for
 the SPI flash, and gives programs ports A to E. The STM32H562 board keeps
 PA2 and PA3, and PC8 to PC12 and PD2 for the card, and gives programs
-ports A to D.
+ports A to D. A build with `make USB=1` also keeps PA11 and PA12, the USB
+socket's data lines ([usb.md](usb.md)).
 
 ## PWM
 

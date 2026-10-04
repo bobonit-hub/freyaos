@@ -22,6 +22,9 @@ make BOARD=stm32u585   # the same for the WeAct STM32U585CIU6 board
 make BOARD=stm32h523   # the same for the WeAct STM32H523CET6 board
 make BOARD=stm32h562   # the same for the WeAct STM32H562RGT6 board
 make BOARD=stm32h723   # the same for the WeAct MiniSTM32H723
+make SD=1              # also build the SD card and FAT16 / FAT32 code
+make USB=1             # also build the USB host: a FAT stick at /usb
+make USB=1 AUDIO=1     # and USB headsets behind the audio calls
 make RTC=ds3231        # also build the DS3231 driver (PB6 SCL, PB7 SDA)
 make RTC=internal      # or the driver for the chip's own calendar RTC
 make NOSHELL=1         # no shell: always run the autorun program
@@ -33,8 +36,11 @@ make test              # run the filesystem and XMODEM code on the host
 make clean
 ```
 
-`RTC=ds3231`, `RTC=internal` and `FIRMWARE_VERSION=` combine with
-`BOARD=`. Leave `RTC` unset and neither clock driver is in the image.
+`SD=1`, `USB=1`, `RTC=ds3231`, `RTC=internal` and `FIRMWARE_VERSION=`
+combine with `BOARD=`. `USB=1` is for the boards with a USB OTG core that
+can be the host, and is refused for the others ([usb.md](usb.md)). `AUDIO=1`
+needs `USB=1` ([audio.md](audio.md)). Leave `SD` unset and the card is not in the image (see below).
+Leave `RTC` unset and neither clock driver is in the image.
 `RTC=internal` is for the boards with a calendar RTC
 ([rtc.md](rtc.md)) and is refused for the others. The banner and the first
 line of `sysinfo()` print the OS version from this documentation, 4.0.0
@@ -43,6 +49,31 @@ version defaults to the value hardcoded in `src/freya.h`; an override must
 have `major.minor.patch` numeric form. `sysinfo()` prints that firmware
 version on its own line.
 
+## The SD card
+
+The SD card driver and the FAT16 / FAT32 code are built only with
+`make SD=1`. Without it `src/nosd.c` takes their place, and the kernel is
+about 10 KiB of flash and 1 KiB of RAM smaller:
+
+- Nothing is mounted on `/`. The boot does not look for a card, and
+  `/autorun.bin` is never run.
+- On a board with SPI flash (the Black Pill, the STM32U585, the STM32H523
+  and the STM32H723), `/spi1` is still LittleFS with the same file calls,
+  and the shell starts there. `mount()` mounts that volume again.
+- With no SPI flash either, every file call answers that there is no
+  filesystem. `mount()` is not in the shell.
+- `power()` is not in the shell, and a program's
+  `api->power(FREYA_PWR_SD, on)` returns `FREYA_ERR_UNSUPPORTED`. The
+  board still powers the socket at reset as it always has.
+- The file log goes to the console, and a BusFault dump to `/freya.ram`
+  is skipped.
+
+```sh
+make BOARD=bluepill SD=1 flash
+```
+
+Switching `SD` on or off rebuilds the objects it changes.
+
 ## Building without the shell
 
 `make NOSHELL=1` leaves the shell out, for a board that only ever runs one
@@ -50,7 +81,7 @@ program. On the Blue Pill that takes the kernel from about 96 KiB of flash
 to about 37 KiB, because the linker also drops the code that only the shell
 used. With no shell to go back to, autorun is always on:
 
-- The boot runs `/autorun.bin` from the card if there is one, otherwise the
+- The boot runs `/autorun.bin` from the card if there is one (`SD=1`), otherwise the
   program installed in flash, whether or not its auto-start flag is set.
   There is no two-second window to cancel it.
 - When the program exits, or Ctrl-C stops it, it is started again a second
@@ -68,7 +99,7 @@ flag set, so the image also autostarts under a kernel that has the shell:
 make BOARD=bluepill NOSHELL=1 flash PROGRAM=hello
 ```
 
-`NOSHELL=1` combines with `BOARD=` and `RTC=`. Switching it on or off
+`NOSHELL=1` combines with `BOARD=`, `SD=` and `RTC=`. Switching it on or off
 rebuilds the objects it changes.
 
 ### A BASIC program at boot

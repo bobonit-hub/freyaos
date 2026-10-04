@@ -1,6 +1,8 @@
 /*
  * Freya - SRAM dump to the SD card after a BusFault.
  *
+ * A build without SD=1 has no card, and says the dump was skipped.
+ *
  * The write is gated by the ram-dump flag in system settings (`ramdump
  * on`); erased flash means off.  It runs in thread mode, never from the
  * BusFault handler: SysTick does not preempt the fault, and the SD driver
@@ -44,6 +46,11 @@ void ramdump_write(void)
         return;
     }
 
+#ifndef FREYA_SD
+    kprintf("[freya] ram dump skipped (built without SD=1)\r\n");
+    s_busy = 0;
+    return;
+#else
     if (!g_sd.initialised) {
         if (sd_init() != 0) {
             kprintf("[freya] ram dump skipped (no SD card)\r\n");
@@ -52,6 +59,7 @@ void ramdump_write(void)
         }
     }
     if (!fat_mounted()) {
+        vol_use(0);
         rc = fat_mount();
         if (rc != FAT_OK) {
             kprintf("[freya] ram dump skipped (mount failed: %s)\r\n",
@@ -60,6 +68,7 @@ void ramdump_write(void)
             return;
         }
     }
+#endif
 
     kprintf("[freya] writing %s (%u B) ...\r\n", FREYA_RAMDUMP_PATH, size);
     uart_drain_tx();

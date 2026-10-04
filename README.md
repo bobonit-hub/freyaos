@@ -12,7 +12,7 @@ talks to the hardware through its own register definitions, and lives
 entirely in internal flash. This is release 4.0.0, "Bigfoot". The notes
 are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
-Freya gives you a serial console, a real FAT filesystem on an SD card, and the
+Freya gives you a serial console, a real FAT filesystem on an SD card (`make SD=1`), and the
 ability to download a program over the console, load it into RAM and run it —
 then stop it again with Ctrl-C. The Black Pill, the STM32U585, the STM32H523
 and the STM32H723 boards can also mount a SPI NOR chip soldered on their SOP-8 footprint at `/spi1`,
@@ -63,7 +63,7 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 * Boots from internal flash and brings up the whole clock tree itself ([docs/boards.md](docs/boards.md)).
 * A console shell on USART2 at 921600 8N1, with line editing and history ([docs/console-commands.md](docs/console-commands.md)).
 * A shell language with variables, functions, loops and scripts, also built for Linux as `fsh` ([docs/shell.md](docs/shell.md), [docs/linux.md](docs/linux.md)).
-* SD / SDHC cards over SPI with FAT16 / FAT32 that reads and writes, a switchable socket supply, and LittleFS on the SPI flash of the Black Pill, the STM32U585, the STM32H523 and the STM32H723 ([docs/files.md](docs/files.md)).
+* SD / SDHC cards over SPI with FAT16 / FAT32 that reads and writes, and a switchable socket supply, built with `make SD=1`; a FAT USB stick at `/usb` on the OTG boards with `make USB=1` ([docs/usb.md](docs/usb.md)), or a USB headset for 8 / 16 kHz call audio with `AUDIO=1` ([docs/audio.md](docs/audio.md)); LittleFS on the SPI flash of the Black Pill, the STM32U585, the STM32H523 and the STM32H723 ([docs/files.md](docs/files.md)).
 * XMODEM / XMODEM-1K over the console, and `tools/fremote.py` on the host ([docs/files.md](docs/files.md)).
 * Wi-Fi, DNS, ping, TCP/UDP sockets and TLS 1.3 through an optional ESP32-C6, on every board but the Blue Pill ([docs/network.md](docs/network.md)).
 * A dated log in `/freya.log` from programs, the shell and the kernel, rotated at 1 MiB ([docs/programs.md](docs/programs.md#the-service-table)).
@@ -110,6 +110,8 @@ writing one.
 | [docs/sd-slot.txt](docs/sd-slot.txt) | SD slot wiring drawings for the Blue Pill and the Black Pill |
 | [docs/building.md](docs/building.md) | toolchain, make targets and variables, flashing, packing a program or a script |
 | [docs/files.md](docs/files.md) | the filesystem, XMODEM, `tools/send.py` and `tools/fremote.py` |
+| [docs/usb.md](docs/usb.md) | USB sticks at `/usb` with `make USB=1`: boards, power, the `usb` command |
+| [docs/audio.md](docs/audio.md) | USB headsets (UAC1) for calls with `make USB=1 AUDIO=1`: the audio calls, buffers, resampling, `audio` |
 | [docs/console-commands.md](docs/console-commands.md) | every console command |
 | [docs/shell.md](docs/shell.md) | the shell language: values, expressions, control, variables, functions |
 | [docs/linux.md](docs/linux.md) | the shell language as a Linux program, `fsh`, and `run()` |

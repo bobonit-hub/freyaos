@@ -10,18 +10,24 @@
  * kernel extension, because the 48 KiB image has no room for it.  On
  * the Blue Pill the extension is the one that is full, so the file
  * stays in the main image.  Either way the call is an ordinary branch.
+ * A build without SD=1 has no card driver, and the domain is unsupported.
  */
 #include "freya.h"
 #include "fat.h"
 
 int board_power(int domain, int on)
 {
+#ifdef FREYA_SD
     int was;
+#endif
 
     if (app_in_handler()) return FREYA_ERR_HANDLER;
     if (domain != FREYA_PWR_SD || (on != 0 && on != 1))
         return FREYA_ERR_ARG;
-
+#ifndef FREYA_SD
+    /* Built without SD=1: the socket is not the kernel's to switch. */
+    return FREYA_ERR_UNSUPPORTED;
+#else
     was = sd_powered() ? 1 : 0;
     if (on == was) return was;
 
@@ -34,4 +40,5 @@ int board_power(int domain, int on)
     }
     sd_power(on);
     return was;
+#endif
 }

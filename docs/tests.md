@@ -18,6 +18,28 @@ rotation of `/freya.log` at 1 MiB via an atomic rename to `/freya.log.old`.
 copies a 40 KB file that `mcopy` wrote, using only Freya calls, and verifies the
 copy is byte identical when read back with mtools.
 
+The USB stick test (`USB=1`) compiles `src/usbmsc.c`, `src/usbvol.c` and
+`src/fat.c` against a simulated stick in place of `src/usbh.c`: it answers
+enumeration, runs Bulk-Only Transport and SCSI over a FAT16 image, and checks
+every data toggle it is sent. The test refuses a keyboard and a 4096 byte
+block stick, mounts the stick at `/usb` beside a FAT32 card image, writes a
+file on each in alternating 100 byte pieces, renames and lists on the stick,
+follows a relative path into it, ejects and mounts it again, and pulls it out
+while mounted. `fsck.vfat` checks both images, and mtools reads back a file
+Freya wrote to the stick.
+
+The USB headset test (`AUDIO=1`) compiles `src/uac.c` and `src/audio.c`
+against a UAC1 configuration descriptor shaped like a common headset's - a
+48 kHz stereo speaker, a 16/48 kHz microphone, a 24-bit setting it must
+skip and a HID interface - and calls the 1 ms interrupt's two entry points a
+simulated millisecond at a time. It checks which setting and rate is chosen
+for 8 and 16 kHz, that the alternate setting and the frequency are set and no
+control transfer happens while streaming, and sends tones through both
+resamplers: the level must come through within 0.2 dB, the speaker's images
+and the microphone's aliases must be more than 55 dB down. Priming,
+underruns, overruns, gain, the calls' refusals and unplugging are checked
+too.
+
 The XMODEM tests drive `src/xmodem.c` with an emulated sender that answers the
 receiver's own handshake: CRC mode and checksum fallback, 128 and 1024 byte
 packets, a packet corrupted in transit and retransmitted, a duplicated packet,

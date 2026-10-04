@@ -38,6 +38,7 @@ static int autorun_args(const char *path, char **argv)
     return argc;
 }
 
+#ifdef FREYA_SD
 #ifdef BOARD_SPIFLASH_OWN_BUS
 static void boot_card(void)
 #else
@@ -80,6 +81,16 @@ static void boot_storage(void)
     spiflash_boot();
 }
 #endif
+#else
+/* Built without SD=1 there is no card to ask, so the SPI flash, on a
+ * board that has one, is the only volume. */
+static void boot_storage(void)
+{
+#ifdef BOARD_SPIFLASH
+    spiflash_boot();
+#endif
+}
+#endif /* FREYA_SD */
 
 #ifndef FREYA_NO_SHELL
 /*
@@ -215,6 +226,9 @@ void freya_main(void)
 #endif
 
     boot_storage();
+#ifdef FREYA_USB
+    (void)usb_attach(1);
+#endif
 #ifdef FREYA_NO_SHELL
     autorun_forever();
 #else

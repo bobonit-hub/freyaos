@@ -68,7 +68,19 @@
  * power switch on PA8.  PC13 is the LED, which a program may drive as a
  * pin or through api->led(). */
 #define BOARD_PIN_PORTS     3                       /* GPIOA, GPIOB, GPIOC */
+#ifdef FREYA_USB
+/* USB=1 also keeps PA11 and PA12, the USB socket's D- and D+. */
+#define BOARD_PIN_RESERVED  { 0x19FCU, 0x0000U, 0x0000U }
+#else
 #define BOARD_PIN_RESERVED  { 0x01FCU, 0x0000U, 0x0000U }
+#endif
+
+/* ------------------------------------------------------------ USB host */
+/* USB=1: OTG_FS as the host, on PA11/PA12 (AF10), the board's
+ * USB socket.  src/usbh.c drives it; board_usb_init() clocks it. */
+#define BOARD_USB_OTG_BASE  0x42040000UL
+#define BOARD_USB_IRQn      73
+#define BOARD_USB_IRQ_HANDLER OTG_FS_IRQHandler
 
 /* ------------------------------------------- timers a program may open */
 /* TIM2..TIM4, all on APB1 and all clocked at twice PCLK1 (160 MHz)

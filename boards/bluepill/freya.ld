@@ -131,6 +131,12 @@ SECTIONS
         *shell.o(.text.cmd_loglevel)
         *shell.o(.rodata.cmd_loglevel*)
         *shell.o(.text.cmd_meminfo)
+        /* df, and its FAT half, which grew when the card became optional.
+         * The image had 80 bytes to spare; the extension has kilobytes. */
+        *shell.o(.text.cmd_df)
+        *shell.o(.text.df_fat)
+        *shell.o(.rodata.cmd_df*)
+        *shell.o(.rodata.df_fat*)
         *xmodem.o(.text .text.*)
         *xmodem.o(.rodata .rodata.*)
         /* The date command and the clock setter beside it.  They

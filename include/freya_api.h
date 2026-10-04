@@ -615,6 +615,43 @@ typedef void (*freya_thread_fn)(void *arg);
 /* A supply the kernel can take away.  FREYA_PWR_SD is the card socket. */
 #define FREYA_PWR_SD         1
 
+/* -------------------------------------------------------------- audio */
+/*
+ * A USB headset (USB Audio Class 1) on the board's USB port, in a kernel
+ * built with AUDIO=1.  The program sees mono 16-bit samples at its own
+ * rate, 16000 (wideband) or 8000 (narrowband), whatever the headset
+ * runs at: a headset at 2, 3 or 6 times that rate is resampled, and a
+ * stereo one is mixed down and fed both channels.  Each direction has a
+ * ring of FREYA_AUDIO_RING samples (64 ms at 16 kHz), filled and drained
+ * by the USB interrupt once a millisecond.  See docs/audio.md.
+ */
+#define FREYA_AUDIO_MIC      1      /* audio_open(): the microphone      */
+#define FREYA_AUDIO_SPK      2      /* audio_open(): the speaker         */
+#define FREYA_AUDIO_RATE     16000  /* the default rate                  */
+#define FREYA_AUDIO_RING     1024   /* samples in each direction         */
+#define FREYA_AUDIO_UNITY    256    /* audio_gain(): x1                  */
+#define FREYA_AUDIO_GAIN_MAX 1024   /* audio_gain(): x4, +12 dB          */
+
+typedef struct {
+    uint32_t rate;          /* the program's rate, 8000 or 16000        */
+    uint32_t mic_rate;      /* the headset's, 0 when not capturing      */
+    uint32_t spk_rate;      /* the headset's, 0 when not playing        */
+    uint8_t  mic_channels;
+    uint8_t  spk_channels;
+    uint8_t  dirs;          /* FREYA_AUDIO_* that are open              */
+    uint8_t  connected;     /* a headset is attached                    */
+    uint16_t mic_avail;     /* samples audio_read() can return now      */
+    uint16_t spk_queued;    /* written, not yet played                  */
+    uint16_t spk_free;      /* what audio_write() can take now          */
+    uint16_t mic_gain;      /* FREYA_AUDIO_UNITY = x1                   */
+    uint16_t spk_gain;
+    uint32_t frames;        /* 1 ms USB frames since audio_open()       */
+    uint32_t underruns;     /* the speaker ran dry and played silence   */
+    uint32_t overruns;      /* microphone samples dropped: ring full    */
+    uint32_t errors;        /* isochronous packets lost or late         */
+    char     name[32];      /* the headset's product string             */
+} freya_audio_status_t;
+
 /* ---------------------------------------------------- PDP-11, 32-bit */
 /*
  * Eight general registers, as on a PDP-11.  R6 is the stack and R7 the
@@ -849,7 +886,8 @@ typedef struct freya_api {
      * unmounts, releases the SPI pins and drops VDD through the
      * board's switch.  On brings VDD back and waits for the rail; the
      * card stays unidentified until the next mount.  A pin or timer
-     * handler is refused. */
+     * handler is refused.  A kernel built without SD=1 has no card
+     * driver and returns FREYA_ERR_UNSUPPORTED. */
     int      (*power)(int domain, int on);
 
     /* appended: one polled, 12-bit ADC conversion.  source is an
@@ -1026,6 +1064,35 @@ typedef struct freya_api {
      * shell's autostart command does. */
     int      (*flash_text_save)(const char *text, int len);
     int      (*autostart_set)(int on);
+
+    /* appended: audio on a USB headset.  audio_open() starts the
+     * directions in dirs (FREYA_AUDIO_MIC, FREYA_AUDIO_SPK or both) at
+     * rate, 8000 or 16000, or 0 for FREYA_AUDIO_RATE.  It returns 0;
+     * FREYA_ERR_ARG for another rate or no direction; FREYA_ERR_BUSY when
+     * audio is already open; FREYA_ERR_IO when there is no headset or it
+     * does not answer; FREYA_ERR_UNSUPPORTED for a kernel without AUDIO=1
+     * or a headset with no 16-bit format at a rate it can be resampled
+     * from.  The kernel closes it when the run ends.
+     *
+     * audio_read() copies up to count microphone samples and returns how
+     * many; audio_write() queues up to count speaker samples and returns
+     * how many it took.  Neither waits: 0 means try again in a
+     * millisecond or two.  The speaker starts once 20 ms are queued, and
+     * plays silence, counting an underrun, when the queue runs dry; it
+     * starts again after the next 20 ms.  Both return FREYA_ERR_IO once
+     * the headset is unplugged, FREYA_ERR_ARG when that direction is not
+     * open.  Both may be called from a pin or timer handler.
+     *
+     * audio_status() fills *st.  audio_gain() scales the directions in
+     * dirs by gain / FREYA_AUDIO_UNITY, 0 (mute) to FREYA_AUDIO_GAIN_MAX,
+     * in software, with saturation; the headset's own volume is left
+     * where it was. */
+    int      (*audio_open)(uint32_t rate, int dirs);
+    int      (*audio_close)(void);
+    int      (*audio_read)(int16_t *buf, int count);
+    int      (*audio_write)(const int16_t *buf, int count);
+    int      (*audio_status)(freya_audio_status_t *st);
+    int      (*audio_gain)(int dirs, int gain);
 } freya_api_t;
 
 /*
