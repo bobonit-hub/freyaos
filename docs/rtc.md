@@ -16,6 +16,7 @@ H7 have in common, run from the 32.768 kHz crystal (LSE):
 | STM32F405xx | `make BOARD=stm32f405 RTC=internal` |
 | STM32U585 | `make BOARD=stm32u585 RTC=internal` |
 | STM32H523 | `make BOARD=stm32h523 RTC=internal` |
+| STM32H562 | `make BOARD=stm32h562 RTC=internal` |
 | STM32H723 | `make BOARD=stm32h723 RTC=internal` |
 
 The Blue Pill and the Black Pill 2 have the F103's RTC, a plain seconds
@@ -61,7 +62,7 @@ otherwise the backup domain is left alone.
 ## Hardware
 
 The crystal goes on PC14/PC15. The WeAct boards here (the Black Pill and
-the U585, H523 and H723 boards) have it fitted; an STM32F405 board may
+the U585, H523, H562 and H723 boards) have it fitted; an STM32F405 board may
 not, and then boot says so and the image runs on as without the option.
 
 The RTC keeps time as long as its backup domain has power. While the
@@ -89,10 +90,11 @@ current into the battery.
 | Black Pill (STM32F411CEU6) | `VB`, at the end of the header row, next to PC13 | any GND pin |
 | STM32U585 | `VB`, at the end of the header row, next to PC13 | any GND pin |
 | STM32H523 | `VB`, at the end of the header row, next to PC13 | any GND pin |
+| STM32H562 | `VB`, pin 1 of header P1, next to PC13 | any GND pin |
 | STM32H723 | `VBAT`, pin 8 of the 2x22 header P2, between PE5 and NRST (net `VBAT_Pin` in the schematic) | any GND pin, such as P2 pin 15 |
 
 The pins are named as in WeAct's schematics (Black Pill V2.0 to V3.1,
-STM32U585Cx, STM32H523CxTx, MiniSTM32H723 V1.2); check the board's own
+STM32U585Cx, STM32H523CxTx, STM32H5 64-pin V1.1, MiniSTM32H723 V1.2); check the board's own
 print before soldering.
 
 1. Take a 3 V lithium coin cell, CR2032 or CR1220, in a holder with

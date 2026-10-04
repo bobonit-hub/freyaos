@@ -4,8 +4,8 @@ Freya is a 32-bit, single-user, text OS for STMicroelectronics
 STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
 metal on the STM32F411CEU6 "Black Pill", the STM32F103C8T6 "Blue Pill",
 the STM32F405xx, the WeAct "Black Pill 2" with Artery's AT32F403ACGU7,
-an STM32F103 at heart with a Cortex-M4F core, WeAct's STM32U585CIU6
-and STM32H523CET6 core boards, both Cortex-M33, and WeAct's
+an STM32F103 at heart with a Cortex-M4F core, WeAct's STM32U585CIU6,
+STM32H523CET6 and STM32H562RGT6 core boards, all Cortex-M33, and WeAct's
 MiniSTM32H723, a Cortex-M7.
 No HAL and no CMSIS: Freya brings the chip up itself. LittleFS, on the SPI flash, is the one vendored library. Freya
 talks to the hardware through its own register definitions, and lives
@@ -51,6 +51,7 @@ freya:
 | Black Pill 2 | AT32F403ACGU7 | Cortex-M4F at 240 MHz | `make BOARD=blackpill2` |
 | STM32U585 | STM32U585CIU6 | Cortex-M33F at 160 MHz | `make BOARD=stm32u585` |
 | STM32H523 | STM32H523CET6 | Cortex-M33F at 250 MHz | `make BOARD=stm32h523` |
+| STM32H562 | STM32H562RGT6 | Cortex-M33F at 250 MHz | `make BOARD=stm32h562` |
 | STM32H723 | STM32H723VGT6 | Cortex-M7F at 520 MHz | `make BOARD=stm32h723` |
 
 Flash, SRAM, program regions, clock trees and memory maps are in
@@ -88,7 +89,7 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 ## Quick start
 
 ```sh
-make BOARD=bluepill                 # or make, BOARD=stm32f405, blackpill2, stm32u585, stm32h523, stm32h723
+make BOARD=bluepill                 # or make, BOARD=stm32f405, blackpill2, stm32u585, stm32h523, stm32h562, stm32h723
 make BOARD=bluepill flash           # st-flash; see docs/building.md for the others
 picocom -b 921600 /dev/ttyUSB0      # the console: PA2 to the adapter's RX, PA3 to its TX
 ```

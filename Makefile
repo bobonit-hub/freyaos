@@ -6,6 +6,7 @@
 #   make BOARD=blackpill2   build for the AT32F403ACGU7 "Black Pill 2"
 #   make BOARD=stm32u585    build for the WeAct STM32U585CIU6 core board
 #   make BOARD=stm32h523    build for the WeAct STM32H523CET6 core board
+#   make BOARD=stm32h562    build for the WeAct STM32H5 64-pin board (STM32H562RGT6)
 #   make BOARD=stm32h723    build for the WeAct MiniSTM32H723 (STM32H723VGT6)
 #   make rust               build the Rust samples (needs cargo; see rust/README.md)
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)

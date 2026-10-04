@@ -164,6 +164,8 @@ second pin on the same timer has to ask for the frequency that is already
 running, or it is refused with `FREYA_ERR_BUSY`. `pwm_freq()` changes it for
 every channel of that timer at once, each keeping the duty cycle it was given.
 PB6 and PB9 therefore always share a frequency; PB6 and PB0 never do.
+The STM32H562 has no PB9: PB5 takes its place as TIM3 CH2, so there it
+shares PB0's and PB1's frequency instead.
 
 ### Frequency, and what it costs in resolution
 

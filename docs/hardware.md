@@ -51,6 +51,9 @@ The STM32H723 board is wired differently: its own microSD slot, driven in
 SPI mode on the SDMMC1 pins, and its own 8 MiB SPI NOR on SPI1 with a
 chip select of its own, mounted at `/spi1` beside the card. Its pins are
 in [boards.md](boards.md#stm32h723-weact-ministm32h723-stm32h723vgt6).
+The STM32H562 board drives its microSD slot the same way, on the same
+pins, and has no SPI flash
+([boards.md](boards.md#stm32h562-weact-stm32h5-64-pin-core-board-stm32h562rgt6)).
 
 ## Reserved pins
 
@@ -58,12 +61,15 @@ Freya keeps seven pins: PA2 and PA3 for the console, PA4 to PA7 for the
 card, and PA8 for its supply. Every other pin of ports A, B and C is a
 program's to drive or take interrupts on. The STM32H723 board keeps PA2
 and PA3, PC8 to PC12 and PD2 for the card, and PB3, PB4, PD6 and PD7 for
-the SPI flash, and gives programs ports A to E.
+the SPI flash, and gives programs ports A to E. The STM32H562 board keeps
+PA2 and PA3, and PC8 to PC12 and PD2 for the card, and gives programs
+ports A to D.
 
 ## PWM
 
 Eight of the spare pins — PA0, PA1, PB0, PB1 and PB6 to PB9, the same on
-every board — have a timer channel behind them and can be driven as PWM.
+every board but the STM32H562, which has PB5 in place of PB9 — have a
+timer channel behind them and can be driven as PWM.
 [interrupts.md](interrupts.md) has which timer and channel each one is.
 
 ## I2C
@@ -74,10 +80,11 @@ slower when a microsecond cannot land on it.
 
 I2C uses two more of the spare pins, and one pair that is not. Bus 1 is PB6
 (SCL) and PB7 (SDA) on every board. Bus 2 is PB10/PB11 on the Blue Pill, the
-Black Pill 2, the STM32F405xx and the STM32H723, and PB10/PB9 on the Black Pill, the
-STM32U585 and the STM32H523, which have no PB11. Both lines are open drain and need a pull-up to 3.3 V; 4.7 kΩ is the
-usual value. The Black Pill, the STM32F405xx, the STM32U585, the STM32H523 and
-the STM32H723 also turn on the pin's own weak pull-up; the Blue Pill and the Black Pill 2 cannot, so the resistors are required there. A
+Black Pill 2, the STM32F405xx and the STM32H723, PB10/PB9 on the Black Pill, the
+STM32U585 and the STM32H523, which have no PB11, and PB10/PB3 on the
+STM32H562, which has neither. Both lines are open drain and need a pull-up to 3.3 V; 4.7 kΩ is the
+usual value. The Black Pill, the STM32F405xx, the STM32U585, the STM32H523,
+the STM32H562 and the STM32H723 also turn on the pin's own weak pull-up; the Blue Pill and the Black Pill 2 cannot, so the resistors are required there. A
 pin that is already a PWM output is not also an I2C pin until that channel is
 turned off. `i2c 1 scan` at the console and `samples/i2c` do the same thing;
 [i2c.md](i2c.md) is the reference.
@@ -102,7 +109,7 @@ cut; where that pin is on each board, and which cells to use, is in
 1-Wire runs at standard speed on any spare pin: presence, byte reads and
 writes, and the ROM search. It uses one spare pin, open drain, with a pull-up
 to 3.3 V. 4.7 kΩ is the usual value. The Black Pill, the STM32F405xx, the
-STM32U585, the STM32H523 and the STM32H723 also turn on the pin's own
+STM32U585, the STM32H523, the STM32H562 and the STM32H723 also turn on the pin's own
 weak pull-up; the Blue Pill and the
 Black Pill 2 cannot, so the resistor is required there. A
 pin that is already a PWM output or an I2C line is not also a 1-Wire pin

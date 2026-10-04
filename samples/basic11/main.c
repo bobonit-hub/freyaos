@@ -7,7 +7,8 @@
  * virtual machine, built with arm-none-eabi-gcc for the Cortex-M4F, the
  * Cortex-M33 and the Cortex-M3.  Its numbers are single-precision floats
  * (basic/fpnat.c): the FPU's on the Black Pill, the STM32F405, the Black
- * Pill 2, the STM32U585, the STM32H523 and the STM32H723, and on the Blue
+ * Pill 2, the STM32U585, the STM32H523, the STM32H562 and the STM32H723,
+ * and on the Blue
  * Pill, whose Cortex-M3 has no floating point, the soft-float helpers of
  * src/softfp.c, which the Makefile links into every program there.
  *

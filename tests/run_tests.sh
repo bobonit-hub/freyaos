@@ -257,7 +257,7 @@ done
 echo
 echo "================= calendar RTC ================="
 # Optional too, and only for the boards whose chip has the calendar RTC.
-for b in blackpill stm32f405 stm32u585 stm32h523 stm32h723; do
+for b in blackpill stm32f405 stm32u585 stm32h523 stm32h562 stm32h723; do
     bdef="-DFREYA_BOARD_$(echo "$b" | tr '[:lower:]' '[:upper:]')"
     # shellcheck disable=SC2086
     $CC -std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
@@ -511,13 +511,14 @@ else
     # sector, so the extension's end is the end of flash.
     # Black Pill 2: kernel, settings in a page of their own, extension in
     # the zero wait state flash, program to the end of flash.
-    # STM32U585 and STM32H523: the Black Pill 2's order, in 8 KiB pages,
-    # to the end of 2 MiB and of 512 KiB.
+    # STM32U585, STM32H523 and STM32H562: the Black Pill 2's order, in
+    # 8 KiB pages, to the end of 2 MiB, of 512 KiB and of 1 MiB.
     case "$BOARD" in
         bluepill)  flash_end=$((0x08020000)) ;;
         blackpill) flash_end=$((0x08080000)) ;;
         stm32u585) flash_end=$((0x08200000)) ;;
         stm32h523) flash_end=$((0x08080000)) ;;
+        stm32h562) flash_end=$((0x08100000)) ;;
         stm32h723) flash_end=$((0x08100000)) ;;
         *)         flash_end=$((0x08100000)) ;;
     esac
@@ -558,7 +559,8 @@ else
               "$(sym "$kelf" __kext_start)" "$(sym "$kelf" __app_flash_end)"
         check "the kernel extension is the last 128 KiB sector" \
               "$(( flash_end - 0x20000 ))" "$(sym "$kelf" __kext_start)"
-    elif [ "$BOARD" = stm32u585 ] || [ "$BOARD" = stm32h523 ]; then
+    elif [ "$BOARD" = stm32u585 ] || [ "$BOARD" = stm32h523 ] ||
+         [ "$BOARD" = stm32h562 ]; then
         check "system settings start the 8 KiB page after the kernel" \
               "$((0x0800C000))" "$(macro settings_addr)"
         check "the kernel extension starts after the settings page" \

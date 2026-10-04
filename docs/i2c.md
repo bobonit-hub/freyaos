@@ -63,6 +63,9 @@ the image that is running.
 | bus 1, SCL / SDA | PB6 / PB7 | PB6 / PB7 | PB6 / PB7 |
 | bus 2, SCL / SDA | PB10 / PB9 | PB10 / PB11 | PB10 / PB11 |
 
+The STM32H562 has neither PB9 nor PB11, both VCAP pads on that chip, so
+its bus 2 is PB10 / PB3.
+
 PB6 and PB7 are also PWM pins, and on the Black Pill so is PB9. A pin can be
 one of those at a time: opening I2C while PWM still drives it, or while the
 pin is an SPI or 1-Wire bus, or the other way round, returns `FREYA_ERR_BUSY`.

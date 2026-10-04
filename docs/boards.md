@@ -1,6 +1,6 @@
 # Boards
 
-Freya runs on seven boards. This page is everything that differs between
+Freya runs on eight boards. This page is everything that differs between
 them: the parts, the clock trees, the console and card clocks, and the flash
 and RAM maps. It starts with a comparison table and the parts every board
 shares, then gives each board a section of its own. The wiring that is the
@@ -8,21 +8,21 @@ same on every board is in [hardware.md](hardware.md).
 
 ## Comparison
 
-|  | Black Pill | Blue Pill | STM32F405xx | Black Pill 2 | STM32U585 | STM32H523 | STM32H723 |
-|---|---|---|---|---|---|---|---|
-| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx | AT32F403ACGU7 | STM32U585CIU6 | STM32H523CET6 | STM32H723VGT6 |
-| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz | Cortex-M33F at 160 MHz | Cortex-M33F at 250 MHz | Cortex-M7F at 520 MHz |
-| Crystal | 25 MHz | 8 MHz | 8 MHz | 8 MHz | 25 MHz | 8 MHz | 25 MHz |
-| Flash | 512 KiB | 128 KiB | 1 MiB | 1 MiB | 2 MiB | 512 KiB | 1 MiB |
-| SRAM | 128 KiB | 20 KiB | 128 KiB | 96 KiB | 768 KiB | 272 KiB | 564 KiB (320 KiB used) |
-| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash | 168 KiB RAM, or 320 KiB flash | 216 KiB RAM, or 640 KiB flash |
-| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=blackpill2` | `make BOARD=stm32u585` | `make BOARD=stm32h523` | `make BOARD=stm32h723` |
-| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 | 141 at 130 MHz APB1 |
-| Console rate | 923077 baud | 923077 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 921986 baud |
-| SD identification clock | 375 kHz | 281 kHz | 328 kHz | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged |
-| SD data clock | 12 MHz | 9 MHz | 10.5 MHz | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured |
-| SPI flash volume (`/spi1`) | yes | no | no | no | yes | yes | yes, beside the card |
-| Calendar RTC (`RTC=internal`, [rtc.md](rtc.md)) | yes | no | yes | no | yes | yes | yes |
+|  | Black Pill | Blue Pill | STM32F405xx | Black Pill 2 | STM32U585 | STM32H523 | STM32H562 | STM32H723 |
+|---|---|---|---|---|---|---|---|---|
+| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx | AT32F403ACGU7 | STM32U585CIU6 | STM32H523CET6 | STM32H562RGT6 | STM32H723VGT6 |
+| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz | Cortex-M33F at 160 MHz | Cortex-M33F at 250 MHz | Cortex-M33F at 250 MHz | Cortex-M7F at 520 MHz |
+| Crystal | 25 MHz | 8 MHz | 8 MHz | 8 MHz | 25 MHz | 8 MHz | 8 MHz | 25 MHz |
+| Flash | 512 KiB | 128 KiB | 1 MiB | 1 MiB | 2 MiB | 512 KiB | 1 MiB | 1 MiB |
+| SRAM | 128 KiB | 20 KiB | 128 KiB | 96 KiB | 768 KiB | 272 KiB | 640 KiB | 564 KiB (320 KiB used) |
+| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash | 168 KiB RAM, or 320 KiB flash | 504 KiB RAM, or 832 KiB flash | 216 KiB RAM, or 640 KiB flash |
+| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=blackpill2` | `make BOARD=stm32u585` | `make BOARD=stm32h523` | `make BOARD=stm32h562` | `make BOARD=stm32h723` |
+| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 | 271 at 250 MHz APB1 | 141 at 130 MHz APB1 |
+| Console rate | 923077 baud | 923077 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 922509 baud | 921986 baud |
+| SD identification clock | 375 kHz | 281 kHz | 328 kHz | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged |
+| SD data clock | 12 MHz | 9 MHz | 10.5 MHz | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured |
+| SPI flash volume (`/spi1`) | yes | no | no | no | yes | yes | no | yes, beside the card |
+| Calendar RTC (`RTC=internal`, [rtc.md](rtc.md)) | yes | no | yes | no | yes | yes | yes | yes |
 
 ## What a board is
 
@@ -49,8 +49,8 @@ The console runs at 921600 baud on every board (why that rate is in
 [hardware.md](hardware.md#console)). No board divides it exactly: USARTDIV
 rounds to the value in the table above against that board's APB1. The
 Black Pill, the Blue Pill and the Black Pill 2 land on 923077 baud, 0.16%
-fast; the STM32H723 on 921986, 0.04% fast; the STM32H523 on 922509, 0.10%
-fast; the STM32U585 on 919540,
+fast; the STM32H723 on 921986, 0.04% fast; the STM32H523 and the STM32H562
+on 922509, 0.10% fast; the STM32U585 on 919540,
 0.22% slow; the STM32F405 on 913043, 0.93% slow. All of them are far inside what 8N1 tolerates. If the
 adapter is a faster one, the rate is `uart_init()` in `src/main.c` and the
 `BOARD_CONSOLE_NAME` string.
@@ -390,6 +390,96 @@ RAM — SRAM1, SRAM2 and SRAM3 are one block, in the Black Pill's shape:
 ```
 
 A BusFault ram dump is 272 KiB.
+
+## STM32H562 (WeAct STM32H5 64-pin core board, STM32H562RGT6)
+
+Build with `make BOARD=stm32h562`.
+
+The board is WeAct's
+[STM32H5 64-pin core board](https://github.com/WeActStudio/WeActStudio.STM32H5_64Pin_CoreBoard)
+with the STM32H562RGT6 fitted: a Cortex-M33 with an FPU at 250 MHz, 1 MiB
+of flash and 640 KiB of SRAM in an LQFP64, an 8 MHz crystal, a 32.768 kHz
+crystal, the LED on PB2 (active high), KEY on PC13 (high when pressed) and
+a microSD slot. There is no SPI NOR footprint, so there is no `/spi1`.
+The same board is sold with an STM32H503 and with F4 parts; the H562 spends
+the pads the F4s call PB9 and PB11 on its VCAP capacitors, so neither pin
+exists here. Freya runs it with TrustZone off, which is how the chip ships.
+
+The chip is the STM32H523's sibling under the same reference manual
+(RM0481), and `boards/stm32h562` is `boards/stm32h523` with the H562's
+memory, the card and port D: the same clock tree, power controller, ADC,
+flash controller and vector table, and the same USART, FIFO SPI, EXTI and
+GPDMA paths in `src/`. It builds everything the STM32H523 does.
+
+The card: the slot is the MiniSTM32H723's, wired to SDMMC1 on the same
+pins, and driven the same way, in SPI mode by hand: CS on DAT3 (PC11), SCK
+on CLK (PC12), MOSI on CMD (PD2), MISO on DAT0 (PC8) (`BOARD_SD_BITBANG`;
+`sdspi_*()` are in `boards/stm32h562/board.c`). Identification runs at
+about 250 kHz, and data as fast as the pins toggle. The slot has no supply
+switch: `power sd off` unmounts and lets go of the pins, and the card stays
+powered. Freya keeps PA2, PA3, PC8 to PC12 and PD2; PA4 to PA8, the card's
+pins on the Black Pill, are a program's here. SPI1 is unused.
+
+Pins for programs: ports A to D (port D is PD2 alone). PWM is the Black
+Pill's eight pins with PB5 (TIM3 CH2) in place of PB9, and I2C bus 2 is
+PB10/PB3, because PB9 and PB11 are gone. SPI2 on PB13 to PB15, the
+ESP32-C6 link on PB10/PB12, the ADC channels and every alternate function
+are the STM32H523's.
+
+Clock tree: as on the STM32H523, an 8 MHz crystal → PLL1 (M=4, N=250) →
+500 MHz VCO, P=2 → 250 MHz SYSCLK with every APB bus at 250 MHz, Q=5 →
+100 MHz for SPI2; voltage scale 0, 5 flash wait states, the longer
+programming delay, prefetch and the instruction cache on. Without the
+crystal, HSI 32 MHz with M=16 gives the same 250 MHz.
+
+Console: USARTDIV rounds to 271 against the 250 MHz APB1, 0.10% fast. The
+ESP32-C6 link runs SPI2 at 12.5 MHz through GPDMA1 channels 0 and 1.
+
+Limits that follow from the clocks: the timers count at 250 MHz, so the
+longest timer period is 17.1 s. A program's SPI2 runs from 100 MHz, so its
+slowest rate is 390.6 kHz.
+
+Programming: `make flash` uses st-flash and updates the settings in their
+8 KiB sector; `make bootloader` is USB DFU through the board's USB-C socket
+(hold BOOT0, tap NRST), and `make BOARD=stm32h562 dfu` packs a DfuSe file
+for it (`0483:df11`). `make openocd` uses `target/stm32h5x.cfg`, which
+OpenOCD 0.12 does not ship. Rust programs need the
+`thumbv8m.main-none-eabihf` target.
+
+Flash — 8 KiB sectors, two banks of 512 KiB, programmed 16 bytes at a time;
+the STM32H523's map in 1 MiB:
+
+```
+0x08000000  +--------------------------------+
+            |  Freya kernel                  |  48 KiB, sectors 0..5
+0x0800C000  +--------------------------------+
+            |  system settings               |  1 KiB, a sector of their own
+0x0800C400  +--------------------------------+
+            |  unused                        |
+0x08010000  +--------------------------------+
+            |  kernel extension              |  128 KiB
+0x08030000  +--------------------------------+
+            |  program flash region          |  832 KiB, bank 2 from
+0x08100000  +--------------------------------+  0x08080000
+```
+
+RAM — SRAM1, SRAM2 and SRAM3 are one block, in the STM32U585's shape:
+
+```
+0x20000000  +--------------------------------+
+            |  .data + .bss + system heap    |  124 KiB
+0x2001F000  +--------------------------------+
+            |  thread stacks, 4 x 1 KiB      |
+0x20020000  +--------------------------------+
+            |  user program region (504 KiB) |  image + .bss, loaded from
+0x2009E000  +--------------------------------+  card, or just .data + .bss
+            |  shell stack (6 KiB)           |  the program's main thread
+0x2009F800  +--------------------------------+
+            |  interrupt stack (2 KiB)       |
+0x200A0000  +--------------------------------+
+```
+
+A BusFault ram dump is 640 KiB.
 
 ## STM32H723 (WeAct MiniSTM32H723, STM32H723VGT6)
 

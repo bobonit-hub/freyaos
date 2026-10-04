@@ -35,7 +35,7 @@
 #if !defined(FREYA_BOARD_BLUEPILL) && !defined(FREYA_BOARD_BLACKPILL) && \
     !defined(FREYA_BOARD_STM32F405) && !defined(FREYA_BOARD_BLACKPILL2) && \
     !defined(FREYA_BOARD_STM32U585) && !defined(FREYA_BOARD_STM32H523) && \
-    !defined(FREYA_BOARD_STM32H723)
+    !defined(FREYA_BOARD_STM32H562) && !defined(FREYA_BOARD_STM32H723)
 #error "flashprobe drives the flash controller itself and needs a board it knows"
 #endif
 
@@ -50,7 +50,7 @@
  * and the H7 a 32-byte flash word and 128 KiB sectors, each through its
  * own registers, so the three share a path as well. */
 #if defined(FREYA_BOARD_STM32U585) || defined(FREYA_BOARD_STM32H523) || \
-    defined(FREYA_BOARD_STM32H723)
+    defined(FREYA_BOARD_STM32H562) || defined(FREYA_BOARD_STM32H723)
 #define FLASH_QUAD      1
 #else
 #define FLASH_QUAD      0
@@ -250,12 +250,19 @@ static const char *err_str(uint32_t bits)
 
 #endif /* FREYA_BOARD_STM32U585 */
 
-/* ================================================ the STM32H523 === */
-#if defined(FREYA_BOARD_STM32H523)
+/* ======================================= the STM32H523 and H562 === */
+#if defined(FREYA_BOARD_STM32H523) || defined(FREYA_BOARD_STM32H562)
 
+#if defined(FREYA_BOARD_STM32H562)
+#define MCU_NAME        "STM32H562"
+#define DECLARED_KIB    1024u
+#define BANK_BYTES      0x80000UL           /* two banks of 512 KiB        */
+#else
 #define MCU_NAME        "STM32H523"
-#define FLASHSIZE_REG   (*(const volatile uint16_t *)0x08FFF80CUL)
 #define DECLARED_KIB    512u
+#define BANK_BYTES      0x40000UL           /* two banks of 256 KiB        */
+#endif
+#define FLASHSIZE_REG   (*(const volatile uint16_t *)0x08FFF80CUL)
 #define SPIN_LIMIT      50000000UL          /* a sector erase is milliseconds */
 
 /* The H5's controller: the non-secure key, status and control registers
@@ -278,7 +285,6 @@ typedef struct {
 } h5_flash_regs_t;
 
 #define FL              ((h5_flash_regs_t *)0x40022000UL)
-#define BANK_BYTES      0x40000UL           /* two banks of 256 KiB        */
 #define FL_CLEAR(bits)  (FL->CCR = (bits))
 
 /* Busy while the controller works or still holds data to write. */
@@ -314,7 +320,7 @@ static const char *err_str(uint32_t bits)
     return "no error reported";
 }
 
-#endif /* FREYA_BOARD_STM32H523 */
+#endif /* FREYA_BOARD_STM32H523, FREYA_BOARD_STM32H562 */
 
 /* ================================================ the STM32H723 === */
 #if defined(FREYA_BOARD_STM32H723)
@@ -382,7 +388,8 @@ static const char *err_str(uint32_t bits)
 
 #endif /* FREYA_BOARD_STM32H723 */
 
-#if defined(FREYA_BOARD_STM32U585) || defined(FREYA_BOARD_STM32H523)
+#if defined(FREYA_BOARD_STM32U585) || defined(FREYA_BOARD_STM32H523) || \
+    defined(FREYA_BOARD_STM32H562)
 /* 8 KiB units, in two banks. */
 static uint32_t unit_size(uint32_t addr)  { (void)addr; return 8192u; }
 static uint32_t unit_base(uint32_t addr)  { return addr & ~8191UL; }

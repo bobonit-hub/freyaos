@@ -10,7 +10,7 @@ host tools.
 | `boards/<board>/app_flash.ld` | the second program linker script: code in flash, data in RAM |
 | `src/system.c` | SysTick, reset cause, delays, software clock |
 | `src/uart.c` | USART2 console, interrupt driven receive; the older SR/DR USART and the U5's and H5's ISR/RDR/TDR one (`BOARD_USART_ISR`) |
-| `src/spi.c`, `src/sd.c`, `src/spiflash.c` | SPI1 for the card and the SPI flash (`BOARD_SPIFLASH`), and SPI master for a program; the F4's SPI and the U5's and H5's FIFO SPI (`BOARD_SPI_FIFO`), which may run from a kernel clock of its own (`BOARD_SPI_KERNEL_HZ`); on a board that drives its card itself (`BOARD_SD_BITBANG`), SPI1 is the SPI flash's alone (`flspi_*()`) |
+| `src/spi.c`, `src/sd.c`, `src/spiflash.c` | SPI1 for the card and the SPI flash (`BOARD_SPIFLASH`), and SPI master for a program; the F4's SPI and the U5's and H5's FIFO SPI (`BOARD_SPI_FIFO`), which may run from a kernel clock of its own (`BOARD_SPI_KERNEL_HZ`); on a board that drives its card itself (`BOARD_SD_BITBANG`), SPI1 is the SPI flash's alone (`flspi_*()`), or nobody's when there is none |
 | `src/gpio.c` | pins a program may drive, and the sixteen EXTI interrupt lines, shared or one interrupt each (`BOARD_EXTI_SPLIT`) |
 | `src/timer.c` | the general purpose timers and their interrupts |
 | `src/pwm.c` | the compare channels of those timers, driving pins |

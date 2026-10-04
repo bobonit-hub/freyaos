@@ -66,10 +66,12 @@ void spififo_setup(SPI_TypeDef *regs, uint32_t br, int mode)
 #endif
 
 /* ------------------------------------------------------- the SD card */
-#ifdef BOARD_SD_BITBANG
 /* A board whose card is not on a SPI peripheral drives it itself
  * (sdspi_*() in its board.c).  SPI1 then serves the SPI flash alone, and
- * the functions below take the flspi_*() names and its chip select. */
+ * the functions below take the flspi_*() names and its chip select; with
+ * no SPI flash either, SPI1 is nobody's and none of this is built. */
+#if !defined(BOARD_SD_BITBANG) || defined(BOARD_SPIFLASH)
+#ifdef BOARD_SD_BITBANG
 #define sdspi_init      flspi_init
 #define sdspi_set_speed flspi_set_speed
 #define sdspi_cs        flspi_cs
@@ -141,6 +143,7 @@ void sdspi_read(uint8_t *buf, uint32_t len)
 {
     while (len--) *buf++ = sdspi_xfer(0xFF);
 }
+#endif /* SPI1 for the card or the SPI flash */
 
 #ifndef BOARD_SD_BITBANG
 /* Drop the bus before the socket loses VDD.  A pin left driving, or a

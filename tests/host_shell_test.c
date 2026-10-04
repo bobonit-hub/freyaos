@@ -885,7 +885,8 @@ static void plant_mmio(void)
     SCB->CPUID =
 #if defined(FREYA_BOARD_BLUEPILL)
         0x410FC231UL;
-#elif defined(FREYA_BOARD_STM32U585) || defined(FREYA_BOARD_STM32H523)
+#elif defined(FREYA_BOARD_STM32U585) || defined(FREYA_BOARD_STM32H523) || \
+      defined(FREYA_BOARD_STM32H562)
         0x410FD214UL;
 #elif defined(FREYA_BOARD_STM32H723)
         0x411FC272UL;
@@ -901,6 +902,8 @@ static void plant_mmio(void)
 #elif defined(FREYA_BOARD_STM32U585)
     DBGMCU_IDCODE = 0x20016482UL;
 #elif defined(FREYA_BOARD_STM32H523)
+    DBGMCU_IDCODE = 0x10016484UL;
+#elif defined(FREYA_BOARD_STM32H562)
     DBGMCU_IDCODE = 0x10016484UL;
 #elif defined(FREYA_BOARD_STM32H723)
     DBGMCU_IDCODE = 0x10036483UL;
@@ -919,6 +922,8 @@ static void plant_mmio(void)
         2048;
 #elif defined(FREYA_BOARD_STM32H523)
         512;
+#elif defined(FREYA_BOARD_STM32H562)
+        1024;
 #elif defined(FREYA_BOARD_STM32H723)
         1024;
 #else
@@ -1057,7 +1062,7 @@ int main(void)
     g_clocks.hclk_hz = 520000000;
     g_clocks.pclk1_hz = 130000000;
     g_clocks.pclk2_hz = 130000000;
-#elif defined(FREYA_BOARD_STM32H523)
+#elif defined(FREYA_BOARD_STM32H523) || defined(FREYA_BOARD_STM32H562)
     g_clocks.sysclk_hz = 250000000;
     g_clocks.hclk_hz = 250000000;
     g_clocks.pclk1_hz = 250000000;
@@ -1270,6 +1275,12 @@ int main(void)
     expect_has("sysinfo reads the CPUID", "410fd214");
     expect_has("sysinfo reads the device id", "0x484");
     expect_has("sysinfo reads the flash size", "512 KiB internal");
+    expect_has("sysinfo reports the clock", "250000000 Hz");
+#elif defined(FREYA_BOARD_STM32H562)
+    expect_has("sysinfo names the board", "STM32H562RGT6");
+    expect_has("sysinfo reads the CPUID", "410fd214");
+    expect_has("sysinfo reads the device id", "0x484");
+    expect_has("sysinfo reads the flash size", "1024 KiB internal");
     expect_has("sysinfo reports the clock", "250000000 Hz");
 #elif defined(FREYA_BOARD_STM32U585)
     expect_has("sysinfo names the board", "STM32U585CIU6");
