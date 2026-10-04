@@ -559,7 +559,9 @@ static int is_flash_path(const char *p)
  * 128.  A larger report (the Black Pill's 512) is kept. */
 static uint32_t mcu_flash_kib(void)
 {
-#ifdef FREYA_HOST
+#if defined(FREYA_HOST) || defined(BOARD_FLASH_FIXED)
+    /* A board whose chip is not known to fill the size register in
+     * ST's way says so, and is taken at its board header's word. */
     return BOARD_FLASH_KIB;
 #else
     uint32_t kib = *(volatile uint16_t *)FLASHSIZE_BASE;

@@ -18,6 +18,7 @@ make                   # Black Pill kernel image + example programs
 make BOARD=bluepill    # the same for the Blue Pill
 make BOARD=stm32f405   # the same for the STM32F405xx
 make BOARD=weact_f405  # the same for the WeAct STM32F4 64-pin board (F405RGT6)
+make BOARD=apm32f407   # the same for an APM32F407ZGT6 board (LED on PF9)
 make BOARD=blackpill2  # the same for the Black Pill 2
 make BOARD=stm32u585   # the same for the WeAct STM32U585CIU6 board
 make BOARD=stm32h523   # the same for the WeAct STM32H523CET6 board

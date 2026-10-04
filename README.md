@@ -51,6 +51,7 @@ freya:
 | Blue Pill | STM32F103C8T6 | Cortex-M3 at 72 MHz | `make BOARD=bluepill` |
 | STM32F405xx | STM32F405xx | Cortex-M4F at 168 MHz | `make BOARD=stm32f405` |
 | WeAct STM32F4 64-pin | STM32F405RGT6 | Cortex-M4F at 168 MHz | `make BOARD=weact_f405` |
+| APM32F407ZGT6 board | APM32F407ZGT6 | Cortex-M4F at 168 MHz | `make BOARD=apm32f407` |
 | Black Pill 2 | AT32F403ACGU7 | Cortex-M4F at 240 MHz | `make BOARD=blackpill2` |
 | STM32U585 | STM32U585CIU6 | Cortex-M33F at 160 MHz | `make BOARD=stm32u585` |
 | STM32H523 | STM32H523CET6 | Cortex-M33F at 250 MHz | `make BOARD=stm32h523` |
@@ -92,7 +93,7 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 ## Quick start
 
 ```sh
-make BOARD=bluepill                 # or make, BOARD=stm32f405, weact_f405, blackpill2, stm32u585, stm32h523, stm32h562, stm32h723
+make BOARD=bluepill                 # or make, BOARD=stm32f405, weact_f405, apm32f407, blackpill2, stm32u585, stm32h523, stm32h562, stm32h723
 make BOARD=bluepill flash           # st-flash; see docs/building.md for the others
 picocom -b 921600 /dev/ttyUSB0      # the console: PA2 to the adapter's RX, PA3 to its TX
 ```

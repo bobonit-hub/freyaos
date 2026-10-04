@@ -1,6 +1,6 @@
 # Boards
 
-Freya runs on eight boards. This page is everything that differs between
+Freya runs on ten boards. This page is everything that differs between
 them: the parts, the clock trees, the console and card clocks, and the flash
 and RAM maps. It starts with a comparison table and the parts every board
 shares, then gives each board a section of its own. The wiring that is the
@@ -8,21 +8,21 @@ same on every board is in [hardware.md](hardware.md).
 
 ## Comparison
 
-|  | Black Pill | Blue Pill | STM32F405xx | WeAct F405 64-pin | Black Pill 2 | STM32U585 | STM32H523 | STM32H562 | STM32H723 |
-|---|---|---|---|---|---|---|---|---|---|
-| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx | STM32F405RGT6 | AT32F403ACGU7 | STM32U585CIU6 | STM32H523CET6 | STM32H562RGT6 | STM32H723VGT6 |
-| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz | Cortex-M33F at 160 MHz | Cortex-M33F at 250 MHz | Cortex-M33F at 250 MHz | Cortex-M7F at 520 MHz |
-| Crystal | 25 MHz | 8 MHz | 8 MHz | 8 MHz | 8 MHz | 25 MHz | 8 MHz | 8 MHz | 25 MHz |
-| Flash | 512 KiB | 128 KiB | 1 MiB | 1 MiB | 1 MiB | 2 MiB | 512 KiB | 1 MiB | 1 MiB |
-| SRAM | 128 KiB | 20 KiB | 128 KiB | 128 KiB | 96 KiB | 768 KiB | 272 KiB | 640 KiB | 564 KiB (320 KiB used) |
-| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash | 168 KiB RAM, or 320 KiB flash | 504 KiB RAM, or 832 KiB flash | 216 KiB RAM, or 640 KiB flash |
-| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=weact_f405` | `make BOARD=blackpill2` | `make BOARD=stm32u585` | `make BOARD=stm32h523` | `make BOARD=stm32h562` | `make BOARD=stm32h723` |
-| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 | 271 at 250 MHz APB1 | 141 at 130 MHz APB1 |
-| Console rate | 923077 baud | 923077 baud | 913043 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 922509 baud | 921986 baud |
-| SD identification clock | 375 kHz | 281 kHz | 328 kHz | about 250 kHz, bit-banged | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged |
-| SD data clock | 12 MHz | 9 MHz | 10.5 MHz | bit-banged, unmeasured | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured |
-| SPI flash volume (`/spi1`) | yes | no | no | no | no | yes | yes | no | yes, beside the card |
-| Calendar RTC (`RTC=internal`, [rtc.md](rtc.md)) | yes | no | yes | yes | no | yes | yes | yes | yes |
+|  | Black Pill | Blue Pill | STM32F405xx | WeAct F405 64-pin | APM32F407ZGT6 board | Black Pill 2 | STM32U585 | STM32H523 | STM32H562 | STM32H723 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx | STM32F405RGT6 | APM32F407ZGT6 | AT32F403ACGU7 | STM32U585CIU6 | STM32H523CET6 | STM32H562RGT6 | STM32H723VGT6 |
+| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz | Cortex-M33F at 160 MHz | Cortex-M33F at 250 MHz | Cortex-M33F at 250 MHz | Cortex-M7F at 520 MHz |
+| Crystal | 25 MHz | 8 MHz | 8 MHz | 8 MHz | 8 MHz | 8 MHz | 25 MHz | 8 MHz | 8 MHz | 25 MHz |
+| Flash | 512 KiB | 128 KiB | 1 MiB | 1 MiB | 1 MiB | 1 MiB | 2 MiB | 512 KiB | 1 MiB | 1 MiB |
+| SRAM | 128 KiB | 20 KiB | 128 KiB | 128 KiB | 128 KiB (+ 64 KiB CCM, unused) | 96 KiB | 768 KiB | 272 KiB | 640 KiB | 564 KiB (320 KiB used) |
+| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 56 KiB RAM, or 832 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash | 168 KiB RAM, or 320 KiB flash | 504 KiB RAM, or 832 KiB flash | 216 KiB RAM, or 640 KiB flash |
+| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=weact_f405` | `make BOARD=apm32f407` | `make BOARD=blackpill2` | `make BOARD=stm32u585` | `make BOARD=stm32h523` | `make BOARD=stm32h562` | `make BOARD=stm32h723` |
+| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 46 at 42 MHz APB1 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 | 271 at 250 MHz APB1 | 141 at 130 MHz APB1 |
+| Console rate | 923077 baud | 923077 baud | 913043 baud | 913043 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 922509 baud | 921986 baud |
+| SD identification clock | 375 kHz | 281 kHz | 328 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged |
+| SD data clock | 12 MHz | 9 MHz | 10.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured |
+| SPI flash volume (`/spi1`) | yes | no | no | no | no | no | yes | yes | no | yes, beside the card |
+| Calendar RTC (`RTC=internal`, [rtc.md](rtc.md)) | yes | no | yes | yes | yes, with the 32.768 kHz crystal fitted | no | yes | yes | yes | yes |
 
 ## What a board is
 
@@ -51,7 +51,8 @@ rounds to the value in the table above against that board's APB1. The
 Black Pill, the Blue Pill and the Black Pill 2 land on 923077 baud, 0.16%
 fast; the STM32H723 on 921986, 0.04% fast; the STM32H523 and the STM32H562
 on 922509, 0.10% fast; the STM32U585 on 919540,
-0.22% slow; the STM32F405 on 913043, 0.93% slow. All of them are far inside what 8N1 tolerates. If the
+0.22% slow; the STM32F405, the WeAct F405 board and the APM32F407 board
+on 913043, 0.93% slow. All of them are far inside what 8N1 tolerates. If the
 adapter is a faster one, the rate is `uart_init()` in `src/main.c` and the
 `BOARD_CONSOLE_NAME` string.
 
@@ -81,7 +82,9 @@ Every supported board has at least 128 KiB of flash. The Blue Pill size
 register often still reads 64; `sysinfo`, `meminfo` and `flashdump` use
 128 KiB anyway, and `make flash` / `make openocd` tell the programmer the
 same, which is the size every one of these boards has, so an image that uses
-the top half is written in full. `samples/flashprobe` programs and reads back
+the top half is written in full. The APM32F407 board does not read the
+register at all (`BOARD_FLASH_FIXED`): Geehy's chip need not fill it as
+ST's does, and the board's 1 MiB is a constant. `samples/flashprobe` programs and reads back
 a block in each erase unit above that floor when the question is whether one
 chip has still more, and erases each unit again afterwards. The kernel's
 region is a build-time constant, not whatever the probe found.
@@ -214,6 +217,47 @@ other (`freya_api.h` takes `FREYA_BOARD_WEACT_F405` for
   ([usb.md](usb.md#the-weact-stm32f4-64-pin-board)). With `CODECS=1` this board also builds `samples/dictophone`, a
   voice recorder that KEY starts and stops, writing `/voice.opus` to the
   card ([codecs.md](codecs.md)).
+
+## APM32F407ZGT6 board
+
+Build with `make BOARD=apm32f407`. The chip is Geehy's APM32F407ZGT6, made
+pin and register compatible with the STM32F407: a Cortex-M4F at 168 MHz,
+1 MiB of flash in the STM32F4's twelve sectors, 128 KiB of SRAM and 64 KiB
+of CCM, in the LQFP144. The board is one with the layout most F407ZG boards
+share: an 8 MHz crystal, the LED on PF9, and a microSD slot on the SDIO
+pins.
+
+It is the STM32F405 board in clock tree, console, memory map and flash
+layout, and the WeAct F405 board in its card, so a program built for either
+runs on it (`freya_api.h` takes `FREYA_BOARD_APM32F407` for
+`FREYA_BOARD_STM32F405`). What differs:
+
+- The chip. Freya drives it with the STM32F405's registers: the clock tree
+  (168 MHz from the PLL, regulator scale 1, five flash wait states), the
+  flash controller, the USART, GPIO, SYSCFG, timers, ADC, RTC and OTG_FS.
+  `sysinfo` prints the device id as the chip reports it; the flash size is
+  the board's 1 MiB, not the size register's word.
+- The LED is PF9, lit low.
+- The microSD slot is on the SDIO pins, CLK PC12, CMD PD2, DAT0..DAT3
+  PC8..PC11, and driven in SPI mode by the board, bit by bit, as on the
+  WeAct F405 board. The slot is taken to be always powered; a card-detect
+  switch is not read.
+- Freya keeps PA2/PA3 for the console and PC8..PC12 and PD2 for the card,
+  and gives programs ports A to G, all of the LQFP144's pins. PWM, I2C,
+  SPI2 and the ESP32-C6 link are the STM32F405's pins.
+- `make flash` writes it with st-flash through an ST-Link, as the other F4
+  boards; OpenOCD's `stm32f4x` target (`make openocd`) drives the same
+  controller. `make bootloader` uses `stm32flash` on the ROM loader's
+  USART1 (PA9/PA10, BOOT0 high). There is no `make dfu`: a DfuSe file
+  carries ST's USB ids, which the APM32's ROM need not answer to.
+- `USB=1`, `AUDIO=1` and `CODECS=1` build as on the STM32F405, on
+  PA11/PA12, and `RTC=internal` for a board with the 32.768 kHz crystal.
+  cJSON is not built: the 128 KiB of SRAM leaves the same 52 KiB of heap
+  as on the STM32F405 ([json.md](json.md)).
+
+Nothing of this has run on the chip yet. The register compatibility is
+Geehy's claim, and where it differs in detail (the OTG core in particular)
+the STM32F405's code is what runs.
 
 ## Black Pill 2 (AT32F403ACGU7)
 

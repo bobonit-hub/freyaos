@@ -16,7 +16,7 @@ make BOARD=blackpill USB=1 SD=1     # the stick and the card
 | Board | USB host | Core | 48 MHz clock |
 |---|---|---|---|
 | Black Pill (STM32F411) | yes | OTG_FS | PLLQ |
-| STM32F405, WeAct STM32F4 64-pin | yes | OTG_FS | PLLQ |
+| STM32F405, WeAct STM32F4 64-pin, APM32F407 | yes | OTG_FS | PLLQ |
 | STM32U585 | yes | OTG_FS | PLL2Q |
 | STM32H723 | yes | OTG_HS on its full speed PHY | PLL3Q |
 | STM32H523, STM32H562 | not yet | USB DRD, a different core | |
@@ -91,7 +91,8 @@ At boot the port is powered and given 0.3 s for a device to connect. The
 device is enumerated and named from its string descriptors, and what its
 configuration holds decides what it is: a stick is mounted, and with
 `make USB=1 AUDIO=1` a headset becomes the audio calls' microphone and
-speaker on the two STM32F405 boards, the STM32U585 and the STM32H723
+speaker on the two STM32F405 boards, the APM32F407 board, the STM32U585
+and the STM32H723
 ([audio.md](audio.md)).
 
 ```

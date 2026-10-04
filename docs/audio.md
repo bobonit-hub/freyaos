@@ -13,8 +13,8 @@ make BOARD=blackpill USB=1 AUDIO=1
 
 `AUDIO=1` needs `USB=1`, and a board with more than 512 KiB of flash, which
 leaves room for the codecs a call needs ([codecs.md](codecs.md)): the
-two STM32F405 boards (`stm32f405`, `weact_f405`), the STM32U585 and the
-STM32H723, whose `board.mk` sets
+two STM32F405 boards (`stm32f405`, `weact_f405`), the APM32F407 board
+(`apm32f407`), the STM32U585 and the STM32H723, whose `board.mk` sets
 `USB_AUDIO`. The Black Pill (512 KiB) keeps USB sticks but not audio. A
 kernel without `AUDIO=1` still has the six calls, which return
 `FREYA_ERR_UNSUPPORTED`.

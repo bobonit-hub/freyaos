@@ -4,6 +4,7 @@
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
 #   make BOARD=stm32f405    build for the STM32F405xx (8 MHz crystal)
 #   make BOARD=weact_f405   build for the WeAct STM32F4 64-pin board (F405RGT6)
+#   make BOARD=apm32f407    build for a Geehy APM32F407ZGT6 board (LED on PF9)
 #   make BOARD=blackpill2   build for the AT32F403ACGU7 "Black Pill 2"
 #   make BOARD=stm32u585    build for the WeAct STM32U585CIU6 core board
 #   make BOARD=stm32h523    build for the WeAct STM32H523CET6 core board
@@ -408,6 +409,7 @@ XIP_ONLY_bluepill  := forth altair16 rustdemo basic11
 XIP_ONLY_blackpill := altair
 XIP_ONLY_stm32f405 := altair
 XIP_ONLY_weact_f405 := altair
+XIP_ONLY_apm32f407 := altair
 XIP_ONLY  := $(XIP_ONLY_$(BOARD)) $(CODEC_SAMPLES)
 # A program that starts no threads may run its RAM on into their stacks
 # (FREYA_APP_F_NOTHREADS): 9 KiB instead of 7 on the Blue Pill, where the

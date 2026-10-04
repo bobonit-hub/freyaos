@@ -60,6 +60,8 @@ So does the WeAct STM32F4 64-pin board, `BOARD=weact_f405`: its slot is
 wired for SDIO (CLK PC12, CMD PD2, DAT0..DAT3 PC8..PC11), always powered,
 with the card-detect switch on PA8
 ([boards.md](boards.md#weact-stm32f4-64-pin-core-board-stm32f405rgt6)). The
+APM32F407ZGT6 board, `BOARD=apm32f407`, has its slot on the same SDIO pins
+and is driven the same way ([boards.md](boards.md#apm32f407zgt6-board)). The
 `stm32f405` build keeps the Black Pill's wiring, the card on SPI1 and its
 supply on PA8, for an F405 board with a socket wired that way.
 
@@ -71,7 +73,9 @@ program's to drive or take interrupts on. The STM32H723 board keeps PA2
 and PA3, PC8 to PC12 and PD2 for the card, and PB3, PB4, PD6 and PD7 for
 the SPI flash, and gives programs ports A to E. The STM32H562 board and the
 WeAct STM32F4 64-pin board (`weact_f405`) keep PA2 and PA3, and PC8 to PC12
-and PD2 for the card, and give programs ports A to D. A build with `make USB=1` also keeps PA11 and PA12, the USB
+and PD2 for the card, and give programs ports A to D; the APM32F407ZGT6
+board (`apm32f407`) keeps the same pins and gives programs ports A to G. A
+build with `make USB=1` also keeps PA11 and PA12, the USB
 socket's data lines ([usb.md](usb.md)).
 
 ## PWM
