@@ -126,7 +126,9 @@ interrupts, Ascon-AEAD128 (`aead_encrypt`,
 `decompress`), the civil clock (`rtc_get`, `rtc_set`, which also
 writes the DS3231 or the chip's RTC when the image has one; not on the Blue Pill, whose
 kernel extension had no room, though its clock still keeps file
-timestamps), a raw console (`console_raw`,
+timestamps), flash written when the run ends (`flash_text_save`, a
+text kept after the program's image in flash that the boot hands it as
+`-e TEXT`, and `autostart_set`), a raw console (`console_raw`,
 which hands Ctrl-C to the program as an ordinary key, as an emulator needs;
 Freya takes it back when the run ends), and a file log: `log`, `get_log_level`,
 `set_log_level`. A script writes the same line with `log(level, message)`.

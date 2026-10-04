@@ -85,7 +85,9 @@ make BOARD=bluepill NOSHELL=1 flash BASIC=prog.bas
 The Blue Pill build of `basic11`, with software floating point and about
 5 KiB for the BASIC program and its data, is described in
 [basic/README.md](../basic/README.md#the-blue-pill). `BASIC=` works with
-the shell too, and on the other boards.
+the shell too, and on the other boards. A program saved from `basic11`
+with `FSAVE` is run instead of the built-in one
+([basic/README.md](../basic/README.md#a-program-saved-in-flash)).
 
 `make test` is described in [tests.md](tests.md). `make linux` builds the
 shell as a Linux program; see [linux.md](linux.md).

@@ -116,7 +116,7 @@ same, with three differences.
   a dozen levels of parentheses, or a `DEF` that calls itself four
   deep.
 
-It is 22 KiB of code, so it is built only as `basic11.xip.bin`, and
+It is 23 KiB of code, so it is built only as `basic11.xip.bin`, and
 runs from the program flash where `install` or `make flash PROGRAM=`
 puts it.
 
@@ -137,6 +137,38 @@ The text has to be plain ASCII, and is at most what is free in the
 kernel extension: about 6 KiB on a Blue Pill kernel with the shell,
 about 47 KiB on one without. A change to the file rebuilds the kernel.
 `docs/building.md` has the rest of `NOSHELL=1`.
+
+### A program saved in flash
+
+`FSAVE` keeps the program in the program flash region, after the image
+of `basic11` itself, and `AUTOSTART` turns the auto-start flag on, so
+the next boot starts `basic11 -e TEXT` with that program:
+
+```
+10 X = PIN("PC13","OUT")
+20 X = PIN("PC13","TOGGLE") \ SLEEP 500 \ GOTO 20
+AUTOSTART
+FSAVE
+```
+
+A running program cannot write flash: the kernel's flash routines run
+from the program's RAM window. So `AUTOSTART [ON | OFF]` only asks,
+and the kernel sets the flag when `basic11` ends; `FSAVE` asks the
+same of the listing and ends `basic11` at once, like `BYE`, which
+also clears the variables. The kernel then writes the text and prints
+what it did, and the shell comes back. `FSAVE` with no program
+removes the saved text. `uninstall` in the shell removes it with the
+rest of the region, and a text is only handed to the program it was
+saved for.
+
+`basic11` has to have been started from flash (`runflash`, or the boot);
+run from the card it answers `?Not run from flash`. The text starts at
+the first erase unit after the image, so there is room for anything on
+the other boards. On the Blue Pill `basic11` fills all but the last
+half kilobyte of its region and the text goes there, in the image's
+last page: about 500 bytes of listing, `?No room in flash` past that.
+`BASIC=` still takes larger programs. A saved text is used before the
+one `BASIC=` built in.
 
 ## The system calls
 
@@ -171,6 +203,8 @@ of the pin, PWM and ADC calls.
 | `pin_toggle(pin)`       |                                         |
 | `pwm(pin, hz, duty)`    | duty in ten-thousandths; hz 0 stops the channel |
 | `adc(source)`           | a pin, or `SYS_ADC_TEMP`, `SYS_ADC_VREF`; 0..4095 |
+| `flash_save(text, n)`   | FSAVE; `SYS_EARG` when it does not fit  |
+| `autostart(on)`         | AUTOSTART                               |
 
 The pin calls answer with the value, or with `SYS_EPIN`, `SYS_EBUSY`,
 `SYS_EARG` or `SYS_EIO`, which are `Bad pin`, `Pin in use`, `Illegal
@@ -377,7 +411,8 @@ as the terminal is line-buffered.
 
 Commands: `RUN`, `RUNNH`, `LIST [line]`, `LISTNH`, `NEW`, `SCR`,
 `OLD "file"`, `SAVE "file"`, `REPLACE "file"`, `UNSAVE "file"`,
-`CLEAR`, `CONT`, `LENGTH`, `DEL line`, `BYE`. `SAVE` writes the listing
+`CLEAR`, `CONT`, `LENGTH`, `DEL line`, `BYE`, `FSAVE`, `AUTOSTART [ON |
+OFF]`. `SAVE` writes the listing
 as text and `OLD` reads any text file of numbered lines, so programs
 are plain files. Ctrl-C stops a running program with `STOP at line n`;
 `CONT` goes on from there, as it does after a `STOP` statement.
@@ -391,12 +426,12 @@ file`, `Undefined function`, `Type mismatch`, `Too many nested loops`,
 `Redimensioned array`, `Bad channel`, `Cannot continue`, `Line too
 long`, `DEF without FNEND`, `No clock`, `Bad pin`, `Pin in use`,
 `Device error`, `LOOP without DO`, `DO without LOOP`, `Too many keys`,
-`Undefined key`.
+`Undefined key`, `Not run from flash`, `No room in flash`.
 
 Not BASIC-11: `DATE$`, `TIME$` and `TIME` take no argument, where
 BASIC-11 wanted one and counted `TIME` in seconds since midnight;
-`SLEEP`, `PIN`, `PWM`, `ADC`, `DO` / `LOOP`, `INKEY$` and the `TIMER`
-and `KEY` events are new. No `ON ERROR`, no `CHAIN`, no virtual arrays, no
+`SLEEP`, `PIN`, `PWM`, `ADC`, `DO` / `LOOP`, `INKEY$`, `FSAVE`,
+`AUTOSTART` and the `TIMER` and `KEY` events are new. No `ON ERROR`, no `CHAIN`, no virtual arrays, no
 `PRINT USING`, no `FNEXIT` (`IF ... THEN FNEND` does as much), no
 integer-only arithmetic (`I%` is stored truncated but computed in
 floating point), no line editor beyond retyping a line and `DEL`.

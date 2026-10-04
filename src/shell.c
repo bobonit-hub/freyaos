@@ -683,6 +683,9 @@ static int cmd_meminfo(int argc, char **argv)
             kprintf("     ");
             print_bar(h->image_size, FREYA_APP_FLASH_SIZE);
             kprintf("\r\n");
+            if (app_flash_text())
+                kprintf("     and a saved text of %u B for it\r\n",
+                        (unsigned)strlen(app_flash_text()));
         } else {
             const char *script = NULL;
             uint32_t slen = 0;
@@ -1409,8 +1412,9 @@ static int cmd_run(int argc, char **argv)
 
     ret = app_run(app_argc, app_argv);
 
+    /* last_name: a program that saved to flash is unloaded by now */
     kprintf("\r\n--- %s %s, exit status %d, %u ms ---\r\n",
-            g_app.name[0] ? g_app.name : g_app.path,
+            g_app.last_name,
             app_stop_reason_str(g_app.last_stop_reason), ret, g_app.last_run_ms);
     return ret;
 }

@@ -172,6 +172,20 @@ int sys_inkey(void)
     return c;
 }
 
+/* The PC has no program flash. */
+int sys_flash_save(const char *text, int len)
+{
+    (void)text;
+    (void)len;
+    return SYS_EIO;
+}
+
+int sys_autostart(int on)
+{
+    (void)on;
+    return SYS_EIO;
+}
+
 /* The pins of a pretend board, so that PIN, PWM and ADC can be tested
  * where there is no hardware: ports A, B and C of 16 pins, every one
  * an input reading 0 until it is driven, PA2 and PA3 kept back as the

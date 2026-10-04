@@ -614,6 +614,18 @@ typedef struct {
     uint32_t magic;
     uint32_t length;
 } freya_script_header_t;
+/* A text kept after the program image in the region, for the boot to
+ * hand that program as 'program -e TEXT': the BASIC program basic11
+ * saves.  The header is followed by the text and a NUL; 'name' is the
+ * image's own, so a text is never handed to another program. */
+#define FREYA_TEXT_MAGIC   0x54584554UL   /* 'T','E','X','T' */
+typedef struct {
+    uint32_t magic;
+    uint32_t length;
+    char     name[16];
+} freya_text_header_t;
+const char *app_flash_text(void);   /* the text, or NULL if there is none */
+void app_run_requests(void);        /* what a program asked for its end */
 int  app_install(const char *path);           /* card image -> flash    */
 int  app_flash_erase(void);
 const freya_app_header_t *app_flash_header(void);   /* NULL if empty    */

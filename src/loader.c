@@ -450,6 +450,10 @@ static int api_crypt_removed(const void *key, const void *nonce, uint32_t off,
     return FREYA_ERR_UNSUPPORTED;
 }
 
+/* In the program flash section below. */
+static int api_flash_text_save(const char *text, int len);
+static int api_autostart_set(int on);
+
 #ifdef FREYA_AUTORUN_TEXT
 /* BASIC=file: the file's text, NUL-terminated, in the kernel extension
  * beside the loader's other read-only data.  The boot hands it to the
@@ -604,6 +608,8 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .aead_decrypt    = aead_decrypt,
     .rtc_get         = api_rtc_get,
     .rtc_set         = api_rtc_set,
+    .flash_text_save = api_flash_text_save,
+    .autostart_set   = api_autostart_set,
 };
 
 const freya_api_t *app_api(void)
@@ -1411,6 +1417,229 @@ int app_flash_erase(void)
     return 0;
 }
 
+/* --------------------------------------------- a text after the image */
+/*
+ * The program in flash may keep a text after its image, which the boot
+ * hands it as 'program -e TEXT': the BASIC program basic11 saves.  The
+ * record, a freya_text_header_t, the text and a NUL, begins at the first
+ * erase unit after the image, so that writing it never erases the image.
+ * The Blue Pill is the exception: basic11 leaves under a page of its
+ * region free, and flash_erase() there keeps the part of a page outside
+ * the range, so the record follows the image in its last page.
+ *
+ * A running program cannot write flash, because flash_begin() puts its
+ * routines in the program's RAM window.  The two calls only take note of
+ * what was asked, and app_run() does it once the run has ended.
+ */
+#define REQ_TEXT       1U
+#define REQ_AUTO_ON    2U
+#define REQ_AUTO_OFF   4U
+
+static uint8_t s_requests;
+static const char *s_req_text;
+static uint32_t s_req_len;
+
+#define REGION_END  (FREYA_APP_FLASH_ADDR + FREYA_APP_FLASH_SIZE)
+
+#ifdef FREYA_BOARD_BLUEPILL
+#define TEXT_SCRATCH  BOARD_FLASH_PAGE_SIZE   /* flash_erase()'s copy */
+#else
+#define TEXT_SCRATCH  0U
+#endif
+
+static uint32_t KEXT text_record_addr(const freya_app_header_t *h)
+{
+    uint32_t a = FREYA_APP_FLASH_ADDR + h->image_size;
+#ifdef FREYA_BOARD_BLUEPILL
+    return (a + 7U) & ~7UL;
+#else
+    uint32_t unit = BOARD_FLASH_PAGE_SIZE;
+
+#if defined(FREYA_BOARD_BLACKPILL) || defined(FREYA_BOARD_STM32F405)
+    /* Sector 4 is 64 KiB; the sectors after it are 128 KiB, each on a
+     * 128 KiB boundary. */
+    if (a > 0x08020000UL) unit = 128U * 1024U;
+#endif
+    return (a + unit - 1U) & ~(unit - 1U);
+#endif
+}
+
+/* The record is staged at the top of the program's RAM window, clear of
+ * the routines flash_begin() copies to its base and of flash_erase()'s
+ * copy of a page: the most it can be. */
+static uint32_t KEXT text_stage_room(void)
+{
+    return APP_RAM_END - ((uint32_t)(uintptr_t)install_buf() + TEXT_SCRATCH);
+}
+
+/* The bytes of flash from the record at 'a' to the end of the region. */
+static uint32_t KEXT text_room(uint32_t a)
+{
+    return a < REGION_END ? REGION_END - a : 0;
+}
+
+/* The record after the installed image, whether or not its text is
+ * usable, or NULL when there is no header there. */
+static const freya_text_header_t *KEXT text_record(const freya_app_header_t *h)
+{
+    uint32_t a = text_record_addr(h);
+    const freya_text_header_t *t = (const freya_text_header_t *)(uintptr_t)a;
+
+    if (text_room(a) < sizeof *t + 1U || t->magic != FREYA_TEXT_MAGIC)
+        return NULL;
+    return t;
+}
+
+const char *KEXT app_flash_text(void)
+{
+    const freya_app_header_t *h = app_flash_header();
+    const freya_text_header_t *t;
+    const char *body;
+
+    if (!h || !(t = text_record(h))) return NULL;
+    if (t->length > text_room((uint32_t)(uintptr_t)t) - sizeof *t - 1U ||
+        memcmp(t->name, h->name, sizeof t->name) != 0)
+        return NULL;
+    body = (const char *)(t + 1);
+    if (body[t->length] != '\0' || !script_text_ok(body, t->length))
+        return NULL;
+    return body;
+}
+
+/*
+ * Keep 'text' after the image of the program that is running, which has
+ * to be the one in flash.  An empty text removes the record.  The text
+ * is read when the run ends, so it has to stay where it is until then.
+ */
+static int KEXT api_flash_text_save(const char *text, int len)
+{
+    const freya_app_header_t *h = app_flash_header();
+    uint32_t total;
+
+    if (len < 0 || (len && !text)) return FREYA_ERR_ARG;
+    if (!h || strcmp(g_app.path, APP_FLASH_PATH) != 0)
+        return FREYA_ERR_UNSUPPORTED;
+    total = (uint32_t)len + sizeof(freya_text_header_t) + 1U;
+    if (total > text_room(text_record_addr(h)) ||
+        total + 7U > text_stage_room() ||
+        !script_text_ok(text, (uint32_t)len))
+        return FREYA_ERR_ARG;
+    s_req_text = text;
+    s_req_len = (uint32_t)len;
+    s_requests |= REQ_TEXT;
+    return 0;
+}
+
+static int KEXT api_autostart_set(int on)
+{
+    s_requests &= (uint8_t)~(REQ_AUTO_ON | REQ_AUTO_OFF);
+    s_requests |= on ? REQ_AUTO_ON : REQ_AUTO_OFF;
+    return 0;
+}
+
+/* Erase the record at 'a' and the rest of the erase units it was in. */
+static int KEXT text_erase(uint32_t a, uint32_t total)
+{
+    uint32_t page = flash_page_size();
+    uint32_t end = (a + total + page - 1U) & ~(page - 1U);
+
+    if (end > REGION_END) end = REGION_END;
+    return flash_erase(a, end - a);
+}
+
+static void KEXT text_store(void)
+{
+    const freya_app_header_t *h = app_flash_header();
+    const freya_text_header_t *old;
+    freya_text_header_t t;
+    uint32_t a, total, len = s_req_len;
+    uint8_t *stage;
+    int rc;
+
+    if (!h) return;
+    a = text_record_addr(h);
+    old = text_record(h);
+    total = (uint32_t)sizeof t + len + 1U;
+    /* The text is in the program's memory, the window or the heap, and
+     * may overlap the stage. */
+    if (total + 7U > text_stage_room()) return;     /* checked when asked */
+    stage = (uint8_t *)(uintptr_t)((APP_RAM_END - total) & ~7UL);
+    if (len && !script_text_ok(s_req_text, len)) {
+        kprintf("save: the text changed and is no longer text - not saved\r\n");
+        return;
+    }
+    memmove(stage + sizeof t, s_req_text, len);
+    stage[sizeof t + len] = 0;
+    t.magic = FREYA_TEXT_MAGIC;
+    t.length = len;
+    memcpy(t.name, h->name, sizeof t.name);
+    memcpy(stage, &t, sizeof t);
+
+    if (len ? memcmp((const void *)(uintptr_t)a, stage, total) == 0 : !old) {
+        kprintf("save: flash already holds this text, nothing written\r\n");
+        return;
+    }
+
+    rc = flash_begin();
+    if (rc != FLASH_OK) {
+        kprintf("save: %s\r\n", flash_err_str(rc));
+        return;
+    }
+    kprintf("save: console input is dropped while flash is busy\r\n");
+    kprintf("  %s ... ", len ? "writing the text" : "erasing the text");
+    uart_drain_tx();
+    /* One erase for the old record and the new one, whichever is longer.
+     * A torn record left by a reset is not found, so without a header
+     * only the new one's length is erased. */
+    if (old) {
+        uint32_t was = text_room(a);
+
+        if (old->length < was - sizeof t - 1U)
+            was = (uint32_t)sizeof t + old->length + 1U;
+        if (was > total) total = was;
+    }
+    rc = text_erase(a, total);
+    total = (uint32_t)sizeof t + len + 1U;
+    if (rc == FLASH_OK && len) rc = flash_program(a, stage, total);
+    flash_end();
+    uart_rx_flush();
+    if (rc != FLASH_OK) {
+        kprintf("\r\nsave: %s\r\n", flash_err_str(rc));
+        return;
+    }
+    if (len && memcmp((const void *)(uintptr_t)a, stage, total) != 0) {
+        kprintf("\r\nsave: verify failed\r\n");
+        return;
+    }
+    kprintf("ok\r\n");
+    if (len)
+        kprintf("saved %u B of text at 0x%08x for %s\r\n",
+                (unsigned)len, (unsigned)a, g_app.last_name);
+}
+
+/*
+ * Called by app_run() once the program has ended, before its memory is
+ * handed back: the flash a program may not write while it runs.  The
+ * program is unloaded, since flash_begin() needs its RAM window.
+ */
+void KEXT app_run_requests(void)
+{
+    uint8_t req = s_requests;
+    int rc;
+
+    if (!req) return;
+    s_requests = 0;
+    app_unload();
+    if (req & REQ_TEXT) text_store();
+    if (req & (REQ_AUTO_ON | REQ_AUTO_OFF)) {
+        rc = app_autostart_set((req & REQ_AUTO_ON) != 0);
+        if (rc != FLASH_OK)
+            kprintf("autostart: %s\r\n", flash_err_str(rc));
+        else
+            kprintf("auto-start %s\r\n", (req & REQ_AUTO_ON) ? "on" : "off");
+    }
+}
+
 int app_autostart_enabled(void)
 {
     uint32_t v = 0xFFFFFFFFUL;
@@ -1478,6 +1707,20 @@ int app_password_set(const uint8_t *pass)
     if (pass) memcpy(use, pass, FREYA_PASSWORD_LEN);
     else memset(use, 0xFF, sizeof use);
     return settings_set("password", use, FREYA_PASSWORD_LEN);
+}
+
+#else /* !FREYA_APP_FLASH_ADDR */
+
+static int api_flash_text_save(const char *text, int len)
+{
+    (void)text; (void)len;
+    return FREYA_ERR_UNSUPPORTED;
+}
+
+static int api_autostart_set(int on)
+{
+    (void)on;
+    return FREYA_ERR_UNSUPPORTED;
 }
 
 #endif /* FREYA_APP_FLASH_ADDR */
@@ -1570,6 +1813,10 @@ int app_run(int argc, char **argv)
     klog(status == FREYA_EXIT_OK ? FREYA_LOG_INFO : FREYA_LOG_WARN,
          "%s %s, status %d, %u ms", g_app.last_name,
          app_stop_reason_str(g_app_stop_reason), status, g_app.last_run_ms);
+
+#ifdef FREYA_APP_FLASH_ADDR
+    app_run_requests();
+#endif
 
     /* Reclaim anything the program left behind. */
     for (int i = 0; i < APP_MAX_ALLOCS; i++) {

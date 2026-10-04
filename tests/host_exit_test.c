@@ -100,8 +100,16 @@ int main(void)
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
     api.size = sizeof(freya_api_t);
-    check("rtc_set is the last call in the table",
+    check("autostart_set is the last call in the table",
           (int)sizeof(freya_api_t),
+          (int)(__builtin_offsetof(freya_api_t, autostart_set) +
+                sizeof(api.autostart_set)));
+    check("flash_text_save comes just before it",
+          (int)__builtin_offsetof(freya_api_t, autostart_set),
+          (int)(__builtin_offsetof(freya_api_t, flash_text_save) +
+                sizeof(api.flash_text_save)));
+    check("and rtc_set just before that",
+          (int)__builtin_offsetof(freya_api_t, flash_text_save),
           (int)(__builtin_offsetof(freya_api_t, rtc_set) +
                 sizeof(api.rtc_set)));
     check("rtc_get comes just before it",

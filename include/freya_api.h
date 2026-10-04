@@ -1006,6 +1006,26 @@ typedef struct freya_api {
      * file timestamps and still answers the date command. */
     int      (*rtc_get)(freya_rtc_t *t);
     int      (*rtc_set)(const freya_rtc_t *t);
+
+    /* appended: flash that outlives the run.  A running program cannot
+     * write flash, so both calls only ask, return 0, and the kernel does
+     * it once the run has ended, however it ended, and prints what it
+     * did.  The program is unloaded then.
+     *
+     * flash_text_save() keeps the len bytes at text after the image of
+     * the program in flash, and the boot then starts that program as
+     * 'program -e TEXT'; basic11 saves its BASIC program this way.  A
+     * len of 0 removes the text.  The text is read when the run ends,
+     * so it has to stay where it is until then.  FREYA_ERR_UNSUPPORTED
+     * is a program that was not started from flash; FREYA_ERR_ARG is a
+     * text that is not printable ASCII, tab, CR and LF, or one too long
+     * for the room after the image.  On the Blue Pill that room is what
+     * is left of the image's last page, under 1 KiB after basic11.
+     *
+     * autostart_set() turns the auto-start flag on or off, as the
+     * shell's autostart command does. */
+    int      (*flash_text_save)(const char *text, int len);
+    int      (*autostart_set)(int on);
 } freya_api_t;
 
 /*

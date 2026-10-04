@@ -15,17 +15,25 @@
 #define AUTORUN_GRACE   2000    /* ms to interrupt the autorun */
 #define AUTORUN_RESTART 1000    /* ms between runs without a shell */
 
-/* The autorun program's arguments: its path, and with BASIC=file in the
- * build, '-e' and that file's text. */
+/* The autorun program's arguments: its path, and '-e' and a text: the
+ * one the program in flash saved after its image, or else with
+ * BASIC=file in the build that file's. */
 static int autorun_args(const char *path, char **argv)
 {
     int argc = 0;
+    const char *text = NULL;
 
     argv[argc++] = (char *)path;
-#ifdef FREYA_AUTORUN_TEXT
-    argv[argc++] = "-e";
-    argv[argc++] = (char *)autorun_text;
+#ifdef FREYA_APP_FLASH_ADDR
+    if (strcmp(path, APP_FLASH_PATH) == 0) text = app_flash_text();
 #endif
+#ifdef FREYA_AUTORUN_TEXT
+    if (!text) text = autorun_text;
+#endif
+    if (text) {
+        argv[argc++] = "-e";
+        argv[argc++] = (char *)text;
+    }
     argv[argc] = NULL;
     return argc;
 }

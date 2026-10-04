@@ -289,6 +289,24 @@ int sys_inkey(void)
     return key_get();
 }
 
+/* The kernel writes both when this program has ended; FSAVE ends it.
+ * A kernel older than these calls cannot. */
+int sys_flash_save(const char *text, int len)
+{
+    int rc;
+
+    if (!FREYA_API_HAS(g, flash_text_save)) return SYS_EIO;
+    rc = g->flash_text_save(text, len);
+    if (rc == FREYA_ERR_ARG) return SYS_EARG;
+    return rc < 0 ? SYS_EIO : 0;
+}
+
+int sys_autostart(int on)
+{
+    if (!FREYA_API_HAS(g, autostart_set)) return SYS_EIO;
+    return g->autostart_set(on) < 0 ? SYS_EIO : 0;
+}
+
 /* The pins, on the same calls the shell's pin, pwm and adc commands
  * make.  The first three FREYA_ERR_* codes are the SYS_E* codes;
  * everything else the API can answer, a timeout, a bus error, a call

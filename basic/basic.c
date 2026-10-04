@@ -86,6 +86,7 @@ enum {
     T_DO, T_LOOP, T_UNTIL, T_WHILE, T_TIMER, T_KEY, T_OFF,
     T_RUN, T_RUNNH, T_LIST, T_LISTNH, T_NEW, T_SCR, T_OLD, T_SAVE,
     T_REPLACE, T_UNSAVE, T_BYE, T_CLEAR, T_CONT, T_LENGTH, T_DEL,
+    T_FSAVE, T_AUTOSTART,
     T_AND, T_OR, T_NOT,
     T_ABS, T_ATN, T_COS, T_EXP, T_INT, T_LOG10, T_LOG, T_PI, T_RND,
     T_SGN, T_SIN, T_SQR, T_TAN, T_TIME, T_LEN, T_ASC, T_CHRS, T_POS,
@@ -108,6 +109,7 @@ static const char *const keywords[] = {
     "DO", "LOOP", "UNTIL", "WHILE", "TIMER", "KEY", "OFF",
     "RUN", "RUNNH", "LIST", "LISTNH", "NEW", "SCR", "OLD", "SAVE",
     "REPLACE", "UNSAVE", "BYE", "CLEAR", "CONT", "LENGTH", "DEL",
+    "FSAVE", "AUTOSTART",
     "AND", "OR", "NOT",
     "ABS", "ATN", "COS", "EXP", "INT", "LOG10", "LOG", "PI", "RND",
     "SGN", "SIN", "SQR", "TAN", "TIME", "LEN", "ASC", "CHR$", "POS",
@@ -123,6 +125,7 @@ enum {
     E_STRLEN, E_MEMORY, E_NEXT, E_RETURN, E_DATA, E_ARG, E_FILE, E_EOF,
     E_FUNC, E_TYPE, E_NEST, E_REDIM, E_CHANNEL, E_CONT, E_LONGLINE, E_DEF,
     E_CLOCK, E_PIN, E_BUSY, E_IO, E_LOOP, E_DO, E_KEYS, E_KEY,
+    E_FLASH, E_ROOM,
     E_LAST,
     /* Not an error and not printed: the program ended, or Ctrl-C
      * stopped it, while a DEF ... FNEND body was running, and the C
@@ -141,6 +144,7 @@ static const char *const messages[] = {
     "Cannot continue", "Line too long", "DEF without FNEND",
     "No clock", "Bad pin", "Pin in use", "Device error",
     "LOOP without DO", "DO without LOOP", "Too many keys", "Undefined key",
+    "Not run from flash", "No room in flash",
 };
 
 static jmp_buf err_jb;
@@ -298,7 +302,7 @@ typedef struct {
 
 typedef struct {
     int fd;                      /* -1 when closed */
-    int mode;                    /* 0 input, 1 output */
+    int mode;                    /* 0 input, 1 output, 2 memory */
     int col;
     int pos, len;                /* buffer window */
     int eof;
@@ -355,6 +359,7 @@ static int handler_done;         /* a handler has just returned */
 static uint32_t sleep_deadline;  /* of the SLEEP running, or to go on with */
 static chan_t chans[NCHAN];
 static int cur_out;              /* channel PRINT writes to */
+static uint8_t *mem_top, *mem_lim; /* where a memory channel writes */
 
 static const uint8_t *tp;        /* the token being executed */
 static const uint8_t *cur_line;  /* its line record, or imm_buf */
@@ -386,6 +391,9 @@ static void out_ch(int ch)
 
     if (cur_out == 0) {
         sys_putc(ch);
+    } else if (c->mode == 2) {
+        if (mem_top == mem_lim) error(E_MEMORY);
+        *mem_top++ = (uint8_t)ch;
     } else {
         if (c->fd < 0 || c->mode != 1) error(E_CHANNEL);
         c->buf[c->len++] = (uint8_t)ch;
@@ -2994,6 +3002,43 @@ static void old_program(void)
     chan_close(NCHAN - 1);
 }
 
+/* FSAVE: the program as LIST prints it, written into the arena and the
+ * pool, which are emptied for it, and handed to the host, which keeps it
+ * in flash once the interpreter has ended.  A running program cannot
+ * write flash, so the interpreter ends here. */
+static void fsave_program(void)
+{
+    chan_t *c = &chans[NCHAN - 1];
+    const uint8_t *rec;
+    int rc;
+
+    close_all();
+    clear_vars();
+    mem_top = arena_lo;
+    mem_lim = pool_hi;
+    c->mode = 2;
+    c->col = 0;
+    cur_out = NCHAN - 1;
+    for (rec = prog_lo; rec < prog_end; rec = next_rec(rec)) list_line(rec);
+    console();
+    c->mode = 0;
+    rc = sys_flash_save((const char *)arena_lo, (int)(mem_top - arena_lo));
+    if (rc == SYS_EARG) error(E_ROOM);
+    if (rc < 0) error(E_FLASH);
+    sys_exit(0);
+}
+
+/* AUTOSTART [ON | OFF]: the host's auto-start flag, set when the
+ * interpreter ends. */
+static void st_autostart(void)
+{
+    int t = peek();
+
+    if (t == T_ON || t == T_OFF) tp++;
+    if (!at_end()) error(E_SYNTAX);
+    if (sys_autostart(t != T_OFF) < 0) error(E_IO);
+}
+
 static void show_length(void)
 {
     out_int((int32_t)(prog_end - prog_lo));
@@ -3168,6 +3213,8 @@ static void statement(void)
         return;
     case T_LENGTH: show_length(); break;
     case T_DEL: delete_lines(); break;
+    case T_FSAVE: fsave_program(); break;
+    case T_AUTOSTART: st_autostart(); break;
     default:
         if (is_upper(t)) {
             st_let();

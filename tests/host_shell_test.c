@@ -449,6 +449,7 @@ const freya_app_header_t *app_flash_header(void)
     static freya_app_header_t h;
     return s_installed ? &h : NULL;
 }
+const char *app_flash_text(void) { return NULL; }
 static const char *s_flash_script;
 static int s_flash_script_bad;
 int app_script_find(const char **text, uint32_t *length)

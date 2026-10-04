@@ -55,6 +55,12 @@ int      sys_clock(int *f);
 void     sys_sleep(uint32_t ms);
 /* The next key typed, or -1 when none is waiting; never waits. */
 int      sys_inkey(void);
+/* Flash the host writes once the interpreter has ended: the program's
+ * text, len bytes, to run at the next boot, and the auto-start flag.
+ * 0 when the host has taken note; SYS_EARG for a text too long for the
+ * room there, SYS_EIO when this host cannot. */
+int      sys_flash_save(const char *text, int len);
+int      sys_autostart(int on);
 
 /* The pins, behind PIN, PWM and ADC.  A pin is its port and its number
  * in one integer, port * 16 + number, as FREYA_PIN() packs one; the
