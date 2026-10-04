@@ -206,7 +206,14 @@ other (`freya_api.h` takes `FREYA_BOARD_WEACT_F405` for
   STM32F405 board. On the F405 fitting PB9 and PB11 are plain pins, so PWM,
   I2C and SPI2 are the STM32F405's.
 - USB-C is on PA11/PA12: `USB=1`, `AUDIO=1` and `CODECS=1` work as on the
-  STM32F405.
+  STM32F405. The board does not power a device in that socket: VBUS only
+  flows in, through D4, and CC1/CC2 are pulled down as a device's are.
+  Closing solder bridge SB3 and feeding 5 V on VCC powers it, with no
+  current limit and no protection against a PC on the same socket; an OTG
+  Y cable with its own 5 V is the other way
+  ([usb.md](usb.md#the-weact-stm32f4-64-pin-board)). With `CODECS=1` this board also builds `samples/dictophone`, a
+  voice recorder that KEY starts and stops, writing `/voice.opus` to the
+  card ([codecs.md](codecs.md)).
 
 ## Black Pill 2 (AT32F403ACGU7)
 

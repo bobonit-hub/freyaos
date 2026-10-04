@@ -33,7 +33,7 @@ only as accurate as that oscillator, and a stick may not keep up with it.
 
 ## Wiring and power
 
-D- and D+ are PA11 and PA12, which on all four boards are already the
+D- and D+ are PA11 and PA12, which on all five boards are already the
 USB-C socket's data lines. `USB=1` reserves those two pins, so a program
 cannot claim them.
 
@@ -45,7 +45,30 @@ that takes 5 V in and passes D-, D+ and that 5 V to the stick, with ground
 shared with the board. Check your board's schematic before you feed 5 V
 into the socket's VBUS pin.
 
-There is one device and no hub: a stick plugged straight into the port.
+### The WeAct STM32F4 64-pin board
+
+On `weact_f405` (schematic V1.1) the socket's VBUS reaches VCC, the 3.3 V
+regulator's input, through D4, a Schottky diode that blocks the other way.
+Nothing switches VBUS, and CC1 and CC2 have 5.1 kOhm pull-downs (R9, R10),
+which is how a device, not a host, marks its port. So as it ships the
+board gives a stick or a headset no power. Two ways to give it some:
+
+- **Close SB3.** The solder bridge sits beside D4, straight from VBUS to
+  VCC; check whether yours is open (most WeAct bridges ship open). With it
+  closed and the board fed 5 V on a VCC header pin (VCC takes 3.3 to 6 V),
+  the device in the socket gets that 5 V and comes up with the board, so
+  it is found at boot. There is no current limit or protection on that
+  path, and VBUS is VCC both ways: do not plug the board into a PC or a
+  charger while SB3 is closed and the board has 5 V of its own.
+- **Leave the board as it is** and use an OTG Y cable or adapter that takes
+  5 V in, as above. Nothing on the board changes and nothing can back-feed.
+
+A USB-C headset on a C-to-C cable may stay off even with VBUS present: it
+looks for a source's pull-up on CC and finds the board's pull-downs. A USB-A
+headset through a C-to-A OTG adapter does not care.
+
+There is one device and no hub: a stick or a headset plugged straight into
+the port.
 
 ## What works
 

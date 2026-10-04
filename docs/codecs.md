@@ -120,6 +120,19 @@ STM32U585 and the STM32H723. On the STM32F405 boards, give a path on the
 card: `run("@flash", "/rec.opus")` with `SD=1`, which on the WeAct board is
 its own microSD slot.
 
+## samples/dictophone
+
+A voice recorder for the WeAct STM32F4 64-pin board (`BOARD=weact_f405`,
+built there with `CODECS=1`): KEY (PC13) starts and stops a take, the blue
+LED shows it is recording, and each take is saved to `/voice.opus` on the
+board's microSD card, as `opusrec` would write it. A console key ends the
+program, closing a take in progress first.
+
+```
+install("dictophone.xip.bin")
+run("@flash")                                  # /voice.opus at 16 kbit/s
+```
+
 ## Source and licence
 
 | File | What it is |

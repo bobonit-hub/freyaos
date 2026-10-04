@@ -16,7 +16,8 @@
 #   make USB=1 AUDIO=1      also a USB headset (UAC1) behind the audio calls
 #                           (boards whose board.mk sets USB_AUDIO)
 #   make CODECS=1           also the codec pack, a library programs link:
-#                           G.711 and Opus, and the opusrec sample
+#                           G.711 and Opus, and the opusrec sample (and
+#                           dictophone on the WeAct STM32F4 board)
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
 #   make RTC=internal       also build the driver for the chip's own
 #                           calendar RTC (boards whose board.mk allows it)
@@ -225,8 +226,14 @@ CODEC_CFLAGS   = $(APP_CFLAGS) -O2 -fno-tree-loop-distribute-patterns \
 ifeq ($(USB_AUDIO),1)
 CODEC_SAMPLES := opusrec
 endif
+# The dictophone starts and stops on the WeAct STM32F4 board's KEY.
+ifeq ($(BOARD),weact_f405)
+CODEC_SAMPLES += dictophone
+endif
 SMPL_CFLAGS_opusrec := $(CODEC_INC)
 SMPL_LIBS_opusrec   := $(CODEC_LIB) -Wl,--gc-sections
+SMPL_CFLAGS_dictophone := $(CODEC_INC)
+SMPL_LIBS_dictophone   := $(CODEC_LIB) -Wl,--gc-sections
 else ifneq ($(CODECS),)
 $(error CODECS='$(CODECS)' - use CODECS=1, or leave it unset)
 endif
@@ -708,7 +715,8 @@ $(CODEC_LIB): $(CODEC_OBJS)
 	@rm -f $@
 	@$(CROSS)ar rcs $@ $^
 
-$(BUILD)/samples/opusrec.elf $(BUILD)/samples/opusrec.xip.elf: $(CODEC_LIB)
+$(BUILD)/samples/opusrec.elf $(BUILD)/samples/opusrec.xip.elf \
+$(BUILD)/samples/dictophone.elf $(BUILD)/samples/dictophone.xip.elf: $(CODEC_LIB)
 endif
 
 # ----------------------------------------------------------------- misc
