@@ -33,9 +33,9 @@ only as accurate as that oscillator, and a stick may not keep up with it.
 
 ## Wiring and power
 
-D- and D+ are PA11 and PA12, which on all five boards are already the
-USB-C socket's data lines. `USB=1` reserves those two pins, so a program
-cannot claim them.
+D- and D+ are PA11 and PA12, which on every board with the host are
+already the USB-C socket's data lines. `USB=1` reserves those two pins, so
+a program cannot claim them.
 
 The core does not switch VBUS on these boards. **The stick needs 5 V from
 somewhere else.** Each board feeds its regulator from the socket's VBUS,
