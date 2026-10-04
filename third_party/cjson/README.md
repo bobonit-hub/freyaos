@@ -8,7 +8,7 @@ out.
 The code is MIT licensed. See `LICENSE`.
 
 Freya builds it as a library programs link,
-`build/<board>/json/libfreya_cjson.a`, on every board with the ESP32-C6
-link. A Freya program has no C library, so `json/` supplies what cJSON
+`build/<board>/json/libfreya_cjson.a`, on the boards with the ESP32-C6
+link and 192 KiB of SRAM or more. A Freya program has no C library, so `json/` supplies what cJSON
 calls: `json/cjson_port.h` is included ahead of both sources and points
 them at `json/port.c`. See `docs/json.md`.

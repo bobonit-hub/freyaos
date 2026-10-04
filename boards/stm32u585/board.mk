@@ -37,6 +37,10 @@ USB_AUDIO      := 1
 # The chip's calendar RTC on the 32.768 kHz crystal: make RTC=internal.
 RTC_INTERNAL   := 1
 
+# 192 KiB of SRAM or more: cJSON for programs, libfreya_cjson.a
+# (docs/json.md).  A parse takes about six times the JSON text in heap.
+CJSON          := 1
+
 # Rust programs: cargo builds them for this target (see rust/README.md).
 RUST_TARGET    := thumbv8m.main-none-eabihf
 RUST_CPU       := cortex-m33

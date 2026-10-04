@@ -20,7 +20,7 @@
 #                           'make' builds it too; not on the Blue Pill)
 #   make json               cJSON for programs, build/<board>/json/
 #                           libfreya_cjson.a (plain 'make' builds it too;
-#                           not on the Blue Pill)
+#                           boards with 192 KiB of SRAM or more)
 #   make CODECS=1           also the codec pack, a library programs link:
 #                           G.711 and Opus, and the opusrec sample (and
 #                           dictophone on the WeAct STM32F4 board)
@@ -116,13 +116,16 @@ endif
 
 # cJSON 1.7.19, third_party/cjson unchanged, with cJSON_Utils (JSON
 # Pointer, Patch and Merge Patch): build/<board>/json/libfreya_cjson.a,
-# a library programs link, on the same boards as the HTTP library.
+# a library programs link.  A board with the network and 192 KiB of SRAM
+# or more says CJSON := 1 in its board.mk: the STM32U585, STM32H523,
+# STM32H562 and STM32H723.  A parse takes about six times the JSON text
+# in heap, which the 96 and 128 KiB boards cannot spare.
 # json/port.c is the C library it calls, named apart from the real one by
 # json/cjson_port.h, which is included ahead of the cJSON sources.
 # samples/jsonget uses both libraries.  See docs/json.md.
 JSON_DIR  := json
 CJSON_DIR := third_party/cjson
-ifeq ($(NET),1)
+ifeq ($(NET)$(CJSON),11)
 JSON_LIB  := $(BUILD)/json/libfreya_cjson.a
 JSON_INC  := -I$(JSON_DIR) -I$(CJSON_DIR)
 JSON_OBJS := $(BUILD)/json/cJSON.o $(BUILD)/json/cJSON_Utils.o $(BUILD)/json/port.o
@@ -777,6 +780,9 @@ $(HTTP_LIB): $(BUILD)/http/http.o
 
 $(BUILD)/samples/wget.elf $(BUILD)/samples/wget.xip.elf: $(HTTP_LIB)
 
+endif
+
+ifneq ($(JSON_LIB),)
 json: $(JSON_LIB)
 
 JSON_CFLAGS = $(APP_CFLAGS) -fno-tree-loop-distribute-patterns $(JSON_INC)
@@ -799,6 +805,10 @@ $(JSON_LIB): $(JSON_OBJS)
 	@$(CROSS)ar rcs $@ $^
 
 $(BUILD)/samples/jsonget.elf $(BUILD)/samples/jsonget.xip.elf: $(HTTP_LIB) $(JSON_LIB)
+
+else
+json:
+	@echo "cJSON is for the boards with the network and 192 KiB of SRAM or more (CJSON := 1 in board.mk)" >&2; exit 1
 endif
 
 # ----------------------------------------------------------------- misc

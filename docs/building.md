@@ -48,8 +48,9 @@ is audio, `samples/opusrec`; `OPUS_SCRATCH=` sizes libopus's scratch, 24 KiB
 by default ([codecs.md](codecs.md)). On every board but the Blue Pill, plain
 `make` also builds the HTTP client library,
 `build/<board>/http/libfreya_http.a`, and `samples/wget` ([http.md](http.md)),
-and cJSON, `build/<board>/json/libfreya_cjson.a`, and `samples/jsonget`
-([json.md](json.md)). Leave `SD` unset and the card is not in the image (see below).
+and, on the boards with 192 KiB of SRAM or more (`CJSON := 1` in their
+`board.mk`), cJSON, `build/<board>/json/libfreya_cjson.a`, and
+`samples/jsonget` ([json.md](json.md)). Leave `SD` unset and the card is not in the image (see below).
 Leave `RTC` unset and neither clock driver is in the image.
 `RTC=internal` is for the boards with a calendar RTC
 ([rtc.md](rtc.md)) and is refused for the others. The banner and the first

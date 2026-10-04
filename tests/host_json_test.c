@@ -15,23 +15,37 @@
 #include "freya_cjson.h"
 
 int    freya_cjson_sprintf(char *out, const char *fmt, ...);
+void  *freya_cjson_malloc(size_t size);
+void  *freya_cjson_realloc(void *p, size_t size);
+void   freya_cjson_free(void *p);
 double freya_cjson_strtod(const char *s, char **end);
 
-static long blocks, allocs;
+static long blocks, allocs, heap_used, heap_limit = 1L << 30;
 
 /* The kernel lends a program 32 blocks at a time (src/loader.c). */
 static void *m_malloc(uint32_t size)
 {
-    if (blocks >= 32) return NULL;
+    uint32_t *p;
+
+    if (blocks >= 32 || heap_used + size > heap_limit) return NULL;
+    p = malloc(size + 8);
+    if (!p) return NULL;
+    p[0] = size;
+    heap_used += size;
     blocks++;
     allocs++;
-    return malloc(size);
+    return p + 2;
 }
 
 static void m_free(void *p)
 {
-    if (p) blocks--;
-    free(p);
+    uint32_t *q;
+
+    if (!p) return;
+    q = (uint32_t *)p - 2;
+    heap_used -= q[0];
+    blocks--;
+    free(q);
 }
 
 static freya_api_t api = {
@@ -208,6 +222,58 @@ int main(void)
         check(doc && strlen(doc->valuestring) == sizeof big - 1,
               "a 12000-byte string is held");
         cJSON_Delete(doc);
+    }
+    /* The allocator alone: random sizes, growth and frees, with every
+     * block's bytes checked, from the heap and then with a pool. */
+    for (int pass = 0; pass < 2; pass++) {
+        enum { SLOTS = 400 };
+        static uint8_t *slot[SLOTS];
+        static uint32_t len[SLOTS];
+        static uint8_t pool[48 * 1024];
+        long bad = 0, refused = 0;
+
+        if (pass == 1) freya_cjson_init_pool(&api, pool + 1, sizeof pool - 1);
+        heap_limit = 160 * 1024;
+        for (int step = 0; step < 300000; step++) {
+            int i = (int)(rnd() % SLOTS);
+            uint32_t n = rnd() % 8 == 0 ? (uint32_t)(rnd() % 20000) : (uint32_t)(rnd() % 64);
+            if (slot[i]) {
+                for (uint32_t k = 0; k < len[i]; k++)
+                    if (slot[i][k] != (uint8_t)(i + k)) { bad++; break; }
+            }
+            if (slot[i] && rnd() % 3 == 0) {
+                uint8_t *q = freya_cjson_realloc(slot[i], n);
+                if (!q) { refused++; continue; }
+                for (uint32_t k = len[i]; k < n; k++) q[k] = (uint8_t)(i + k);
+                if (n > len[i]) len[i] = n;
+                slot[i] = q;
+            } else if (slot[i]) {
+                freya_cjson_free(slot[i]);
+                slot[i] = NULL;
+            } else {
+                slot[i] = freya_cjson_malloc(n);
+                if (!slot[i]) { refused++; continue; }
+                len[i] = n;
+                for (uint32_t k = 0; k < n; k++) slot[i][k] = (uint8_t)(i + k);
+                if (((uintptr_t)slot[i] & 3) != 0) bad++;
+            }
+        }
+        for (int i = 0; i < SLOTS; i++) {
+            freya_cjson_free(slot[i]);
+            slot[i] = NULL;
+        }
+        printf("        %s: %ld refused under 160 KiB and 32 blocks\n",
+               pass ? "with a 48 KiB pool" : "from the heap", refused);
+        check(bad == 0, pass ? "300000 random calls keep every byte, with a pool"
+                             : "300000 random calls keep every byte, 4-byte aligned");
+        check(blocks == 0 && heap_used == 0, "and every kernel block comes back");
+        heap_limit = 1L << 30;
+    }
+    {
+        /* A print buffer grows in place, not by copying. */
+        uint8_t *a = freya_cjson_malloc(100), *b = freya_cjson_realloc(a, 2000);
+        check(a == b, "a block followed by free room grows in place");
+        freya_cjson_free(b);
     }
     check(cJSON_Parse("{\"a\":}") == NULL && cJSON_Parse("[1,]") == NULL &&
           cJSON_Parse("") == NULL, "broken JSON is refused");

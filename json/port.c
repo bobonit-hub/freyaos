@@ -1,8 +1,9 @@
 /*
  * Freya - the C library cJSON calls (see cjson_port.h).
  *
- * Memory comes from the kernel heap through the api freya_cjson_init()
- * stored, in chunks this file divides up (see below).  Each block
+ * Memory comes from a pool the program gives, or from the kernel heap
+ * through the api freya_cjson_init() stored, in chunks this file divides
+ * up (see below).  Each block
  * carries its size in front of it, so realloc() can copy, and cJSON's
  * default hooks, which use it to grow the print buffer, work as they are.
  *
@@ -38,14 +39,23 @@ void freya_cjson_init(const freya_api_t *api)
 /* ------------------------------------------------------------- memory */
 /*
  * The kernel lends a program at most 32 blocks at a time, and cJSON
- * takes one or two for every value, so the small ones come from chunks
- * divided up here: first fit, every block with an 8-byte header that
- * keeps its size, free neighbours joined as the search walks past them.
- * Each new chunk is twice the last, from FREYA_CJSON_CHUNK to
- * FREYA_CJSON_CHUNK_MAX, so a few kernel blocks hold a large document.
- * A chunk that is all free again goes back to the kernel.  A request of
- * more than a quarter of the largest chunk, such as a print buffer that
- * has grown, is a block of its own.
+ * takes one for every value and one for every string, about 19 bytes on
+ * average, so the blocks cJSON asks for are cut from chunks here:
+ *
+ * - A block has a 4-byte header, its size with two flags, and is 4-byte
+ *   aligned: Cortex-M loads a double from any word address, so 8 would
+ *   only waste room.  The smallest block is 8 bytes.
+ * - A chunk is searched from where its last block was cut (next fit),
+ *   joining free neighbours on the way, so a parse, which only adds,
+ *   finds room at once.  A block that grows takes the free room after
+ *   it when there is enough, as a print buffer usually can.
+ * - A new chunk holds as much as all the others together, from
+ *   FREYA_CJSON_CHUNK to FREYA_CJSON_CHUNK_MAX, halved until the kernel
+ *   has it; a chunk that is all free again goes back to the kernel.
+ * - A block of more than a quarter of the largest chunk, such as a long
+ *   print buffer, is a kernel block of its own.
+ * - freya_cjson_init_pool() gives memory of the program's own, which is
+ *   used first and never handed back.
  */
 #ifndef FREYA_CJSON_CHUNK
 #define FREYA_CJSON_CHUNK 4096U
@@ -54,57 +64,106 @@ void freya_cjson_init(const freya_api_t *api)
 #define FREYA_CJSON_CHUNK_MAX 65536U
 #endif
 
-#define TAG_FREE  0x45455246U           /* "FREE" */
-#define TAG_USED  0x44455355U           /* "USED" */
-#define TAG_OWN   0x214E574FU           /* "OWN!": a kernel block of its own */
-#define HEADER    8U
-
-typedef struct {
-    uint32_t size;                      /* with the header, a multiple of 8 */
-    uint32_t tag;
-} block_t;
+#define HEADER     4U
+#define F_USED     1U                   /* in the header's low bits */
+#define F_OWN      2U                   /* a kernel block of its own */
+#define SIZE(h)    ((h) & ~3U)
+#define BLOCK_MIN  8U
 
 typedef struct chunk {
     struct chunk *next;
     uint32_t bytes;                     /* the blocks' room                */
     uint32_t free_bytes;                /* in free blocks, headers counted */
+    uint32_t *rover;                    /* where the next search starts    */
+    uint32_t fixed;                     /* the program's pool: kept        */
 } chunk_t;
 
-#define CHUNK_HEADER ((sizeof(chunk_t) + 7U) & ~7U)
+#define CHUNK_HEADER ((sizeof(chunk_t) + 3U) & ~3U)
 
 static chunk_t *s_chunks;
-static uint32_t s_chunk_next = FREYA_CJSON_CHUNK;
+static uint32_t s_held;                 /* bytes in kernel chunks */
 
-static block_t *first_block(chunk_t *c)
+static uint32_t *first_block(chunk_t *c)
 {
-    return (block_t *)((uint8_t *)c + CHUNK_HEADER);
+    return (uint32_t *)((uint8_t *)c + CHUNK_HEADER);
 }
 
-static block_t *next_block(block_t *b)
+static uint32_t *chunk_end(chunk_t *c)
 {
-    return (block_t *)((uint8_t *)b + b->size);
+    return (uint32_t *)((uint8_t *)first_block(c) + c->bytes);
+}
+
+static uint32_t *next_block(uint32_t *b)
+{
+    return (uint32_t *)((uint8_t *)b + SIZE(*b));
+}
+
+/* Joins the free blocks after the free block b into it. */
+static void join(chunk_t *c, uint32_t *b)
+{
+    uint32_t *end = chunk_end(c), *n;
+
+    while ((n = next_block(b)) < end && !(*n & F_USED)) {
+        if (c->rover == n) c->rover = b;
+        *b += SIZE(*n);
+    }
+}
+
+/* Marks the free block b used, keeping need bytes and freeing the rest. */
+static void *take(chunk_t *c, uint32_t *b, uint32_t need)
+{
+    if (SIZE(*b) - need >= BLOCK_MIN) {
+        uint32_t *rest = (uint32_t *)((uint8_t *)b + need);
+        *rest = SIZE(*b) - need;
+        *b = need;
+    }
+    *b |= F_USED;
+    c->free_bytes -= SIZE(*b);
+    c->rover = next_block(b) < chunk_end(c) ? next_block(b) : first_block(c);
+    return b + 1;
 }
 
 static void *chunk_alloc(chunk_t *c, uint32_t need)
 {
-    block_t *end = (block_t *)((uint8_t *)first_block(c) + c->bytes);
+    uint32_t *end = chunk_end(c), *start = c->rover, *b = start;
 
-    for (block_t *b = first_block(c); b < end; b = next_block(b)) {
-        if (b->tag != TAG_FREE) continue;
-        while (next_block(b) < end && next_block(b)->tag == TAG_FREE)
-            b->size += next_block(b)->size;
-        if (b->size < need) continue;
-        if (b->size - need >= HEADER + 8U) {
-            block_t *rest = (block_t *)((uint8_t *)b + need);
-            rest->size = b->size - need;
-            rest->tag = TAG_FREE;
-            b->size = need;
+    do {
+        if (!(*b & F_USED)) {
+            join(c, b);
+            if (SIZE(*b) >= need) return take(c, b, need);
         }
-        b->tag = TAG_USED;
-        c->free_bytes -= b->size;
-        return (uint8_t *)b + HEADER;
-    }
+        b = next_block(b);
+        if (b >= end) b = first_block(c);
+    } while (b != start && b != c->rover);
     return NULL;
+}
+
+static void chunk_init(chunk_t *c, uint32_t bytes, uint32_t fixed)
+{
+    c->bytes = bytes;
+    c->free_bytes = bytes;
+    c->fixed = fixed;
+    c->rover = first_block(c);
+    *c->rover = bytes;
+}
+
+static chunk_t *chunk_of(uint32_t *b)
+{
+    for (chunk_t *c = s_chunks; c; c = c->next)
+        if (b >= first_block(c) && b < chunk_end(c)) return c;
+    return NULL;
+}
+
+void freya_cjson_init_pool(const freya_api_t *api, void *pool, uint32_t size)
+{
+    chunk_t *c = (chunk_t *)(((uintptr_t)pool + 3U) & ~(uintptr_t)3U);
+    uint32_t skip = (uint32_t)((uint8_t *)c - (uint8_t *)pool);
+
+    s_api = api;
+    if (!pool || size < skip + CHUNK_HEADER + 64U) return;
+    chunk_init(c, (size - skip - CHUNK_HEADER) & ~3U, 1);
+    c->next = s_chunks;
+    s_chunks = c;
 }
 
 void *freya_cjson_malloc(size_t size)
@@ -114,33 +173,30 @@ void *freya_cjson_malloc(size_t size)
     void *p;
 
     if (!s_api || size > 0x7fffffffU - 2 * HEADER) return NULL;
-    need = ((uint32_t)size + HEADER + 7U) & ~7U;
-    if (need > FREYA_CJSON_CHUNK_MAX / 4) {
-        block_t *b = s_api->malloc(need);
-        if (!b) return NULL;
-        b->size = need;
-        b->tag = TAG_OWN;
-        return (uint8_t *)b + HEADER;
-    }
+    need = ((uint32_t)size + HEADER + 3U) & ~3U;
+    if (need < BLOCK_MIN) need = BLOCK_MIN;
     for (c = s_chunks; c; c = c->next) {
         if (c->free_bytes < need) continue;
         p = chunk_alloc(c, need);
         if (p) return p;
     }
-    while (s_chunk_next < need) s_chunk_next *= 2;
-    bytes = s_chunk_next;
-    c = s_api->malloc(CHUNK_HEADER + bytes);
-    if (!c) {                   /* a heap short of the doubled size */
-        bytes = need > FREYA_CJSON_CHUNK ? need : FREYA_CJSON_CHUNK;
-        c = s_api->malloc(CHUNK_HEADER + bytes);
-        if (!c) return NULL;
-    } else if (s_chunk_next < FREYA_CJSON_CHUNK_MAX) {
-        s_chunk_next *= 2;
+    if (need > FREYA_CJSON_CHUNK_MAX / 4) {
+        uint32_t *b = s_api->malloc(need);
+        if (!b) return NULL;
+        *b = need | F_USED | F_OWN;
+        return b + 1;
     }
-    c->bytes = bytes;
-    c->free_bytes = bytes;
-    first_block(c)->size = bytes;
-    first_block(c)->tag = TAG_FREE;
+    bytes = s_held < FREYA_CJSON_CHUNK ? FREYA_CJSON_CHUNK : s_held;
+    if (bytes > FREYA_CJSON_CHUNK_MAX) bytes = FREYA_CJSON_CHUNK_MAX;
+    while (bytes < need) bytes *= 2;
+    for (;;) {
+        c = s_api->malloc(CHUNK_HEADER + bytes);
+        if (c) break;
+        if (bytes / 2 < need || bytes / 2 < FREYA_CJSON_CHUNK) return NULL;
+        bytes /= 2;
+    }
+    chunk_init(c, bytes, 0);
+    s_held += bytes;
     c->next = s_chunks;
     s_chunks = c;
     return chunk_alloc(c, need);
@@ -148,40 +204,65 @@ void *freya_cjson_malloc(size_t size)
 
 void freya_cjson_free(void *p)
 {
-    block_t *b;
-    chunk_t **link;
+    uint32_t *b;
+    chunk_t *c, **link;
 
     if (!p || !s_api) return;
-    b = (block_t *)((uint8_t *)p - HEADER);
-    if (b->tag == TAG_OWN) {
-        b->tag = 0;
+    b = (uint32_t *)p - 1;
+    if (!(*b & F_USED)) return;                 /* freed twice */
+    if (*b & F_OWN) {
+        *b = 0;
         s_api->free(b);
         return;
     }
-    if (b->tag != TAG_USED) return;             /* not ours, or freed twice */
-    for (link = &s_chunks; *link; link = &(*link)->next) {
-        chunk_t *c = *link;
-        if ((uint8_t *)b < (uint8_t *)first_block(c) ||
-            (uint8_t *)b >= (uint8_t *)first_block(c) + c->bytes)
-            continue;
-        b->tag = TAG_FREE;
-        c->free_bytes += b->size;
-        if (c->free_bytes == c->bytes) {
-            *link = c->next;
-            s_api->free(c);
-        }
-        return;
+    c = chunk_of(b);
+    if (!c) return;                             /* not ours */
+    *b &= ~F_USED;
+    c->free_bytes += SIZE(*b);
+    if (c->free_bytes == c->bytes) {
+        chunk_init(c, c->bytes, c->fixed);      /* one free block again */
+        if (c->fixed) return;
+        for (link = &s_chunks; *link != c; link = &(*link)->next)
+            ;
+        *link = c->next;
+        s_held -= c->bytes;
+        s_api->free(c);
     }
 }
 
 void *freya_cjson_realloc(void *p, size_t size)
 {
+    uint32_t *b, need, old;
+    chunk_t *c;
     uint8_t *q;
-    uint32_t old;
 
     if (!p) return freya_cjson_malloc(size);
-    old = ((block_t *)((uint8_t *)p - HEADER))->size - HEADER;
+    if (size > 0x7fffffffU - 2 * HEADER) return NULL;
+    b = (uint32_t *)p - 1;
+    old = SIZE(*b) - HEADER;
     if (size <= old) return p;
+    need = ((uint32_t)size + HEADER + 3U) & ~3U;
+    /* grow in place into the free blocks that follow */
+    if (!(*b & F_OWN) && (c = chunk_of(b)) != NULL) {
+        uint32_t *n = next_block(b);
+        if (n < chunk_end(c) && !(*n & F_USED)) {
+            join(c, n);
+            if (SIZE(*b) + SIZE(*n) >= need) {
+                uint32_t had = SIZE(*b);
+                if (c->rover == n) c->rover = b;
+                *b = (had + SIZE(*n)) | F_USED;  /* take it all, then */
+                c->free_bytes -= SIZE(*n);       /* cut the rest off  */
+                if (SIZE(*b) - need >= BLOCK_MIN) {
+                    uint32_t *rest = (uint32_t *)((uint8_t *)b + need);
+                    *rest = SIZE(*b) - need;
+                    c->free_bytes += *rest;
+                    *b = need | F_USED;
+                    if (c->rover == b) c->rover = rest;
+                }
+                return p;
+            }
+        }
+    }
     q = freya_cjson_malloc(size);
     if (!q) return NULL;
     memcpy(q, p, old);

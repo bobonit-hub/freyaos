@@ -67,7 +67,10 @@ blocks it lends and, like the kernel, lends no more than 32: a document parses, 
 and is freed whole; numbers print as cJSON prints them with a C library; `\u`
 escapes and surrogate pairs decode; 2000 values fit in those 32 blocks; a
 large print grows its buffer through `realloc()`; 300 strings of up to 600
-bytes print and parse back; JSON Patch and Merge Patch apply; broken JSON is refused; and no
+bytes print and parse back; 300000 random `malloc()`, `realloc()` and
+`free()` calls under a 160 KiB heap, from the heap and with a pool at an odd
+address, keep every byte of every block and give every kernel block back;
+a block followed by free room grows in place; JSON Patch and Merge Patch apply; broken JSON is refused; and no
 block is left. `json/port.c`'s `%g` and `strtod()` are then checked against the
 host C library's on random doubles, on 1 to 25 digits, at ties and at both
 ends of the range.
