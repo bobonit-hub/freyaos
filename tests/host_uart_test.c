@@ -56,8 +56,14 @@ static USART_TypeDef *fake_usart(void)
     return &s_fake;
 }
 
+/* The console is USART2 unless the board names another. */
+#ifdef BOARD_CONSOLE_USART
+#undef  BOARD_CONSOLE_USART
+#define BOARD_CONSOLE_USART (fake_usart())
+#else
 #undef  USART2
 #define USART2 (fake_usart())
+#endif
 
 #include "../src/uart.c"
 
@@ -78,7 +84,7 @@ static void receive(uint8_t c)
 {
     s_access = 0;
     s_fake.FAKE_RX = c;
-    usart2_interrupt(NULL);
+    uart_interrupt(NULL);
 }
 
 static void reset(int running, int raw)

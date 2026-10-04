@@ -17,8 +17,8 @@ same on every board is in [hardware.md](hardware.md).
 | SRAM | 128 KiB | 20 KiB | 128 KiB | 128 KiB | 128 KiB (+ 64 KiB CCM, unused) | 96 KiB | 768 KiB | 272 KiB | 640 KiB | 564 KiB (320 KiB used) |
 | Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 56 KiB RAM, or 832 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash | 168 KiB RAM, or 320 KiB flash | 504 KiB RAM, or 832 KiB flash | 216 KiB RAM, or 640 KiB flash |
 | Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=weact_f405` | `make BOARD=apm32f407` | `make BOARD=blackpill2` | `make BOARD=stm32u585` | `make BOARD=stm32h523` | `make BOARD=stm32h562` | `make BOARD=stm32h723` |
-| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 46 at 42 MHz APB1 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 | 271 at 250 MHz APB1 | 141 at 130 MHz APB1 |
-| Console rate | 923077 baud | 923077 baud | 913043 baud | 913043 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 922509 baud | 921986 baud |
+| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 91 at 84 MHz APB2 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 | 271 at 250 MHz APB1 | 141 at 130 MHz APB1 |
+| Console rate | 923077 baud | 923077 baud | 913043 baud | 923077 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 922509 baud | 921986 baud |
 | SD identification clock | 375 kHz | 281 kHz | 328 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged |
 | SD data clock | 12 MHz | 9 MHz | 10.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured |
 | SPI flash volume (`/spi1`) | yes | no | no | no | no | no | yes | yes | no | yes, beside the card |
@@ -47,11 +47,12 @@ tree actually came up at.
 
 The console runs at 921600 baud on every board (why that rate is in
 [hardware.md](hardware.md#console)). No board divides it exactly: USARTDIV
-rounds to the value in the table above against that board's APB1. The
-Black Pill, the Blue Pill and the Black Pill 2 land on 923077 baud, 0.16%
-fast; the STM32H723 on 921986, 0.04% fast; the STM32H523 and the STM32H562
+rounds to the value in the table above against the clock of that board's
+console USART: APB1 for USART2, APB2 for the WeAct F405 board's USART1. The
+Black Pill, the Blue Pill, the WeAct F405 board and the Black Pill 2 land
+on 923077 baud, 0.16% fast; the STM32H723 on 921986, 0.04% fast; the STM32H523 and the STM32H562
 on 922509, 0.10% fast; the STM32U585 on 919540,
-0.22% slow; the STM32F405, the WeAct F405 board and the APM32F407 board
+0.22% slow; the STM32F405 and the APM32F407 board
 on 913043, 0.93% slow. All of them are far inside what 8N1 tolerates. If the
 adapter is a faster one, the rate is `uart_init()` in `src/main.c` and the
 `BOARD_CONSOLE_NAME` string.
@@ -190,9 +191,13 @@ tap NRST). The board is
 with the STM32F405RGT6 fitted (schematic V1.1).
 
 It is the STM32F405 above in everything but its pins: the same clock tree,
-console, memory map and flash layout, so a program built for one runs on the
-other (`freya_api.h` takes `FREYA_BOARD_WEACT_F405` for
-`FREYA_BOARD_STM32F405`). What differs:
+memory map and flash layout, so a program built for one runs on the other
+(`freya_api.h` takes `FREYA_BOARD_WEACT_F405` for `FREYA_BOARD_STM32F405`),
+as long as it keeps off the pins each board reserves. What differs:
+
+- The console is USART1 on PA9 (TX) and PA10 (RX), the pins the schematic
+  labels TX and RX on the header beside SWD. USART1 runs from the 84 MHz
+  APB2: USARTDIV rounds to 91, 923077 baud, 0.16% fast.
 
 - The microSD slot (U4) is wired for the SDIO peripheral: CLK PC12, CMD PD2,
   DAT0..DAT3 PC8..PC11. No SPI peripheral reaches those pins, so the card is
@@ -204,8 +209,8 @@ other (`freya_api.h` takes `FREYA_BOARD_WEACT_F405` for
   through 10 kΩ; Freya does not read it, and a program may.
 - The LED is PB2 (blue, lit high). PC13 is the KEY button, which pulls the
   pin high when pressed.
-- Freya keeps PA2/PA3 for the console and PC8..PC12 and PD2 for the card,
-  and gives programs ports A to D. PA4..PA8 are free, unlike on the
+- Freya keeps PA9/PA10 for the console and PC8..PC12 and PD2 for the card,
+  and gives programs ports A to D. PA2..PA8 are free, unlike on the
   STM32F405 board. On the F405 fitting PB9 and PB11 are plain pins, so PWM,
   I2C and SPI2 are the STM32F405's.
 - USB-C is on PA11/PA12: `USB=1`, `AUDIO=1` and `CODECS=1` work as on the

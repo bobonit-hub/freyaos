@@ -86,6 +86,7 @@ typedef struct {
 #define RCC_APB1ENR_SPI2EN  (1UL << 14)
 #define RCC_APB1ENR_USART2EN (1UL << 17)
 #define RCC_APB1ENR_PWREN   (1UL << 28)
+#define RCC_APB2ENR_USART1EN (1UL << 4)
 #define RCC_APB2ENR_ADC1EN  (1UL << 8)
 #define RCC_APB2ENR_SPI1EN  (1UL << 12)
 #define RCC_APB2ENR_SYSCFGEN (1UL << 14)
@@ -422,6 +423,7 @@ typedef struct {
 #define TIM2_IRQn           28
 #define TIM3_IRQn           29
 #define TIM4_IRQn           30
+#define USART1_IRQn         37
 #define USART2_IRQn         38
 #define EXTI15_10_IRQn      40
 

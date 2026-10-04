@@ -12,10 +12,11 @@
  * 32.768 kHz crystal, the LED on PB2, KEY on PC13, USB-C on PA11/PA12 and
  * a microSD slot on the SDIO pins, always powered, its card-detect switch
  * on PA8 through 10 kOhm.  It is the STM32F405 board in everything but the
- * pins of the card and the LED: the same clock tree, memory map and
- * console on PA2/PA3, so freya_api.h treats FREYA_BOARD_WEACT_F405 as
- * FREYA_BOARD_STM32F405.  On the F405 fitting PB9 and PB11 are plain
- * pins, not VCAP, so a program sees the Black Pill's pin plan.
+ * pins of the console, the card and the LED: the same clock tree and
+ * memory map, so freya_api.h treats FREYA_BOARD_WEACT_F405 as
+ * FREYA_BOARD_STM32F405.  The console is USART1 on PA9/PA10, the TX and
+ * RX of the header beside SWD.  On the F405 fitting PB9 and PB11 are
+ * plain pins, not VCAP, so a program sees the Black Pill's pin plan.
  */
 #ifndef FREYA_BOARD_H
 #define FREYA_BOARD_H
@@ -28,9 +29,17 @@
 #define BOARD_CORE          "ARM Cortex-M4F"
 #define BOARD_HSE_NAME      "HSE 8 MHz crystal"
 #define BOARD_HSI_NAME      "HSI 16 MHz oscillator"
-#define BOARD_CONSOLE_NAME  "USART2 921600 8N1 on PA2/PA3"
+#define BOARD_CONSOLE_NAME  "USART1 921600 8N1 on PA9/PA10"
 #define BOARD_LED_NAME      "PB2"
 #define BOARD_FLASH_WS      5
+
+/* ------------------------------------------------------------ console */
+/* USART1, on APB2, where the schematic's header puts TX and RX; the other
+ * boards use USART2 on PA2/PA3.  board_uart_pins() routes PA9/PA10. */
+#define BOARD_CONSOLE_USART         USART1
+#define BOARD_CONSOLE_IRQn          USART1_IRQn
+#define BOARD_CONSOLE_IRQ_HANDLER   USART1_IRQHandler
+#define BOARD_CONSOLE_PCLK_HZ       g_clocks.pclk2_hz
 
 /* ------------------------------------------------------ internal flash */
 /* Every STM32F405 has 1 MiB, twelve sectors; the kernel extension is the
@@ -61,15 +70,15 @@
 
 /* ------------------------------------------------- pins and interrupts */
 /* Ports A to D; the LQFP64 bonds PD2 alone of port D.  Freya keeps the
- * console (PA2/PA3) and the card (PC8..PC12, PD2).  PB2 is the LED, which
+ * console (PA9/PA10) and the card (PC8..PC12, PD2).  PB2 is the LED, which
  * a program may drive as a pin or through api->led(); PC13 is KEY, which
  * pulls the pin high when pressed; PA8 reads the card-detect switch. */
 #define BOARD_PIN_PORTS     4               /* GPIOA, GPIOB, GPIOC, GPIOD */
 #ifdef FREYA_USB
 /* USB=1 also keeps PA11 and PA12, the USB socket's D- and D+. */
-#define BOARD_PIN_RESERVED  { 0x180CU, 0x0000U, 0x1F00U, 0x0004U }
+#define BOARD_PIN_RESERVED  { 0x1E00U, 0x0000U, 0x1F00U, 0x0004U }
 #else
-#define BOARD_PIN_RESERVED  { 0x000CU, 0x0000U, 0x1F00U, 0x0004U }
+#define BOARD_PIN_RESERVED  { 0x0600U, 0x0000U, 0x1F00U, 0x0004U }
 #endif
 
 /* ------------------------------------------------------------ USB host */

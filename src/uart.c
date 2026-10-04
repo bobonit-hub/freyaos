@@ -1,6 +1,7 @@
 /*
- * Freya - USART2 console driver, 921600 8N1.  The board wires the pins up
- * in board_uart_pins(); everything below is the same on every STM32.
+ * Freya - console driver, 921600 8N1, on USART2 unless the board names
+ * another.  The board wires the pins up and clocks the USART in
+ * board_uart_pins(); everything below is the same on every STM32.
  *
  * Receive is interrupt driven into a ring buffer so that characters are
  * never lost while the shell or a user program is busy.  The ISR also
@@ -15,6 +16,16 @@
 #define RX_MASK         (RX_BUF_SIZE - 1)
 
 #define CTRL_C          0x03
+
+/* The console's USART, its interrupt and the bus clock it runs from.  A
+ * board that wires the console elsewhere defines all four in board.h. */
+#ifndef BOARD_CONSOLE_USART
+#define BOARD_CONSOLE_USART         USART2
+#define BOARD_CONSOLE_IRQn          USART2_IRQn
+#define BOARD_CONSOLE_IRQ_HANDLER   USART2_IRQHandler
+#define BOARD_CONSOLE_PCLK_HZ       g_clocks.pclk1_hz
+#endif
+#define CON             BOARD_CONSOLE_USART
 
 /* The USART of the newer parts (BOARD_USART_ISR) keeps its flags in ISR,
  * clears them through ICR, and splits DR into RDR and TDR.  The bits
@@ -171,23 +182,23 @@ void uart_init(uint32_t baud)
 
     board_uart_pins();
 
-    USART2->CR1 = 0;
+    CON->CR1 = 0;
     /* 16x oversampling: BRR holds USARTDIV in 12.4 fixed point, fck / baud. */
-    brr = (g_clocks.pclk1_hz + baud / 2) / baud;
-    USART2->BRR = brr;
-    USART2->CR2 = 0;                    /* 1 stop bit  */
-    USART2->CR3 = 0;                    /* no flow ctl */
-    USART2->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE | USART_CR1_UE;
+    brr = (BOARD_CONSOLE_PCLK_HZ + baud / 2) / baud;
+    CON->BRR = brr;
+    CON->CR2 = 0;                       /* 1 stop bit  */
+    CON->CR3 = 0;                       /* no flow ctl */
+    CON->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE | USART_CR1_UE;
 
     s_head = s_tail = 0;
     s_overruns = 0;
     s_raw_mode = 0;
 
-    nvic_set_priority(USART2_IRQn, IRQ_PRIO_CONSOLE);
-    nvic_enable(USART2_IRQn);
+    nvic_set_priority(BOARD_CONSOLE_IRQn, IRQ_PRIO_CONSOLE);
+    nvic_enable(BOARD_CONSOLE_IRQn);
 }
 
-void usart2_interrupt(uint32_t *frame);
+void uart_interrupt(uint32_t *frame);
 
 /*
  * The console runs above every other interrupt, which makes it the only
@@ -197,28 +208,28 @@ void usart2_interrupt(uint32_t *frame);
  * MSP before the compiler's prologue has moved it.
  */
 #ifndef FREYA_HOST
-__attribute__((naked)) void USART2_IRQHandler(void)
+__attribute__((naked)) void BOARD_CONSOLE_IRQ_HANDLER(void)
 {
     __asm volatile ("mrs r0, msp\n\t"
-                    "b   usart2_interrupt");
+                    "b   uart_interrupt");
 }
 #endif
 
-void usart2_interrupt(uint32_t *frame)
+void uart_interrupt(uint32_t *frame)
 {
-    uint32_t sr = USART2->UART_FLAGS;
+    uint32_t sr = CON->UART_FLAGS;
 
     if (sr & (UART_ORE | UART_NE | UART_FE | UART_PE)) {
 #ifdef BOARD_USART_ISR
-        USART2->ICR = USART_ICR_ERRORS;
+        CON->ICR = USART_ICR_ERRORS;
 #else
-        (void)USART2->DR;               /* SR read + DR read clears them */
+        (void)CON->DR;                  /* SR read + DR read clears them */
 #endif
         s_overruns++;
     }
 
-    while (USART2->UART_FLAGS & UART_RXNE) {
-        uint8_t c = (uint8_t)(USART2->UART_RX & 0xFF);
+    while (CON->UART_FLAGS & UART_RXNE) {
+        uint8_t c = (uint8_t)(CON->UART_RX & 0xFF);
         uint16_t next = (uint16_t)((s_head + 1) & RX_MASK);
 
 #if BOARD_ESP_LINK
@@ -281,8 +292,8 @@ void uart_putc(char c)
 #if BOARD_ESP_LINK
     if (!s_term_output || s_cap_on) {
 #endif
-        while (!(USART2->UART_FLAGS & UART_TXE)) { }
-        USART2->UART_TX = (uint32_t)(uint8_t)c;
+        while (!(CON->UART_FLAGS & UART_TXE)) { }
+        CON->UART_TX = (uint32_t)(uint8_t)c;
 #if BOARD_ESP_LINK
     }
 #endif
@@ -314,7 +325,7 @@ void uart_puts(const char *s)
 
 void uart_drain_tx(void)
 {
-    while (!(USART2->UART_FLAGS & UART_TC)) { }
+    while (!(CON->UART_FLAGS & UART_TC)) { }
 }
 
 int uart_rx_ready(void)

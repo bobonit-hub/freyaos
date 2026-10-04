@@ -91,19 +91,19 @@ void board_clock_init(void)
 void board_uart_pins(void)
 {
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-    RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
-    (void)RCC->APB1ENR;
+    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
+    (void)RCC->APB2ENR;
 
-    /* PA2, PA3 -> alternate function 7, push-pull, high speed. */
-    GPIOA->MODER   = (GPIOA->MODER   & ~((3UL << 4) | (3UL << 6))) |
-                     ((2UL << 4) | (2UL << 6));
-    GPIOA->OTYPER &= ~((1UL << 2) | (1UL << 3));
-    GPIOA->OSPEEDR = (GPIOA->OSPEEDR & ~((3UL << 4) | (3UL << 6))) |
-                     ((3UL << 4) | (3UL << 6));
-    GPIOA->PUPDR   = (GPIOA->PUPDR   & ~((3UL << 4) | (3UL << 6))) |
-                     ((1UL << 4) | (1UL << 6));      /* pull-ups */
-    GPIOA->AFR[0]  = (GPIOA->AFR[0] & ~((0xFUL << 8) | (0xFUL << 12))) |
-                     ((7UL << 8) | (7UL << 12));
+    /* PA9 (TX), PA10 (RX) -> alternate function 7, push-pull, high speed. */
+    GPIOA->MODER   = (GPIOA->MODER   & ~((3UL << 18) | (3UL << 20))) |
+                     ((2UL << 18) | (2UL << 20));
+    GPIOA->OTYPER &= ~((1UL << 9) | (1UL << 10));
+    GPIOA->OSPEEDR = (GPIOA->OSPEEDR & ~((3UL << 18) | (3UL << 20))) |
+                     ((3UL << 18) | (3UL << 20));
+    GPIOA->PUPDR   = (GPIOA->PUPDR   & ~((3UL << 18) | (3UL << 20))) |
+                     ((1UL << 18) | (1UL << 20));    /* pull-ups */
+    GPIOA->AFR[1]  = (GPIOA->AFR[1] & ~((0xFUL << 4) | (0xFUL << 8))) |
+                     ((7UL << 4) | (7UL << 8));
 }
 
 /* ---------------------------------------------------------- SD card */
@@ -136,7 +136,7 @@ void sdspi_init(void)
     sd_pin(GPIOD, SD_MOSI_BIT, FREYA_PIN_OUT, 1);
     sd_pin(GPIOC, SD_MISO_BIT, FREYA_PIN_IN_PULLUP, 0);
     sd_pin(GPIOC, 9, FREYA_PIN_IN_PULLUP, 0);    /* DAT1 */
-    sd_pin(GPIOC, 10, FREYA_PIN_IN_PULLUP, 0);   /* DAT2, 100k on the board too */
+    sd_pin(GPIOC, 10, FREYA_PIN_IN_PULLUP, 0);   /* DAT2, no pull-up on the board */
     s_sd_fast = 0;
 }
 

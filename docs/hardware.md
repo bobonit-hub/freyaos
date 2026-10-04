@@ -7,7 +7,9 @@ board to another (clocks, maps, divisors) is in [boards.md](boards.md).
 
 ## Console
 
-The console is wired the same way on every board.
+The console is wired the same way on every board but the WeAct STM32F4
+64-pin board (`weact_f405`), which has it on USART1, TX on PA9 and RX on
+PA10, where its schematic puts them.
 
 | Function | Pin | Connect to |
 |---|---|---|
@@ -72,9 +74,10 @@ card, and PA8 for its supply. Every other pin of ports A, B and C is a
 program's to drive or take interrupts on. The STM32H723 board keeps PA2
 and PA3, PC8 to PC12 and PD2 for the card, and PB3, PB4, PD6 and PD7 for
 the SPI flash, and gives programs ports A to E. The STM32H562 board and the
-WeAct STM32F4 64-pin board (`weact_f405`) keep PA2 and PA3, and PC8 to PC12
-and PD2 for the card, and give programs ports A to D; the APM32F407ZGT6
-board (`apm32f407`) keeps the same pins and gives programs ports A to G. A
+APM32F407ZGT6 board (`apm32f407`) keep PA2 and PA3, and PC8 to PC12 and
+PD2 for the card, and give programs ports A to D and A to G; the WeAct
+STM32F4 64-pin board (`weact_f405`) keeps PA9 and PA10 for its console,
+and the same card pins, and gives programs ports A to D. A
 build with `make USB=1` also keeps PA11 and PA12, the USB
 socket's data lines ([usb.md](usb.md)).
 
