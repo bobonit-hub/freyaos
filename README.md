@@ -9,7 +9,7 @@ STM32H523CET6 and STM32H562RGT6 core boards, all Cortex-M33, and WeAct's
 MiniSTM32H723, a Cortex-M7.
 No HAL and no CMSIS: Freya brings the chip up itself. LittleFS, on the SPI flash, is the one vendored library. Freya
 talks to the hardware through its own register definitions, and lives
-entirely in internal flash. This is release 3.3.0, "Poltergeist". The notes
+entirely in internal flash. This is release 4.0.0, "Bigfoot". The notes
 are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 Freya gives you a serial console, a real FAT filesystem on an SD card, and the
@@ -29,7 +29,7 @@ cycle and needs no card at all.
  |_|  |_|  \___|\__, |\__,_|
                  __/ |
                 |___/
-Freya 3.3.0 "Poltergeist" for STM32F411CEU6
+Freya 4.0.0 "Bigfoot" for STM32F411CEU6
 96 MHz, power-on reset. Type 'help()'.
 
 [boot] clocks     : HSE 25 MHz crystal + PLL, sysclk 96 MHz, flash 3 WS

@@ -1244,7 +1244,7 @@ int main(void)
 
     rc = run("sysinfo");
     expect_rc("sysinfo succeeds", rc, 0);
-    expect_has("sysinfo reports the OS version", "Freya 3.3.0");
+    expect_has("sysinfo reports the OS version", "Freya 4.0.0");
     expect_has("sysinfo reports the firmware version", "firmware   : 3.1.1");
 #if defined(FREYA_BOARD_BLUEPILL)
     expect_has("sysinfo names the board", "Blue Pill");

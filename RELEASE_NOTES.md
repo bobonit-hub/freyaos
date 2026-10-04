@@ -1,3 +1,51 @@
+# Freya 4.0.0 "Bigfoot"
+
+4 October 2026
+
+Bigfoot follows Poltergeist. Freya runs on eight boards now, five of them
+new: WeAct's AT32F403ACGU7 "Black Pill 2", STM32U585CIU6, STM32H523CET6,
+STM32H562RGT6 and MiniSTM32H723. The console banner and `sysinfo` print
+the version and this name:
+
+```
+Freya 4.0.0 "Bigfoot" for STM32F411CEU6
+```
+
+The program ABI is still version 3: programs built for 3.3.0 run
+unchanged.
+
+## What changed
+
+* New boards. `make BOARD=blackpill2` is the AT32F403ACGU7, the F103's
+  peripherals with a Cortex-M4F at 240 MHz. `make BOARD=stm32u585`,
+  `stm32h523` and `stm32h562` are Cortex-M33s at 160 and 250 MHz, and
+  `make BOARD=stm32h723` a Cortex-M7 at 520 MHz. `src/` gained a path
+  for each newer generation of peripheral, chosen in the board header,
+  and the older boards compile to the same code as before.
+  [docs/boards.md](docs/boards.md) has a section for each.
+* The STM32H562 board (`make BOARD=stm32h562`) is the WeAct STM32H5
+  64-pin core board: 1 MiB of flash and 640 KiB of SRAM, so programs get
+  504 KiB of RAM or 832 KiB of flash. Its microSD slot is on the SDMMC1
+  pins and is driven by hand in SPI mode, as on the MiniSTM32H723. It
+  has no SPI flash. PB9 and PB11 are VCAP pads on that chip, so PWM has
+  PB5 in place of PB9, and I2C bus 2 is PB10/PB3.
+* `make RTC=internal` keeps the time in the chip's own calendar RTC on
+  the boards that have one; [docs/rtc.md](docs/rtc.md) says where a coin
+  cell goes.
+* The log can also go to a remote syslog server over UDP through the
+  ESP32-C6: `syslog("server", "a.b.c.d")` and `syslog("on")`.
+* The shell language builds for Linux as `fsh` (`make linux`), and
+  `run()` starts host programs from it.
+* The ESP32-C6 firmware is rewritten in Rust on ESP-IDF, and MicroPython
+  is gone. The link protocol is unchanged.
+* basic11 runs on the Blue Pill. `make NOSHELL=1` leaves the shell out,
+  and `make BASIC=prog.bas` builds a BASIC program into the kernel and
+  runs it at boot.
+* `make flash` works for the STM32U585, STM32H523, STM32H562 and
+  STM32H723 through st-flash, and `make BOARD=<board> dfu` packs a file
+  for their ROM loaders.
+* The Rust crate is version 4.0.0.
+
 # Freya 3.3.0 "Poltergeist"
 
 1 October 2026

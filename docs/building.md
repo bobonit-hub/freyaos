@@ -37,8 +37,8 @@ make clean
 `BOARD=`. Leave `RTC` unset and neither clock driver is in the image.
 `RTC=internal` is for the boards with a calendar RTC
 ([rtc.md](rtc.md)) and is refused for the others. The banner and the first
-line of `sysinfo()` print the OS version from this documentation, 3.3.0
-"Poltergeist"; `FIRMWARE_VERSION` does not change that. The firmware
+line of `sysinfo()` print the OS version from this documentation, 4.0.0
+"Bigfoot"; `FIRMWARE_VERSION` does not change that. The firmware
 version defaults to the value hardcoded in `src/freya.h`; an override must
 have `major.minor.patch` numeric form. `sysinfo()` prints that firmware
 version on its own line.

@@ -595,7 +595,7 @@ The Blue Pill boots the same way as the Black Pill, on three quarters of the
 clock and a fifth of the RAM:
 
 ```
-Freya 3.3.0 "Poltergeist" for STM32F103C8T6
+Freya 4.0.0 "Bigfoot" for STM32F103C8T6
 72 MHz, power-on reset. Type 'help'.
 
 [boot] clocks     : HSE 8 MHz crystal + PLL, sysclk 72 MHz, flash 2 WS

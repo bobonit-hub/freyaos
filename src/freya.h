@@ -30,11 +30,11 @@
  * build does not change it.  The build may override the firmware version;
  * a source build always has one of its own.  Keep both in
  * major.minor.patch form. */
-#define FREYA_OS_VERSION        "3.3.0"
+#define FREYA_OS_VERSION        "4.0.0"
 #ifndef FREYA_FIRMWARE_VERSION
 #define FREYA_FIRMWARE_VERSION  "3.1.1"
 #endif
-#define FREYA_CODENAME          "Poltergeist"
+#define FREYA_CODENAME          "Bigfoot"
 #define FREYA_BUILD_ID          __DATE__ " " __TIME__
 
 /* --------------------------------------------------------------- misc */
