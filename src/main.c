@@ -4,12 +4,31 @@
  * The board's Reset_Handler hands control here with .data copied, .bss
  * cleared and the core ready to run C.  Everything from this point on is
  * Freya's own bring-up: clocks, console, storage, then the shell.
+ *
+ * A NOSHELL=1 build (FREYA_NO_SHELL) has no shell: it boots straight into
+ * the autorun program and runs it again whenever it exits.
  */
 #include "freya.h"
 #include "fat.h"
 
 #define AUTORUN_PATH    "/autorun.bin"
 #define AUTORUN_GRACE   2000    /* ms to interrupt the autorun */
+#define AUTORUN_RESTART 1000    /* ms between runs without a shell */
+
+/* The autorun program's arguments: its path, and with BASIC=file in the
+ * build, '-e' and that file's text. */
+static int autorun_args(const char *path, char **argv)
+{
+    int argc = 0;
+
+    argv[argc++] = (char *)path;
+#ifdef FREYA_AUTORUN_TEXT
+    argv[argc++] = "-e";
+    argv[argc++] = (char *)autorun_text;
+#endif
+    argv[argc] = NULL;
+    return argc;
+}
 
 #ifdef BOARD_SPIFLASH_OWN_BUS
 static void boot_card(void)
@@ -54,6 +73,7 @@ static void boot_storage(void)
 }
 #endif
 
+#ifndef FREYA_NO_SHELL
 /*
  * The card is asked first, so a program on it always overrides one in
  * flash.  The installed image — a program, or a shell script — is started
@@ -64,7 +84,7 @@ static void boot_storage(void)
 static void boot_autorun(void)
 {
     fat_dirent_t e;
-    char *argv[1];
+    char *argv[4];
     const char *path = NULL;
     const char *what = NULL;
     const char *script = NULL;
@@ -105,13 +125,65 @@ static void boot_autorun(void)
     }
 
     if (app_load(path) != 0) return;
-    argv[0] = (char *)path;
     kprintf("--- %s starting (Ctrl-C stops it) ---\r\n",
             g_app.name[0] ? g_app.name : path);
-    app_run(1, argv);
+    app_run(autorun_args(path, argv), argv);
     kprintf("\r\n--- autorun %s, exit status %d ---\r\n",
             app_stop_reason_str(g_app.last_stop_reason), g_app.last_status);
 }
+#endif
+
+#ifdef FREYA_NO_SHELL
+/*
+ * Without a shell there is nothing to return to, so autorun is always on:
+ * /autorun.bin on the card, else the program in flash, whether or not its
+ * auto-start flag is set.  There is no grace period to cancel it, and when
+ * the program exits, or Ctrl-C stops it, it is started again.  A script
+ * in flash needs the shell and is not run.
+ */
+static void __attribute__((noreturn)) autorun_forever(void)
+{
+    fat_dirent_t e;
+    char *argv[4];
+    const char *path;
+
+    for (;;) {
+        path = NULL;
+        if (fat_mounted() && fat_stat(AUTORUN_PATH, &e) == FAT_OK &&
+            !(e.attr & FAT_ATTR_DIR))
+            path = AUTORUN_PATH;
+#ifdef FREYA_APP_FLASH_ADDR
+        else if (app_flash_header())
+            path = APP_FLASH_PATH;
+#endif
+        if (!path) {
+            kprintf("[boot] no shell and no program to run - halted\r\n");
+            break;
+        }
+        if (app_load(path) != 0) {
+            kprintf("[boot] %s does not load - halted\r\n", path);
+            break;
+        }
+        kprintf("--- %s starting (Ctrl-C restarts it) ---\r\n",
+                g_app.name[0] ? g_app.name : path);
+        app_run(autorun_args(path, argv), argv);
+        kprintf("\r\n--- %s, exit status %d - restarting in %u s ---\r\n",
+                app_stop_reason_str(g_app.last_stop_reason),
+                g_app.last_status, AUTORUN_RESTART / 1000);
+        sys_delay_ms(AUTORUN_RESTART);
+    }
+    for (;;) __wfi();
+}
+
+/* The shell's banner, less the art and the pointer to help(). */
+void console_banner(void)
+{
+    kprintf("\r\nFreya %s \"%s\" for %s - built %s, no shell\r\n",
+            FREYA_OS_VERSION, FREYA_CODENAME, BOARD_MCU, FREYA_BUILD_ID);
+    kprintf("%u MHz, %s reset.\r\n\r\n",
+            g_clocks.hclk_hz / 1000000UL, sys_reset_cause_str());
+}
+#endif
 
 void freya_main(void)
 {
@@ -135,6 +207,9 @@ void freya_main(void)
 #endif
 
     boot_storage();
+#ifdef FREYA_NO_SHELL
+    autorun_forever();
+#else
     boot_autorun();
 
     led_set(1);
@@ -143,4 +218,5 @@ void freya_main(void)
 
     kprintf("\r\n");
     shell_run();
+#endif
 }

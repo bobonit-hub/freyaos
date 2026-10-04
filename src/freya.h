@@ -620,6 +620,9 @@ const freya_app_header_t *app_flash_header(void);   /* NULL if empty    */
 /* 1 and *text set when the region holds a script.  0 when it does not.
  * -1 when a script header is there but the text is not usable. */
 int  app_script_find(const char **text, uint32_t *length);
+#ifdef FREYA_AUTORUN_TEXT
+extern const char autorun_text[];   /* BASIC=file, for 'program -e TEXT' */
+#endif
 int  app_autostart_enabled(void);
 int  app_autostart_set(int enable);           /* 0 = FLASH_OK           */
 uint32_t app_log_level_stored(void);          /* 0xFFFFFFFF if erased   */

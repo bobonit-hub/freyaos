@@ -11,6 +11,12 @@
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
 #   make RTC=internal       also build the driver for the chip's own
 #                           calendar RTC (boards whose board.mk allows it)
+#   make NOSHELL=1          leave the shell out: the board always runs
+#                           /autorun.bin or the program in flash, and
+#                           runs it again when it exits (docs/building.md)
+#   make BOARD=bluepill NOSHELL=1 flash BASIC=prog.bas
+#                           build prog.bas into the kernel and flash it
+#                           with basic11, which runs it at every boot
 #   make FIRMWARE_VERSION=3.1.1
 #                           override the firmware version
 #   make flash              flash the image with st-flash
@@ -126,6 +132,28 @@ else ifneq ($(RTC),)
 $(error RTC='$(RTC)' is not a supported clock - use RTC=ds3231 or RTC=internal, or leave RTC unset)
 endif
 
+# NOSHELL=1 leaves the shell out; src/shell.c then compiles to the two
+# kernel services that live in it.  With no shell to fall back to,
+# autorun is always on: the boot runs /autorun.bin or the program in
+# flash whether or not the auto-start flag is set, with no grace period,
+# and starts it again when it exits.  A script needs the shell, so
+# SCRIPT= is refused, and a program's shell_source_capture() call gets
+# FREYA_ERR_UNSUPPORTED.
+NOSHELL ?=
+ifeq ($(NOSHELL),1)
+CFLAGS    += -DFREYA_NO_SHELL
+else ifneq ($(NOSHELL),)
+$(error NOSHELL='$(NOSHELL)' - use NOSHELL=1, or leave it unset)
+endif
+
+# The objects that compile differently with and without the shell.
+$(BUILD)/noshell.stamp: FORCE | $(BUILD)
+	@echo '$(NOSHELL)' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
+
+$(BUILD)/main.o $(BUILD)/shell.o $(BUILD)/thread.o $(BUILD)/loader.o: \
+    $(BUILD)/noshell.stamp
+
 # main.c and shell.c compile different code when RTC changes, and the
 # driver appears or disappears.  The stamp is rewritten only when the
 # value changes, so an ordinary rebuild does not redo those files.
@@ -182,13 +210,11 @@ SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 aead compress fl
              basic11 altair altair16 httpd
 # A sample a board has no room for at all is not built there.  The 48 KiB
 # Altair keeps the 8080's RAM in the program region.  The Blue Pill's
-# window is 8 KiB of a 20 KiB SRAM, which cannot hold that.  basic11 is
-# the BASIC interpreter compiled for the board with the FPU's floats for
-# its numbers; the Blue Pill's Cortex-M3 has no FPU.  httpd keeps a 4 KiB
-# page beside its upload buffers and needs the ESP32-C6, which the Blue
-# Pill has no link for.  The Black Pill 2's window is 40 KiB, short of
-# the Altair's 48 KiB.
-SKIP_bluepill := altair basic11 httpd
+# window is 8 KiB of a 20 KiB SRAM, which cannot hold that.  httpd keeps
+# a 4 KiB page beside its upload buffers and needs the ESP32-C6, which
+# the Blue Pill has no link for.  The Black Pill 2's window is 40 KiB,
+# short of the Altair's 48 KiB.
+SKIP_bluepill := altair httpd
 SKIP_blackpill2 := altair
 SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # A sample whose code is larger than a board's program RAM region is built
@@ -197,8 +223,9 @@ SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 # the Altair's 8080 memory fills the Black Pill's RAM window by itself.
 # altair16 on the Blue Pill keeps its 16 KiB in the top of program flash,
 # so the interpreter runs from flash too.  rustdemo carries core::fmt and
-# the heap behind alloc, 12 KiB, which is past that window too.
-XIP_ONLY_bluepill  := forth altair16 rustdemo
+# the heap behind alloc, 12 KiB, which is past that window too.  basic11
+# is 22 KiB of interpreter and soft float there.
+XIP_ONLY_bluepill  := forth altair16 rustdemo basic11
 XIP_ONLY_blackpill := altair
 XIP_ONLY_stm32f405 := altair
 XIP_ONLY  := $(XIP_ONLY_$(BOARD))
@@ -206,10 +233,19 @@ XIP_ONLY  := $(XIP_ONLY_$(BOARD))
 # (FREYA_APP_F_NOTHREADS): 9 KiB instead of 7 on the Blue Pill, where the
 # two stacks follow the window.  The F4 stacks are below it, so there the
 # flag only refuses threads.  forth spends the two kilobytes on its
-# dictionary.
-NOTHREADS := forth
+# dictionary.  basic11 on the Blue Pill keeps its workspace there.
+NOTHREADS_bluepill := basic11
+NOTHREADS := forth $(NOTHREADS_$(BOARD))
 NOTHREADS_FLAGS := -DFREYA_APP_NOTHREADS -Wl,--defsym=__app_nothreads__=1
-nothreads  = $(if $(filter $(1),$(NOTHREADS)),$(NOTHREADS_FLAGS))
+# A program in WHOLE_WINDOW (Blue Pill linker scripts) owns all of its RAM
+# window, not just its variables: basic11 there keeps its workspace in
+# what is left, and the top of it as room for the stack, which grows down
+# into the window from the one above it.
+WHOLE_WINDOW_bluepill := basic11
+WHOLE_WINDOW := $(WHOLE_WINDOW_$(BOARD))
+WHOLE_WINDOW_FLAGS := -Wl,--defsym=__app_whole_window__=1
+nothreads  = $(if $(filter $(1),$(NOTHREADS)),$(NOTHREADS_FLAGS)) \
+             $(if $(filter $(1),$(WHOLE_WINDOW)),$(WHOLE_WINDOW_FLAGS))
 SMPL_BINS := $(patsubst %,$(BUILD)/samples/%.bin,$(filter-out $(XIP_ONLY),$(SAMPLES)))
 
 # A board that reserves part of its flash for a program image supplies a
@@ -269,6 +305,37 @@ PROGRAM ?=
 # A shell script to store in that same region, in place of a program.
 # The next boot runs it when AUTOSTART=1 and /autorun.bin is absent.
 SCRIPT ?=
+# A BASIC program to build into the kernel.  The boot starts the autorun
+# program as 'program -e TEXT', with TEXT the file's lines, and basic11
+# loads and runs them.  PROGRAM defaults to basic11 and AUTOSTART to 1.
+BASIC ?=
+ifneq ($(BASIC),)
+ifeq ($(wildcard $(BASIC)),)
+$(error BASIC=$(BASIC): no such file)
+endif
+ifneq ($(SCRIPT),)
+$(error BASIC and SCRIPT cannot both be set)
+endif
+ifeq ($(PROGRAM),)
+PROGRAM := basic11
+endif
+AUTOSTART := 1
+CFLAGS    += -DFREYA_AUTORUN_TEXT='"$(abspath $(BASIC))"'
+endif
+
+# loader.c carries the BASIC text (.incbin, which the dependency files do
+# not see), and main.c passes it on: both are rebuilt when the name
+# changes, and loader.c when the file does.
+$(BUILD)/basic.stamp: FORCE | $(BUILD)
+	@echo '$(abspath $(BASIC))' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
+ifneq ($(BASIC),)
+	@if LC_ALL=C grep -q '[^[:print:][:space:]]' '$(BASIC)'; then \
+	    echo "BASIC=$(BASIC): the text must be plain ASCII" >&2; exit 1; fi
+endif
+
+$(BUILD)/main.o: $(BUILD)/basic.stamp
+$(BUILD)/loader.o: $(BUILD)/basic.stamp $(BASIC)
 # Set the auto-start flag in the packed image.  Off unless asked, so a
 # module programmed with PROGRAM= or SCRIPT= still boots to the shell
 # on every reset.
@@ -277,6 +344,17 @@ AUTOSTART ?=
 ifneq ($(PROGRAM),)
 ifneq ($(SCRIPT),)
 $(error PROGRAM and SCRIPT cannot both be set)
+endif
+endif
+
+ifeq ($(NOSHELL),1)
+ifneq ($(SCRIPT),)
+$(error SCRIPT= needs the shell, which NOSHELL=1 leaves out - use PROGRAM=)
+endif
+# The kernel runs the flash program regardless; the flag is set as well so
+# the image means the same under a kernel with the shell.
+ifneq ($(PROGRAM),)
+AUTOSTART := 1
 endif
 endif
 

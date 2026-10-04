@@ -1,9 +1,11 @@
 # BASIC for Freya
 
 A BASIC in the manner of DEC's BASIC-11, written in C. Compiled with
-GCC for the boards with an FPU it is the native program `basic11`,
-whose numbers are the C `float` on the FPU; the same source compiles
-for the PC, with the same arithmetic, for testing. Nothing here needs
+GCC it is the native program `basic11`, whose numbers are the C
+`float`: on the FPU of the boards that have one, and on the Blue Pill,
+whose Cortex-M3 has none, in the soft-float helpers of `src/softfp.c`.
+The same source compiles for the PC, with the same arithmetic, for
+testing. Nothing here needs
 a C library; the interpreter talks to whatever runs it through a few
 system calls.
 
@@ -38,18 +40,22 @@ BYE
 | `Makefile`   | builds the PC interpreter                                      |
 
 `samples/basic11/main.c` is the Freya program that hosts it. It
-includes `basic.c` and is compiled by the top-level Makefile for the
-boards with an FPU: it implements the system calls on the Freya API,
-supplies `setjmp` and `longjmp` for the Cortex-M4F, and takes the
-workspace from the heap.
+includes `basic.c` and is compiled by the top-level Makefile for every
+board: it implements the system calls on the Freya API, supplies
+`setjmp` and `longjmp` for the Cortex-M4F and the Cortex-M3, and takes
+the workspace from the heap, or on the Blue Pill from its own RAM
+window (see [The Blue Pill](#the-blue-pill)).
 
 `BAS_HOST` picks the PC build, with a C library; without it the source
 is the bare-metal program. `BAS_BANNER` is the first line printed.
+`BAS_SMALL` is the build for a few KiB of RAM, and `BAS_STACK_FLOOR`
+the lowest address the stack may reach; both are the Blue Pill's.
 
 ## Building
 
 ```sh
 make BOARD=blackpill samples   # build/blackpill/samples/basic11.bin
+make BOARD=bluepill samples    # build/bluepill/samples/basic11.xip.bin
 make -C basic                  # build/basic/basic-host
 make -C basic test             # tests/basic on the host build
 ```
@@ -59,21 +65,78 @@ under `tests/basic` are what the board prints — except for
 `pins.bas`, whose pins are the pretend ones of `hostrt.c`.
 
 ```
-run basic11 [-m KiB] [program.bas]
+run basic11 [-m KiB] [program.bas | -e text]
 basic-host [-m KiB] [-r program.bas]
 ```
 
 On the board `-m` asks for a workspace of that many KiB from the heap;
 without it the program takes 32 KiB, or the largest multiple of 4 KiB
 down to 12 that the heap can give. A program named on the command line
-is loaded and run as though `OLD` and `RUN` had been typed; the
-interpreter then goes on to `READY`. `BYE` returns to the shell. On the
+is loaded and run as though `OLD` and `RUN` had been typed, without the
+banner and the prompts, and `basic11` exits when the program ends, with
+1 after an error and 0 otherwise. `-e text` does the same with the
+program's lines given as the text, one per line, carriage returns
+ignored; it is how a kernel built with `BASIC=` starts its program.
+Without either the interpreter takes commands until `BYE`, which
+returns to the shell. On the
 PC `-m` is the size of the machine's memory, 256 KiB by default. `-r`
 loads a program, runs it without the banner and the prompts and exits
 with 0 at END, or 1 after an error.
 
 The native program is 18 KiB of Thumb-2 code plus 12 KiB of static
 data, the variable tables mostly, and runs from the shell's stack.
+
+## The Blue Pill
+
+The Blue Pill's Cortex-M3 has no FPU, and a program there has a 9 KiB
+RAM window and no heap to speak of. `basic11` is built for it all the
+same, with three differences.
+
+- **Numbers.** It is compiled soft-float, so every `float` operation
+  is a call into `src/softfp.c`, which the Makefile links into each
+  Blue Pill program. The square root is worked out from the bits
+  (`sqrt_bits()` in `fpnat.c`), correctly rounded; it agrees with libm
+  on every non-negative float. The results are the same as on the FPU
+  boards, only slower.
+- **Memory** (`BAS_SMALL`). The variables are not three tables of all
+  286 names of each kind but records in the arena, made when a name is
+  first used and cleared with the rest of the arena. The other tables
+  are halved: 8 `FOR` and 8 `DO` loops, 16 `GOSUB`s, 4 keys, 16 `DEF`s
+  of which 6 may be calling one another, 32-byte channel buffers, 1 KiB
+  of scratch for strings. The program starts no threads and owns the
+  whole window (`NOTHREADS` and `WHOLE_WINDOW` in the Makefile). Its own
+  data is under 3 KiB, and the workspace for the program, its arrays
+  and its strings is the rest, about 5 KiB, less the top kilobyte. `-m`
+  is refused.
+- **The stack.** The program stack is the shell's 2560 bytes, directly
+  above the window, and it may grow down into that top kilobyte.
+  `BAS_STACK_FLOOR` stops the interpreter 384 bytes short of the bottom
+  with `?Out of memory`, instead of letting it run over the workspace.
+  That allows about seven built-in functions nested inside one another,
+  a dozen levels of parentheses, or a `DEF` that calls itself four
+  deep.
+
+It is 22 KiB of code, so it is built only as `basic11.xip.bin`, and
+runs from the program flash where `install` or `make flash PROGRAM=`
+puts it.
+
+### A program built in
+
+`make BASIC=prog.bas` builds the text of `prog.bas` into the kernel
+extension. At boot the autorun program, `basic11` unless `PROGRAM=`
+says otherwise, is started as `basic11 -e TEXT`, so it runs that
+program. `BASIC=` also sets `PROGRAM=basic11`, when it is not set, and
+`AUTOSTART=1`. With the shell left out the board does nothing else, and
+starts the program again a second after it ends:
+
+```sh
+make BOARD=bluepill NOSHELL=1 flash BASIC=prog.bas
+```
+
+The text has to be plain ASCII, and is at most what is free in the
+kernel extension: about 6 KiB on a Blue Pill kernel with the shell,
+about 47 KiB on one without. A change to the file rebuilds the kernel.
+`docs/building.md` has the rest of `NOSHELL=1`.
 
 ## The system calls
 

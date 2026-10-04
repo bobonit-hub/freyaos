@@ -70,6 +70,51 @@ static float trunc_(float x)
     return x;                                   /* already an integer */
 }
 
+/* The square root from the bits, correctly rounded, for a core with no
+ * FPU and no libm: x = m 2^e with e even, and the root of m 2^23 taken
+ * a bit at a time in a 64-bit word is the 24-bit significand.  x >= 0;
+ * the infinities and NaNs never reach it. */
+static float sqrt_bits(float x)
+{
+    uint32_t b = bits_of(x), m = b & 0x7fffffu, r = 0, bit;
+    int e = (int)(b >> 23);
+    uint64_t n, rem, trial;
+
+    if (x == 0) return 0;
+    if (e == 0) {                               /* subnormal: normalize */
+        e = 1;
+        while (!(m & 0x800000u)) {
+            m <<= 1;
+            e--;
+        }
+    } else {
+        m |= 0x800000u;
+    }
+    e -= 127;
+    if (e & 1) {                                /* make the exponent even */
+        m <<= 1;
+        e--;
+    }
+    n = (uint64_t)m << 23;                      /* [2^46, 2^48) */
+    rem = 0;
+    for (bit = 24; bit-- > 0; ) {               /* r < 2^24 */
+        rem = (rem << 2) | (n >> 46);
+        n = (n << 2) & ((1ull << 48) - 1);
+        trial = ((uint64_t)r << 2) | 1u;
+        r <<= 1;
+        if (rem >= trial) {
+            rem -= trial;
+            r |= 1u;
+        }
+    }
+    if (rem > r) r++;                           /* nearest; a tie cannot be */
+    if (r == 0x1000000u) {
+        r >>= 1;
+        e += 2;
+    }
+    return float_of((uint32_t)(e / 2 + 127) << 23 | (r & 0x7fffffu));
+}
+
 static float sqrt_(float x)
 {
 #if defined(__ARM_FP) && !defined(BAS_HOST)
@@ -77,8 +122,10 @@ static float sqrt_(float x)
 
     __asm__("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
     return r;
-#else
+#elif defined(BAS_HOST) && !defined(BAS_SOFT_SQRT)
     return __builtin_sqrtf(x);
+#else
+    return sqrt_bits(x);
 #endif
 }
 

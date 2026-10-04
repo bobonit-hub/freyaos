@@ -26,6 +26,69 @@
 #include "freya.h"
 #include "fat.h"
 
+/* Two kernel services live here because the shell is their main user.
+ * A NOSHELL=1 build (FREYA_NO_SHELL) compiles this file for them alone:
+ * the loader checks an installed script with script_text_ok(), and a
+ * program's rtc_set() comes through rtc_apply(). */
+
+/* Printable ASCII, plus the whitespace a script is written with.
+ * A NUL does not belong in the text; the caller supplies the length. */
+int script_text_ok(const char *text, uint32_t len)
+{
+    for (uint32_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)text[i];
+
+        if (c != '\t' && c != '\n' && c != '\r' && (c < 0x20 || c > 0x7E))
+            return 0;
+    }
+    return 1;
+}
+
+/* Every image keeps the date command in the kernel extension.  The Blue
+ * Pill held it in the 48 KiB image while that had room; the cipher it
+ * no longer builds freed enough of the extension to take it. */
+#define DATE_TEXT __attribute__((noinline, section(".text.cmd_date")))
+
+/* Set the clock, the chip before the count.  The date command below and
+ * the rtc_set() of the program service table both come through here, so
+ * there is one range, one order of writes and one story about what a
+ * DS3231 does.  rtc_set() itself is the count and asks no questions.
+ *
+ * 0 the clock was set.  FREYA_ERR_ARG the fields are out of range, or
+ * the chip refused the date, and nothing changed.  Any other negative
+ * is a chip that did not answer; the count is set all the same, since a
+ * board built with the driver and no chip on the pins still has to be
+ * able to set its clock.
+ *
+ * It sits with the date command, and in the same section, so that it
+ * goes wherever that command goes: the kernel extension on the F4
+ * images, the kernel on the Blue Pill. */
+int DATE_TEXT rtc_apply(const rtc_time_t *t)
+{
+    int rc = 0;
+
+    /* The month is bounded because rtc_set() indexes a table of twelve
+     * with it, and the year at 1980 because that is where a FAT
+     * timestamp starts.  A day past the end of its month is left to the
+     * count, which carries it into the next one; a chip refuses it, and
+     * then nothing is stored at all. */
+    if (!t || t->year < FREYA_RTC_MIN_YEAR || t->year > FREYA_RTC_MAX_YEAR ||
+        t->mon < 1 || t->mon > 12 || t->day < 1 || t->day > 31 ||
+        t->hour > 23 || t->min > 59 || t->sec > 59)
+        return FREYA_ERR_ARG;
+#ifdef FREYA_RTC_DS3231
+    rc = ds3231_write(t);
+    if (rc == FREYA_ERR_ARG) return FREYA_ERR_ARG;
+#elif defined(FREYA_RTC_INTERNAL)
+    rc = rtcin_write(t);
+    if (rc == FREYA_ERR_ARG) return FREYA_ERR_ARG;
+#endif
+    rtc_set(t);
+    return rc;
+}
+
+#ifndef FREYA_NO_SHELL
+
 /* The 48 KiB kernel image has no room left for the script interpreter.
  * The extension is a separate image; a call across the two is an
  * ordinary branch.  These stay out of line so they are not copied
@@ -1701,49 +1764,6 @@ static int cmd_exit(int argc, char **argv)
 }
 #endif /* FREYA_LINUX */
 
-/* Every image keeps this command in the kernel extension.  The Blue
- * Pill held it in the 48 KiB image while that had room; the cipher it
- * no longer builds freed enough of the extension to take it. */
-#define DATE_TEXT __attribute__((noinline, section(".text.cmd_date")))
-
-/* Set the clock, the chip before the count.  The date command below and
- * the rtc_set() of the program service table both come through here, so
- * there is one range, one order of writes and one story about what a
- * DS3231 does.  rtc_set() itself is the count and asks no questions.
- *
- * 0 the clock was set.  FREYA_ERR_ARG the fields are out of range, or
- * the chip refused the date, and nothing changed.  Any other negative
- * is a chip that did not answer; the count is set all the same, since a
- * board built with the driver and no chip on the pins still has to be
- * able to set its clock.
- *
- * It sits with the date command, and in the same section, so that it
- * goes wherever that command goes: the kernel extension on the F4
- * images, the kernel on the Blue Pill. */
-int DATE_TEXT rtc_apply(const rtc_time_t *t)
-{
-    int rc = 0;
-
-    /* The month is bounded because rtc_set() indexes a table of twelve
-     * with it, and the year at 1980 because that is where a FAT
-     * timestamp starts.  A day past the end of its month is left to the
-     * count, which carries it into the next one; a chip refuses it, and
-     * then nothing is stored at all. */
-    if (!t || t->year < FREYA_RTC_MIN_YEAR || t->year > FREYA_RTC_MAX_YEAR ||
-        t->mon < 1 || t->mon > 12 || t->day < 1 || t->day > 31 ||
-        t->hour > 23 || t->min > 59 || t->sec > 59)
-        return FREYA_ERR_ARG;
-#ifdef FREYA_RTC_DS3231
-    rc = ds3231_write(t);
-    if (rc == FREYA_ERR_ARG) return FREYA_ERR_ARG;
-#elif defined(FREYA_RTC_INTERNAL)
-    rc = rtcin_write(t);
-    if (rc == FREYA_ERR_ARG) return FREYA_ERR_ARG;
-#endif
-    rtc_set(t);
-    return rc;
-}
-
 static int DATE_TEXT cmd_date(int argc, char **argv)
 {
     rtc_time_t t;
@@ -1891,19 +1911,6 @@ static int cmd_echo(int argc, char **argv)
         kprintf("%s%s", argv[i], (i + 1 < argc) ? " " : "");
     kprintf("\r\n");
     return 0;
-}
-
-/* Printable ASCII, plus the whitespace a script is written with.
- * A NUL does not belong in the text; the caller supplies the length. */
-int script_text_ok(const char *text, uint32_t len)
-{
-    for (uint32_t i = 0; i < len; i++) {
-        unsigned char c = (unsigned char)text[i];
-
-        if (c != '\t' && c != '\n' && c != '\r' && (c < 0x20 || c > 0x7E))
-            return 0;
-    }
-    return 1;
 }
 
 /* Read a script into the heap.  The caller frees *out.  0 on success. */
@@ -9927,3 +9934,5 @@ void shell_run(void)
         script_discard();
     }
 }
+
+#endif /* FREYA_NO_SHELL */

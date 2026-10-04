@@ -450,6 +450,34 @@ static int api_crypt_removed(const void *key, const void *nonce, uint32_t off,
     return FREYA_ERR_UNSUPPORTED;
 }
 
+#ifdef FREYA_AUTORUN_TEXT
+/* BASIC=file: the file's text, NUL-terminated, in the kernel extension
+ * beside the loader's other read-only data.  The boot hands it to the
+ * autorun program as 'program -e TEXT'. */
+__asm__(
+    ".section .rodata.kext_script.autorun_text,\"a\",%progbits\n"
+    ".global autorun_text\n"
+    ".type autorun_text, %object\n"
+    "autorun_text:\n"
+    ".incbin \"" FREYA_AUTORUN_TEXT "\"\n"
+    ".byte 0\n"
+    ".size autorun_text, . - autorun_text\n"
+    ".text\n"
+);
+#endif
+
+#ifdef FREYA_NO_SHELL
+/* A NOSHELL=1 build has no interpreter to run the script with. */
+static int no_shell_source_capture(const char *path, const char *method,
+                                   const char *query, char *buf, int cap,
+                                   int *out_len)
+{
+    (void)path; (void)method; (void)query; (void)buf; (void)cap;
+    if (out_len) *out_len = 0;
+    return FREYA_ERR_UNSUPPORTED;
+}
+#endif
+
 static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .size            = sizeof(freya_api_t),
     .version         = FREYA_ABI_VERSION,
@@ -562,7 +590,11 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .web_begin       = web_begin,
     .web_body        = web_body,
     .web_end         = web_end,
+#ifdef FREYA_NO_SHELL
+    .shell_source_capture = no_shell_source_capture,
+#else
     .shell_source_capture = shell_source_capture,
+#endif
     .settings_block  = settings_block,
     .settings_area_size = settings_area_size,
     .web_read        = web_read,

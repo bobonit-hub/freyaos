@@ -162,18 +162,42 @@ void fp_fault(int code)
 
 #define NVARS      (26 * 11)
 #define MAXLINE    255           /* characters typed on one line */
-#define TMP_BYTES  2048          /* scratch for intermediate strings */
 #define MAXSTR     255
+#define DEBOUNCE_MS 20u          /* a key has to hold still this long */
+#define NFNARG     4            /* parameters of one */
+#define NCHAN      8             /* channel 0 is the terminal */
+#ifdef BAS_SMALL
+/* A board with a few KiB of RAM for everything, the Blue Pill.  The
+ * variables are records in the arena, made when a name is first used,
+ * instead of three tables of every name there could be, and the other
+ * tables are cut down.  The language is the same; a program runs out
+ * of room sooner. */
+#define BAS_SPARSE
+/* What primary() calls is kept out of line, so that its locals are on
+ * the stack only while it runs, not on every level of an expression;
+ * fn_call() alone would add 200 bytes to each. */
+#define OUT_OF_LINE __attribute__((noinline))
+#define TMP_BYTES  1024          /* scratch for intermediate strings */
+#define MIN_WORK   2048          /* program, arrays and strings, at least */
+#define NFOR       8
+#define NDO        8
+#define NGOSUB     16
+#define NKEY       4             /* ON KEY definitions in one program */
+#define NFNDEF     16           /* DEF FNx definitions in one program */
+#define NFN        6            /* function calls inside one another */
+#define CHBUF      32
+#else
+#define OUT_OF_LINE
+#define TMP_BYTES  2048          /* scratch for intermediate strings */
+#define MIN_WORK   8192
 #define NFOR       16
 #define NDO        16
 #define NGOSUB     32
 #define NKEY       8             /* ON KEY definitions in one program */
-#define DEBOUNCE_MS 20u          /* a key has to hold still this long */
 #define NFNDEF     26           /* DEF FNx definitions in one program */
-#define NFNARG     4            /* parameters of one */
 #define NFN        6            /* function calls inside one another */
-#define NCHAN      8             /* channel 0 is the terminal */
 #define CHBUF      128
+#endif
 #define WIDTH      72
 #define ZONE       14
 
@@ -286,9 +310,29 @@ static uint8_t *arena_lo, *arena_hi, *arena_top;
 static uint8_t *pool_lo, *pool_hi, *pool_top;
 static uint8_t *tmp_base, *tmp_lo, *tmp_hi, *tmp_top;
 
+#ifdef BAS_SPARSE
+/* A variable or an array: the name as parse_name() numbers it, its
+ * kind, and the value, all zero when the record is made, which is 0,
+ * "" and no array.  The records are a list in the arena, newest first;
+ * they never move, so a string's owner may be one. */
+typedef struct var_s {
+    struct var_s *next;
+    uint16_t key;                /* index | kind << 9 | VAR_ARRAY */
+    union {
+        fpac_t n;
+        sdesc_t s;
+        arr_t *a;
+    } u;
+} var_t;
+
+#define VAR_ARRAY 0x800u
+
+static var_t *vars;
+#else
 static fpac_t nvars[NVARS], ivars[NVARS];
 static sdesc_t svars[NVARS];
 static arr_t *arrays[3][NVARS];
+#endif
 
 static fndef_t fndefs[NFNDEF];
 static int nfndef;               /* definitions in the table */
@@ -494,6 +538,9 @@ static void num_val(val_t *v, const fpac_t *n)
 
 static void clear_vars(void)
 {
+#ifdef BAS_SPARSE
+    vars = NULL;                 /* the records go with the arena */
+#else
     int k, i;
 
     for (i = 0; i < NVARS; i++) {
@@ -504,6 +551,7 @@ static void clear_vars(void)
     }
     for (k = 0; k < 3; k++)
         for (i = 0; i < NVARS; i++) arrays[k][i] = NULL;
+#endif
     arena_top = arena_lo;
     pool_top = pool_lo;
     nfor = 0;
@@ -925,12 +973,33 @@ static void *arena_alloc(uint32_t n)
     return p;
 }
 
+#ifdef BAS_SPARSE
+/* The record of a name, made the first time it is asked for. */
+static void *var_slot(int kind, int idx, unsigned array)
+{
+    uint16_t key = (uint16_t)(idx | kind << 9 | array);
+    var_t *v;
+
+    for (v = vars; v; v = v->next)
+        if (v->key == key) return &v->u;
+    v = arena_alloc(sizeof *v);
+    v->key = key;
+    v->next = vars;
+    vars = v;
+    return &v->u;
+}
+
+#define ARRAY_SLOT(kind, idx) (*(arr_t **)var_slot(kind, idx, VAR_ARRAY))
+#else
+#define ARRAY_SLOT(kind, idx) (arrays[kind][idx])
+#endif
+
 static arr_t *make_array(int kind, int idx, int32_t d1, int32_t d2)
 {
     arr_t *a;
     uint32_t count;
 
-    if (arrays[kind][idx]) error(E_REDIM);
+    if (ARRAY_SLOT(kind, idx)) error(E_REDIM);
     if (d1 < 0 || d2 < -1 || d1 > 32767 || d2 > 32767) error(E_SUBSCRIPT);
     count = (uint32_t)(d1 + 1) * (d2 >= 0 ? (uint32_t)(d2 + 1) : 1u);
     if (count > 1000000) error(E_MEMORY);
@@ -938,7 +1007,7 @@ static arr_t *make_array(int kind, int idx, int32_t d1, int32_t d2)
     a->nd = d2 >= 0 ? 2 : 1;
     a->d1 = d1;
     a->d2 = d2;
-    arrays[kind][idx] = a;
+    ARRAY_SLOT(kind, idx) = a;
     return a;
 }
 
@@ -1000,15 +1069,19 @@ static void parse_lval(lval_t *lv)
     if (!parse_name(&idx, &kind)) error(E_SYNTAX);
     lv->kind = kind;
     if (!accept('(')) {
+#ifdef BAS_SPARSE
+        lv->p = var_slot(kind, idx, 0);
+#else
         if (kind == 0) lv->p = &nvars[idx];
         else if (kind == 1) lv->p = &ivars[idx];
         else lv->p = &svars[idx];
+#endif
         return;
     }
     i = eval_int();
     if (accept(',')) j = eval_int();
     expect(')');
-    a = arrays[kind][idx];
+    a = ARRAY_SLOT(kind, idx);
     if (!a) a = make_array(kind, idx, 10, j >= 0 ? 10 : -1);
     if ((a->nd == 2) != (j >= 0)) error(E_SUBSCRIPT);
     if (i < 0 || i > a->d1 || j > a->d2) error(E_SUBSCRIPT);
@@ -1029,7 +1102,7 @@ static void assign(lval_t *lv, val_t *v)
     }
 }
 
-static void load_var(lval_t *lv, val_t *v)
+OUT_OF_LINE static void load_var(lval_t *lv, val_t *v)
 {
     sdesc_t *d;
 
@@ -1093,7 +1166,7 @@ static uint8_t *tmp_str(val_t *v, uint32_t len)
     return p;
 }
 
-static void parse_number_at(val_t *v)
+OUT_OF_LINE static void parse_number_at(val_t *v)
 {
     int n;
 
@@ -1282,7 +1355,7 @@ static void fn_adc(val_t *v)
     num_val(v, &n);
 }
 
-static void function(int t, val_t *v)
+OUT_OF_LINE static void function(int t, val_t *v)
 {
     val_t a, b;
     fpac_t n, m;
@@ -1671,6 +1744,13 @@ static void eval(val_t *v)
 {
     val_t r;
 
+#ifdef BAS_STACK_FLOOR
+    /* Every nesting, of parentheses, function arguments or the body of
+     * a DEF, comes back through here; a stack with no room left for one
+     * more is the program's error, not a fault. */
+    if ((uptr)__builtin_frame_address(0) < (uptr)(BAS_STACK_FLOOR))
+        error(E_MEMORY);
+#endif
     conjunction(v);
     while (peek() == T_OR) {
         tp++;
@@ -1806,7 +1886,7 @@ static const fndef_t *find_def(const uint8_t *name, int len)
     return NULL;
 }
 
-static void fn_call(val_t *v)
+OUT_OF_LINE static void fn_call(val_t *v)
 {
     const uint8_t *name, *save_tp, *save_line;
     uint8_t *save_tmp_lo, *p;
@@ -3237,7 +3317,7 @@ int bas_main(uint8_t *heap, uint32_t heap_size, uint32_t flags)
     for (i = 0; i < NCHAN; i++) chans[i].fd = -1;
     chans[0].fd = 0;
     chans[0].mode = 1;
-    if (heap_size < 8192 + TMP_BYTES) {
+    if (heap_size < MIN_WORK + TMP_BYTES) {
         out_str("?Not enough memory\n");
         sys_exit(1);
     }

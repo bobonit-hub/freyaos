@@ -54,9 +54,9 @@ Black Pill only, from flash). `samples/altair16` is that machine with
 from RAM as well; on the Blue Pill, whose SRAM is 20 KiB, that RAM is
 kept in program flash (`samples/altair16/README.md`). `samples/basic11`
 is the BASIC-11 style interpreter of `basic/` compiled natively, with
-its numbers on the FPU, so it is built for the Black Pill and the F405
-and not for the Blue Pill (`run basic11 [-m KiB] [program.bas]`;
-[basic/README.md](../basic/README.md)). Every
+its numbers on the FPU, or on the Blue Pill in software and built
+smaller, as a flash image only (`run basic11 [-m KiB] [program.bas |
+-e text]`; [basic/README.md](../basic/README.md)). Every
 app and sample is also built as `.xip.bin` for `install`, and a sample too
 large for a board's program RAM region is built there as the flash image
 alone — which on the Blue Pill is what happens to `forth`, whose
@@ -77,7 +77,8 @@ own layout against `freya_api.h` when they build. See
 
 `samples/basic11` is a BASIC-11 style interpreter with a flat, compacting
 string pool, written in C and compiled with GCC into an 18 KiB native program
-for the Cortex-M4F boards, whose numbers are the FPU's `float`, with `OLD`,
+for the Cortex-M4F boards, whose numbers are the FPU's `float`, and into a
+smaller one for the Blue Pill, with the same `float` in software, with `OLD`,
 `SAVE` and the file statements on the card, `DATE$`, `TIME$`, `TIME` and
 `SLEEP` on the clock, `PIN`, `PWM` and `ADC` on the pins, and `ON TIMER` and
 `ON KEY` subroutines called every so many milliseconds or when a debounced

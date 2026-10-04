@@ -37,7 +37,7 @@ host tools.
 | `coprocessor/esp32c6/` | the ESP32-C6 network coprocessor firmware, in Rust on ESP-IDF ([README](../coprocessor/esp32c6/README.md)) |
 | `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `aead`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic11`, and `rustdemo` in Rust |
 | `qbe/` | QBE target and cproc patch for the virtual machine, and `as.py`, the assembler that makes an image |
-| `basic/` | BASIC-11 style interpreter for the FPU boards: the interpreter, its `float` arithmetic, the PC build it is tested on |
+| `basic/` | BASIC-11 style interpreter, FPU or soft float: the interpreter, its `float` arithmetic, the PC build it is tested on |
 | `tests/` | host side tests |
 | `docs/boards.md` | every board: parts, clock trees, console and card clocks, memory maps |
 | `docs/hardware.md` | wiring: console, LED, SD slot and its supply, SPI flash, reserved pins, PWM, I2C, DS3231, 1-Wire, SPI |

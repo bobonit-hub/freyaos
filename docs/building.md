@@ -23,6 +23,8 @@ make BOARD=stm32h523   # the same for the WeAct STM32H523CET6 board
 make BOARD=stm32h723   # the same for the WeAct MiniSTM32H723
 make RTC=ds3231        # also build the DS3231 driver (PB6 SCL, PB7 SDA)
 make RTC=internal      # or the driver for the chip's own calendar RTC
+make NOSHELL=1         # no shell: always run the autorun program
+make BASIC=prog.bas    # build prog.bas into the kernel; basic11 runs it at boot
 make FIRMWARE_VERSION=3.1.1
                        # override the hardcoded firmware version
 make size              # section sizes
@@ -39,6 +41,50 @@ line of `sysinfo()` print the OS version from this documentation, 3.3.0
 version defaults to the value hardcoded in `src/freya.h`; an override must
 have `major.minor.patch` numeric form. `sysinfo()` prints that firmware
 version on its own line.
+
+## Building without the shell
+
+`make NOSHELL=1` leaves the shell out, for a board that only ever runs one
+program. On the Blue Pill that takes the kernel from about 96 KiB of flash
+to about 37 KiB, because the linker also drops the code that only the shell
+used. With no shell to go back to, autorun is always on:
+
+- The boot runs `/autorun.bin` from the card if there is one, otherwise the
+  program installed in flash, whether or not its auto-start flag is set.
+  There is no two-second window to cancel it.
+- When the program exits, or Ctrl-C stops it, it is started again a second
+  later.
+- With neither, or with an image that does not load, the boot says so and
+  the board halts.
+- A shell script needs the shell. `SCRIPT=` is refused, and a script
+  already installed in flash is not run. A program's
+  `shell_source_capture()` call returns `FREYA_ERR_UNSUPPORTED`.
+
+The program goes in with `PROGRAM=`, which packs it with the auto-start
+flag set, so the image also autostarts under a kernel that has the shell:
+
+```sh
+make BOARD=bluepill NOSHELL=1 flash PROGRAM=hello
+```
+
+`NOSHELL=1` combines with `BOARD=` and `RTC=`. Switching it on or off
+rebuilds the objects it changes.
+
+### A BASIC program at boot
+
+`BASIC=prog.bas` builds the program's text into the kernel and flashes
+`basic11` with it, which then runs it at every boot. It sets
+`PROGRAM=basic11` (unless `PROGRAM=` is given) and `AUTOSTART=1`, and the
+boot starts the program as `basic11 -e TEXT`. On the Blue Pill:
+
+```sh
+make BOARD=bluepill NOSHELL=1 flash BASIC=prog.bas
+```
+
+The Blue Pill build of `basic11`, with software floating point and about
+5 KiB for the BASIC program and its data, is described in
+[basic/README.md](../basic/README.md#the-blue-pill). `BASIC=` works with
+the shell too, and on the other boards.
 
 `make test` is described in [tests.md](tests.md). `make linux` builds the
 shell as a Linux program; see [linux.md](linux.md).

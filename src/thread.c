@@ -405,7 +405,9 @@ int thread_preempt_kind(void)
     if (g_app.running && app_should_stop()) return 1;
     if (s_poll) {
         s_poll = 0;
+#ifndef FREYA_NO_SHELL
         shell_poll_runtime();
+#endif
     }
     if (g_app.running && app_should_stop()) return 1;
     if (s_current->state == TH_DEAD) return 2;

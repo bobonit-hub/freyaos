@@ -58,7 +58,14 @@ SECTIONS
         *(.bss .bss.*)
         *(COMMON)
         . = ALIGN(4);
-        __bss_end__ = .;
+        /* A program linked with __app_whole_window__ (WHOLE_WINDOW in
+         * the Makefile) claims the rest of the window as well: the
+         * header's .bss reaches its end, so the loader clears it and
+         * counts it as the program's, and __bss_used__ is where the
+         * program's own variables stop. */
+        __bss_used__ = .;
+        __bss_end__ = DEFINED(__app_whole_window__) ?
+                      ORIGIN(APP) + LENGTH(APP) : .;
     } > APP
 
     /* The program stack is the kernel's main stack; keep the image small. */
