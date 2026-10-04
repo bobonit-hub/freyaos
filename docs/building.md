@@ -17,6 +17,7 @@ distribution package) and `make`. Rust programs also need `cargo`; see
 make                   # Black Pill kernel image + example programs
 make BOARD=bluepill    # the same for the Blue Pill
 make BOARD=stm32f405   # the same for the STM32F405xx
+make BOARD=weact_f405  # the same for the WeAct STM32F4 64-pin board (F405RGT6)
 make BOARD=blackpill2  # the same for the Black Pill 2
 make BOARD=stm32u585   # the same for the WeAct STM32U585CIU6 board
 make BOARD=stm32h523   # the same for the WeAct STM32H523CET6 board
@@ -25,6 +26,7 @@ make BOARD=stm32h723   # the same for the WeAct MiniSTM32H723
 make SD=1              # also build the SD card and FAT16 / FAT32 code
 make USB=1             # also build the USB host: a FAT stick at /usb
 make USB=1 AUDIO=1     # and USB headsets behind the audio calls
+make CODECS=1          # the codec pack: G.711 and Opus, a library programs link
 make RTC=ds3231        # also build the DS3231 driver (PB6 SCL, PB7 SDA)
 make RTC=internal      # or the driver for the chip's own calendar RTC
 make NOSHELL=1         # no shell: always run the autorun program
@@ -39,7 +41,11 @@ make clean
 `SD=1`, `USB=1`, `RTC=ds3231`, `RTC=internal` and `FIRMWARE_VERSION=`
 combine with `BOARD=`. `USB=1` is for the boards with a USB OTG core that
 can be the host, and is refused for the others ([usb.md](usb.md)). `AUDIO=1`
-needs `USB=1` ([audio.md](audio.md)). Leave `SD` unset and the card is not in the image (see below).
+needs `USB=1` and is for the boards with more than 512 KiB of flash: the
+two STM32F405 boards, the STM32U585 and the STM32H723 ([audio.md](audio.md)).
+`CODECS=1` builds `build/<board>/codecs/libfreya_codecs.a` and, where there
+is audio, `samples/opusrec`; `OPUS_SCRATCH=` sizes libopus's scratch, 24 KiB
+by default ([codecs.md](codecs.md)). Leave `SD` unset and the card is not in the image (see below).
 Leave `RTC` unset and neither clock driver is in the image.
 `RTC=internal` is for the boards with a calendar RTC
 ([rtc.md](rtc.md)) and is refused for the others. The banner and the first

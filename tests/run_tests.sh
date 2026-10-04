@@ -172,6 +172,73 @@ $CC $CFLAGS -DFREYA_USB -DFREYA_AUDIO tests/host_audio_test.c src/uac.c src/audi
     src/usbdev.c src/string.c src/print.c -lm -o "$OUT/hostaudio"
 "$OUT/hostaudio" || status=1
 
+# The codec pack (CODECS=1): G.711 against the reference coding and SoX's
+# decoders, libopus built as the pack builds it, and an Ogg Opus file that
+# ffprobe must take for 5 s of 48 kHz Opus and ffmpeg must decode.
+echo
+echo "================= codec pack ================="
+CODEC_OUT="$OUT/codecs"
+CODEC_FLAGS="-std=gnu11 -O2 -g -DHAVE_CONFIG_H -DFREYA_HOST -Icodecs/opus -Icodecs \
+             -Ithird_party/opus/include -Ithird_party/opus/celt -Ithird_party/opus/silk \
+             -Ithird_party/opus/silk/fixed"
+mkdir -p "$CODEC_OUT/opus"
+# shellcheck disable=SC2086
+ls third_party/opus/celt/*.c third_party/opus/silk/*.c third_party/opus/silk/fixed/*.c \
+   third_party/opus/src/*.c |
+    xargs -P "$(nproc 2>/dev/null || echo 4)" -I{} sh -c \
+        "$CC $CODEC_FLAGS -w -c {} -o $CODEC_OUT/opus/\$(echo {} | tr / _).o" || status=1
+rm -f "$CODEC_OUT/libopus.a"
+ar rcs "$CODEC_OUT/libopus.a" "$CODEC_OUT"/opus/*.o
+# shellcheck disable=SC2086
+$CC $CODEC_FLAGS -Wall -Wextra -Wno-unused-parameter tests/host_codecs_test.c \
+    codecs/g711.c codecs/oggopus.c codecs/opus_glue.c "$CODEC_OUT/libopus.a" -lm \
+    -o "$OUT/hostcodecs" || status=1
+"$OUT/hostcodecs" "$CODEC_OUT/test.opus" || status=1
+
+if command -v sox >/dev/null 2>&1; then
+    python3 -c "import sys; sys.stdout.buffer.write(bytes(range(256)))" > "$CODEC_OUT/codes"
+    "$OUT/hostcodecs" --g711-decode "$CODEC_OUT/codes" "$CODEC_OUT/ours.al" "$CODEC_OUT/ours.ul"
+    sox -t al -r 8000 -c 1 "$CODEC_OUT/codes" -t raw -e signed -b 16 "$CODEC_OUT/sox.al"
+    sox -t ul -r 8000 -c 1 "$CODEC_OUT/codes" -t raw -e signed -b 16 "$CODEC_OUT/sox.ul"
+    if cmp -s "$CODEC_OUT/ours.al" "$CODEC_OUT/sox.al" &&
+       cmp -s "$CODEC_OUT/ours.ul" "$CODEC_OUT/sox.ul"; then
+        echo "  ok    all 256 A-law and mu-law codes decode as SoX decodes them"
+    else
+        echo "  FAIL  G.711 decoding differs from SoX"
+        status=1
+    fi
+else
+    echo "  --    sox not found, skipping the G.711 cross-check"
+fi
+
+if command -v ffprobe >/dev/null 2>&1 && command -v ffmpeg >/dev/null 2>&1; then
+    probe=$(ffprobe -v error -show_entries stream=codec_name,sample_rate,channels \
+            -show_entries format=format_name,duration -of csv=p=0 "$CODEC_OUT/test.opus" |
+            tr '\n' ' ')
+    case "$probe" in
+        "opus,48000,1 ogg,5.000000 ") echo "  ok    ffprobe: an Ogg file of 5.000 s of mono Opus" ;;
+        *) echo "  FAIL  ffprobe says: $probe"; status=1 ;;
+    esac
+    if ffmpeg -v error -i "$CODEC_OUT/test.opus" -f s16le -ar 16000 -ac 1 -y \
+            "$CODEC_OUT/test.raw" && python3 - "$CODEC_OUT/test.raw" <<'PY'
+import math, struct, sys
+d = open(sys.argv[1], 'rb').read()
+x = struct.unpack('<%dh' % (len(d) // 2), d)[16000:64000]
+def level(f):
+    w = 2 * math.pi * f / 16000; c = 2 * math.cos(w); s1 = s2 = 0.0
+    for v in x:
+        s1, s2 = v + c * s1 - s2, s1
+    return 2 * math.sqrt(s1 * s1 + s2 * s2 - c * s1 * s2) / len(x)
+db = 20 * math.log10(level(440) / 4800)
+print("  ok    ffmpeg decodes the 440 Hz tone at %.1f dB of its level" % db
+      if abs(db) < 1.5 else "  FAIL  ffmpeg decodes the tone at %.1f dB" % db)
+sys.exit(0 if abs(db) < 1.5 else 1)
+PY
+    then :; else status=1; fi
+else
+    echo "  --    ffmpeg not found, skipping the Ogg Opus file check"
+fi
+
 # XMODEM receiver against an emulated sender.
 echo
 echo "================= XMODEM ================="
@@ -292,7 +359,7 @@ echo
 echo "================= DS3231 ================="
 # The driver is optional.  Compile it for every board: PB6/PB7 have to be
 # that board's I2C bus 1, and the register coding does not depend on which.
-for b in blackpill bluepill stm32f405 blackpill2; do
+for b in blackpill bluepill stm32f405 weact_f405 blackpill2; do
     bdef="-DFREYA_BOARD_$(echo "$b" | tr '[:lower:]' '[:upper:]')"
     # shellcheck disable=SC2086
     $CC -std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
@@ -304,7 +371,7 @@ done
 echo
 echo "================= calendar RTC ================="
 # Optional too, and only for the boards whose chip has the calendar RTC.
-for b in blackpill stm32f405 stm32u585 stm32h523 stm32h562 stm32h723; do
+for b in blackpill stm32f405 weact_f405 stm32u585 stm32h523 stm32h562 stm32h723; do
     bdef="-DFREYA_BOARD_$(echo "$b" | tr '[:lower:]' '[:upper:]')"
     # shellcheck disable=SC2086
     $CC -std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \

@@ -11,9 +11,13 @@ sound dongle is.
 make BOARD=blackpill USB=1 AUDIO=1
 ```
 
-`AUDIO=1` needs `USB=1`, so it is for the boards in [usb.md](usb.md): the
-Black Pill, the STM32F405, the STM32U585 and the STM32H723. A kernel without
-it still has the six calls, which return `FREYA_ERR_UNSUPPORTED`.
+`AUDIO=1` needs `USB=1`, and a board with more than 512 KiB of flash, which
+leaves room for the codecs a call needs ([codecs.md](codecs.md)): the
+two STM32F405 boards (`stm32f405`, `weact_f405`), the STM32U585 and the
+STM32H723, whose `board.mk` sets
+`USB_AUDIO`. The Black Pill (512 KiB) keeps USB sticks but not audio. A
+kernel without `AUDIO=1` still has the six calls, which return
+`FREYA_ERR_UNSUPPORTED`.
 
 ## The headset
 
@@ -61,8 +65,9 @@ program ◄── audio_read() ─── mic ring ◄──── downsample ◄
   program's Nyquist rate (6.8 kHz at 16 kHz), and images and aliases are down
   more than 60 dB. A 48 kHz headset costs about 2,300 multiply-adds a
   millisecond in the interrupt (the microphone's filter is folded, being
-  symmetric, and `src/audio.c` is built `-O2`): under a tenth of a 96 MHz
-  Black Pill, and far less on the faster boards.
+  symmetric, and `src/audio.c` is built `-O2`): by estimate, not yet
+  measured on a board, about 5 % of the 168 MHz STM32F405, and less on the
+  faster boards.
 
 Freya is the clock: it sends exactly the nominal rate to the speaker. That
 is what a synchronous or adaptive endpoint wants. An asynchronous speaker's
@@ -112,7 +117,9 @@ for (;;) {
 ```
 
 `samples/echo` is a complete program: a phone network's echo test, what the
-microphone hears played back after 300 ms.
+microphone hears played back after 300 ms. To encode what `audio_read()`
+returns - G.711 or Opus for a call, an `.opus` file for a recording - link
+the codec pack ([codecs.md](codecs.md)); `samples/opusrec` records to a file.
 
 ## The shell
 

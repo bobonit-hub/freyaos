@@ -1254,7 +1254,7 @@ int main(void)
     expect_has("sysinfo reads the flash size", "128 KiB internal");
     expect_has("sysinfo reports the clock", "72000000 Hz");
 #elif defined(FREYA_BOARD_STM32F405)
-    expect_has("sysinfo names the board", "STM32F405xx");
+    expect_has("sysinfo names the board", BOARD_NAME);    /* either F405 board */
     expect_has("sysinfo reads the CPUID", "410fc241");
     expect_has("sysinfo reads the device id", "0x413");
     expect_has("sysinfo reads the flash size", "1024 KiB internal");

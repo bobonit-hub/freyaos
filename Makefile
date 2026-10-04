@@ -3,6 +3,7 @@
 #   make                    build the kernel image and the example programs
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
 #   make BOARD=stm32f405    build for the STM32F405xx (8 MHz crystal)
+#   make BOARD=weact_f405   build for the WeAct STM32F4 64-pin board (F405RGT6)
 #   make BOARD=blackpill2   build for the AT32F403ACGU7 "Black Pill 2"
 #   make BOARD=stm32u585    build for the WeAct STM32U585CIU6 core board
 #   make BOARD=stm32h523    build for the WeAct STM32H523CET6 core board
@@ -13,6 +14,9 @@
 #   make USB=1              also build the USB host: a FAT stick at /usb
 #                           (boards whose board.mk sets USB_HOST)
 #   make USB=1 AUDIO=1      also a USB headset (UAC1) behind the audio calls
+#                           (boards whose board.mk sets USB_AUDIO)
+#   make CODECS=1           also the codec pack, a library programs link:
+#                           G.711 and Opus, and the opusrec sample
 #   make RTC=ds3231         also build the DS3231 driver (PB6 SCL, PB7 SDA)
 #   make RTC=internal       also build the driver for the chip's own
 #                           calendar RTC (boards whose board.mk allows it)
@@ -175,12 +179,17 @@ endif
 
 # AUDIO=1 adds USB Audio Class 1 headsets behind the program's audio
 # calls: 8 or 16 kHz mono, streamed from the USB interrupt once a
-# millisecond.  It needs the USB host.  Without it src/audio.c keeps only
-# the calls, which answer unsupported.  See docs/audio.md.
+# millisecond.  It needs the USB host, and a board with more than 512 KiB
+# of flash, which its board.mk declares with USB_AUDIO := 1: a call's
+# codecs (CODECS=1) need the room.  Without it src/audio.c keeps only the
+# calls, which answer unsupported.  See docs/audio.md.
 AUDIO ?=
 ifeq ($(AUDIO),1)
 ifneq ($(USB),1)
 $(error AUDIO=1 needs the USB host - add USB=1)
+endif
+ifneq ($(USB_AUDIO),1)
+$(error AUDIO=1: '$(BOARD)' has 512 KiB of flash or less - audio is for the STM32F405 boards, STM32U585 and STM32H723)
 endif
 CFLAGS    += -DFREYA_AUDIO
 CSRC      += $(SRC_DIR)/uac.c
@@ -190,6 +199,37 @@ endif
 
 # The resampling filters run in the USB interrupt every millisecond.
 $(BUILD)/audio.o: CFLAGS += -O2
+
+# CODECS=1 builds the codec pack, build/<board>/codecs/libfreya_codecs.a:
+# G.711, Opus (libopus 1.5.2 from third_party/opus, fixed point) and an Ogg
+# Opus writer.  It is a library a program links, not part of the kernel,
+# compiled with the programs' flags and -O2 for speed.  OPUS_SCRATCH is
+# libopus's scratch in bytes, kept in the library's .bss: 24 KiB covers
+# any mono stream, stereo at 48 kHz needs about 40 KiB.  On a board with
+# USB audio it adds samples/opusrec.  See docs/codecs.md.
+CODECS ?=
+OPUS_SCRATCH ?= 24576
+ifeq ($(CODECS),1)
+CODEC_DIR     := codecs
+OPUS_DIR      := third_party/opus
+CODEC_LIB     := $(BUILD)/codecs/libfreya_codecs.a
+CODEC_SRC     := $(wildcard $(OPUS_DIR)/celt/*.c $(OPUS_DIR)/silk/*.c \
+                            $(OPUS_DIR)/silk/fixed/*.c $(OPUS_DIR)/src/*.c) \
+                 $(CODEC_DIR)/g711.c $(CODEC_DIR)/oggopus.c $(CODEC_DIR)/opus_glue.c
+CODEC_OBJS    := $(patsubst %.c,$(BUILD)/codecs/%.o,$(CODEC_SRC))
+CODEC_INC     := -I$(CODEC_DIR) -I$(OPUS_DIR)/include -DFREYA_OPUS_SCRATCH=$(OPUS_SCRATCH)
+CODEC_CFLAGS   = $(APP_CFLAGS) -O2 -fno-tree-loop-distribute-patterns \
+                 -Wno-sign-compare -Wno-maybe-uninitialized -Wno-unused-variable \
+                 -DHAVE_CONFIG_H -I$(CODEC_DIR)/opus $(CODEC_INC) \
+                 -I$(OPUS_DIR)/celt -I$(OPUS_DIR)/silk -I$(OPUS_DIR)/silk/fixed
+ifeq ($(USB_AUDIO),1)
+CODEC_SAMPLES := opusrec
+endif
+SMPL_CFLAGS_opusrec := $(CODEC_INC)
+SMPL_LIBS_opusrec   := $(CODEC_LIB) -Wl,--gc-sections
+else ifneq ($(CODECS),)
+$(error CODECS='$(CODECS)' - use CODECS=1, or leave it unset)
+endif
 
 # The FAT code serves the card and the stick; with neither, src/nosd.c
 # answers the file calls.
@@ -307,7 +347,7 @@ SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 aead compress fl
 # short of the Altair's 48 KiB.
 SKIP_bluepill := altair httpd echo
 SKIP_blackpill2 := altair
-SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
+SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES)) $(CODEC_SAMPLES)
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
 # whole of the Blue Pill's RAM window before its dictionary is counted, and
@@ -319,7 +359,8 @@ SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES))
 XIP_ONLY_bluepill  := forth altair16 rustdemo basic11
 XIP_ONLY_blackpill := altair
 XIP_ONLY_stm32f405 := altair
-XIP_ONLY  := $(XIP_ONLY_$(BOARD))
+XIP_ONLY_weact_f405 := altair
+XIP_ONLY  := $(XIP_ONLY_$(BOARD)) $(CODEC_SAMPLES)
 # A program that starts no threads may run its RAM on into their stacks
 # (FREYA_APP_F_NOTHREADS): 9 KiB instead of 7 on the Blue Pill, where the
 # two stacks follow the window.  The F4 stacks are below it, so there the
@@ -493,10 +534,10 @@ else
 FLASH_IMAGE := $(BUILD)/$(TARGET).bin
 endif
 
-.PHONY: all apps samples rust size clean flash bootloader openocd image test dfu linux
+.PHONY: all apps samples rust size clean flash bootloader openocd image test dfu linux codecs
 .SECONDARY:
 
-all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size
+all: $(BUILD)/$(TARGET).bin $(BUILD)/$(TARGET).hex apps samples size $(CODEC_LIB)
 
 $(BUILD):
 	@mkdir -p $(BUILD)/board $(BUILD)/apps $(BUILD)/samples
@@ -582,16 +623,16 @@ samples: $(SMPL_BINS)
 $(BUILD)/samples/%.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_LD) | $(BUILD)
 	@mkdir -p $(@D)
 	@echo "  SMPL  $@"
-	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' $(call nothreads,$*) -nostdlib -T $(APP_LD) \
+	@$(CC) $(APP_CFLAGS) $(SMPL_CFLAGS_$*) -DAPP_NAME='"$*"' $(call nothreads,$*) -nostdlib -T $(APP_LD) \
 	       -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments $(APP_GC) \
-	       $(APP_DIR)/common/app_start.c $< $(APP_SOFTFP) -lgcc -o $@
+	       $(APP_DIR)/common/app_start.c $< $(SMPL_LIBS_$*) $(APP_SOFTFP) -lgcc -o $@
 
 $(BUILD)/samples/%.xip.elf: $(SMPL_DIR)/%/main.c $(APP_DIR)/common/app_start.c $(APP_XIP_LD) | $(BUILD)
 	@mkdir -p $(@D)
 	@echo "  SMPL  $@"
-	@$(CC) $(APP_CFLAGS) -DAPP_NAME='"$*"' $(call nothreads,$*) -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
+	@$(CC) $(APP_CFLAGS) $(SMPL_CFLAGS_$*) -DAPP_NAME='"$*"' $(call nothreads,$*) -DFREYA_APP_XIP -nostdlib -T $(APP_XIP_LD) \
 	       -Wl,--emit-relocs -Wl,-Map=$(@:.elf=.map) -Wl,--no-warn-rwx-segments $(APP_GC) \
-	       $(APP_DIR)/common/app_start.c $< $(APP_SOFTFP) -lgcc -o $@
+	       $(APP_DIR)/common/app_start.c $< $(SMPL_LIBS_$*) $(APP_SOFTFP) -lgcc -o $@
 
 $(BUILD)/samples/%.xip.bin: $(BUILD)/samples/%.xip.elf tools/xip_image.py
 	@python3 tools/xip_image.py --objcopy $(OBJCOPY) $< $@
@@ -645,6 +686,30 @@ $(BUILD)/samples/altair16.elf $(BUILD)/samples/altair16.xip.elf: \
 # its main.c includes basic.c, which includes the rest.
 $(BUILD)/samples/basic11.elf $(BUILD)/samples/basic11.xip.elf: \
 	basic/basic.c basic/bas.h basic/fpnat.c basic/fpnat.h
+
+ifeq ($(CODECS),1)
+codecs: $(CODEC_LIB)
+
+$(BUILD)/codecs/%.o: %.c $(CODEC_DIR)/opus/config.h $(CODEC_DIR)/freya_codecs.h
+	@mkdir -p $(@D)
+	@echo "  CODEC $<"
+	@$(CC) $(CODEC_CFLAGS) -c $< -o $@
+
+# OPUS_SCRATCH is compiled into the library; a change rebuilds it.
+$(BUILD)/codecs/scratch.stamp: FORCE | $(BUILD)
+	@mkdir -p $(@D)
+	@echo '$(OPUS_SCRATCH)' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm -f $@.tmp; fi
+
+$(CODEC_OBJS): $(BUILD)/codecs/scratch.stamp
+
+$(CODEC_LIB): $(CODEC_OBJS)
+	@echo "  AR    $@"
+	@rm -f $@
+	@$(CROSS)ar rcs $@ $^
+
+$(BUILD)/samples/opusrec.elf $(BUILD)/samples/opusrec.xip.elf: $(CODEC_LIB)
+endif
 
 # ----------------------------------------------------------------- misc
 size: $(BUILD)/$(TARGET).elf

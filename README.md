@@ -3,11 +3,13 @@
 Freya is a 32-bit, single-user, text OS for STMicroelectronics
 STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
 metal on the STM32F411CEU6 "Black Pill", the STM32F103C8T6 "Blue Pill",
-the STM32F405xx, the WeAct "Black Pill 2" with Artery's AT32F403ACGU7,
+the STM32F405xx, WeAct's STM32F4 64-pin core board with the STM32F405RGT6,
+the WeAct "Black Pill 2" with Artery's AT32F403ACGU7,
 an STM32F103 at heart with a Cortex-M4F core, WeAct's STM32U585CIU6,
 STM32H523CET6 and STM32H562RGT6 core boards, all Cortex-M33, and WeAct's
 MiniSTM32H723, a Cortex-M7.
-No HAL and no CMSIS: Freya brings the chip up itself. LittleFS, on the SPI flash, is the one vendored library. Freya
+No HAL and no CMSIS: Freya brings the chip up itself. The vendored libraries are LittleFS for the SPI flash,
+heatshrink, the Ascon reference, and libopus, which only the optional codec pack uses. Freya
 talks to the hardware through its own register definitions, and lives
 entirely in internal flash. This is release 4.0.0, "Bigfoot". The notes
 are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
@@ -48,6 +50,7 @@ freya:
 | Black Pill | STM32F411CEU6 | Cortex-M4F at 96 MHz | `make` |
 | Blue Pill | STM32F103C8T6 | Cortex-M3 at 72 MHz | `make BOARD=bluepill` |
 | STM32F405xx | STM32F405xx | Cortex-M4F at 168 MHz | `make BOARD=stm32f405` |
+| WeAct STM32F4 64-pin | STM32F405RGT6 | Cortex-M4F at 168 MHz | `make BOARD=weact_f405` |
 | Black Pill 2 | AT32F403ACGU7 | Cortex-M4F at 240 MHz | `make BOARD=blackpill2` |
 | STM32U585 | STM32U585CIU6 | Cortex-M33F at 160 MHz | `make BOARD=stm32u585` |
 | STM32H523 | STM32H523CET6 | Cortex-M33F at 250 MHz | `make BOARD=stm32h523` |
@@ -63,7 +66,7 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 * Boots from internal flash and brings up the whole clock tree itself ([docs/boards.md](docs/boards.md)).
 * A console shell on USART2 at 921600 8N1, with line editing and history ([docs/console-commands.md](docs/console-commands.md)).
 * A shell language with variables, functions, loops and scripts, also built for Linux as `fsh` ([docs/shell.md](docs/shell.md), [docs/linux.md](docs/linux.md)).
-* SD / SDHC cards over SPI with FAT16 / FAT32 that reads and writes, and a switchable socket supply, built with `make SD=1`; a FAT USB stick at `/usb` on the OTG boards with `make USB=1` ([docs/usb.md](docs/usb.md)), or a USB headset for 8 / 16 kHz call audio with `AUDIO=1` ([docs/audio.md](docs/audio.md)); LittleFS on the SPI flash of the Black Pill, the STM32U585, the STM32H523 and the STM32H723 ([docs/files.md](docs/files.md)).
+* SD / SDHC cards over SPI with FAT16 / FAT32 that reads and writes, and a switchable socket supply, built with `make SD=1`; a FAT USB stick at `/usb` on the OTG boards with `make USB=1` ([docs/usb.md](docs/usb.md)), or a USB headset for 8 / 16 kHz call audio with `AUDIO=1` on the boards with more than 512 KiB of flash ([docs/audio.md](docs/audio.md)), with G.711 and Opus in a codec pack programs link, `CODECS=1` ([docs/codecs.md](docs/codecs.md)); LittleFS on the SPI flash of the Black Pill, the STM32U585, the STM32H523 and the STM32H723 ([docs/files.md](docs/files.md)).
 * XMODEM / XMODEM-1K over the console, and `tools/fremote.py` on the host ([docs/files.md](docs/files.md)).
 * Wi-Fi, DNS, ping, TCP/UDP sockets and TLS 1.3 through an optional ESP32-C6, on every board but the Blue Pill ([docs/network.md](docs/network.md)).
 * A dated log in `/freya.log` from programs, the shell and the kernel, rotated at 1 MiB ([docs/programs.md](docs/programs.md#the-service-table)).
@@ -89,7 +92,7 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 ## Quick start
 
 ```sh
-make BOARD=bluepill                 # or make, BOARD=stm32f405, blackpill2, stm32u585, stm32h523, stm32h562, stm32h723
+make BOARD=bluepill                 # or make, BOARD=stm32f405, weact_f405, blackpill2, stm32u585, stm32h523, stm32h562, stm32h723
 make BOARD=bluepill flash           # st-flash; see docs/building.md for the others
 picocom -b 921600 /dev/ttyUSB0      # the console: PA2 to the adapter's RX, PA3 to its TX
 ```
@@ -112,6 +115,7 @@ writing one.
 | [docs/files.md](docs/files.md) | the filesystem, XMODEM, `tools/send.py` and `tools/fremote.py` |
 | [docs/usb.md](docs/usb.md) | USB sticks at `/usb` with `make USB=1`: boards, power, the `usb` command |
 | [docs/audio.md](docs/audio.md) | USB headsets (UAC1) for calls with `make USB=1 AUDIO=1`: the audio calls, buffers, resampling, `audio` |
+| [docs/codecs.md](docs/codecs.md) | the codec pack, `make CODECS=1`: G.711, Opus, Ogg Opus files, `opusrec` |
 | [docs/console-commands.md](docs/console-commands.md) | every console command |
 | [docs/shell.md](docs/shell.md) | the shell language: values, expressions, control, variables, functions |
 | [docs/linux.md](docs/linux.md) | the shell language as a Linux program, `fsh`, and `run()` |

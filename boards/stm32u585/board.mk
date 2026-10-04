@@ -30,6 +30,9 @@ DFU_DEVICE := 0xFFFF
 
 # The OTG core can be the USB host: make USB=1 mounts a stick at /usb.
 USB_HOST       := 1
+# More than 512 KiB of flash: room for USB audio, make USB=1 AUDIO=1,
+# and the codecs a call needs (CODECS=1).
+USB_AUDIO      := 1
 
 # The chip's calendar RTC on the 32.768 kHz crystal: make RTC=internal.
 RTC_INTERNAL   := 1

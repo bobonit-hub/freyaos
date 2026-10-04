@@ -8,21 +8,21 @@ same on every board is in [hardware.md](hardware.md).
 
 ## Comparison
 
-|  | Black Pill | Blue Pill | STM32F405xx | Black Pill 2 | STM32U585 | STM32H523 | STM32H562 | STM32H723 |
-|---|---|---|---|---|---|---|---|---|
-| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx | AT32F403ACGU7 | STM32U585CIU6 | STM32H523CET6 | STM32H562RGT6 | STM32H723VGT6 |
-| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz | Cortex-M33F at 160 MHz | Cortex-M33F at 250 MHz | Cortex-M33F at 250 MHz | Cortex-M7F at 520 MHz |
-| Crystal | 25 MHz | 8 MHz | 8 MHz | 8 MHz | 25 MHz | 8 MHz | 8 MHz | 25 MHz |
-| Flash | 512 KiB | 128 KiB | 1 MiB | 1 MiB | 2 MiB | 512 KiB | 1 MiB | 1 MiB |
-| SRAM | 128 KiB | 20 KiB | 128 KiB | 96 KiB | 768 KiB | 272 KiB | 640 KiB | 564 KiB (320 KiB used) |
-| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash | 168 KiB RAM, or 320 KiB flash | 504 KiB RAM, or 832 KiB flash | 216 KiB RAM, or 640 KiB flash |
-| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=blackpill2` | `make BOARD=stm32u585` | `make BOARD=stm32h523` | `make BOARD=stm32h562` | `make BOARD=stm32h723` |
-| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 | 271 at 250 MHz APB1 | 141 at 130 MHz APB1 |
-| Console rate | 923077 baud | 923077 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 922509 baud | 921986 baud |
-| SD identification clock | 375 kHz | 281 kHz | 328 kHz | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged |
-| SD data clock | 12 MHz | 9 MHz | 10.5 MHz | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured |
-| SPI flash volume (`/spi1`) | yes | no | no | no | yes | yes | no | yes, beside the card |
-| Calendar RTC (`RTC=internal`, [rtc.md](rtc.md)) | yes | no | yes | no | yes | yes | yes | yes |
+|  | Black Pill | Blue Pill | STM32F405xx | WeAct F405 64-pin | Black Pill 2 | STM32U585 | STM32H523 | STM32H562 | STM32H723 |
+|---|---|---|---|---|---|---|---|---|---|
+| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx | STM32F405RGT6 | AT32F403ACGU7 | STM32U585CIU6 | STM32H523CET6 | STM32H562RGT6 | STM32H723VGT6 |
+| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz | Cortex-M33F at 160 MHz | Cortex-M33F at 250 MHz | Cortex-M33F at 250 MHz | Cortex-M7F at 520 MHz |
+| Crystal | 25 MHz | 8 MHz | 8 MHz | 8 MHz | 8 MHz | 25 MHz | 8 MHz | 8 MHz | 25 MHz |
+| Flash | 512 KiB | 128 KiB | 1 MiB | 1 MiB | 1 MiB | 2 MiB | 512 KiB | 1 MiB | 1 MiB |
+| SRAM | 128 KiB | 20 KiB | 128 KiB | 128 KiB | 96 KiB | 768 KiB | 272 KiB | 640 KiB | 564 KiB (320 KiB used) |
+| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash | 168 KiB RAM, or 320 KiB flash | 504 KiB RAM, or 832 KiB flash | 216 KiB RAM, or 640 KiB flash |
+| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=weact_f405` | `make BOARD=blackpill2` | `make BOARD=stm32u585` | `make BOARD=stm32h523` | `make BOARD=stm32h562` | `make BOARD=stm32h723` |
+| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 | 271 at 250 MHz APB1 | 141 at 130 MHz APB1 |
+| Console rate | 923077 baud | 923077 baud | 913043 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 922509 baud | 921986 baud |
+| SD identification clock | 375 kHz | 281 kHz | 328 kHz | about 250 kHz, bit-banged | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged |
+| SD data clock | 12 MHz | 9 MHz | 10.5 MHz | bit-banged, unmeasured | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured |
+| SPI flash volume (`/spi1`) | yes | no | no | no | no | yes | yes | no | yes, beside the card |
+| Calendar RTC (`RTC=internal`, [rtc.md](rtc.md)) | yes | no | yes | yes | no | yes | yes | yes | yes |
 
 ## What a board is
 
@@ -177,6 +177,36 @@ sector from 5 on is 128 KiB, so a write into the region erases only the
 sectors it touches and a program never shares a sector with the settings
 or the extension. Its RAM map is the Black Pill's, above. I2C bus 2 is
 PB10/PB11.
+
+## WeAct STM32F4 64-pin core board (STM32F405RGT6)
+
+Build with `make BOARD=weact_f405`; `make BOARD=weact_f405 dfu` packs a
+DfuSe file for the ROM DFU loader on the board's USB-C socket (hold BOOT0,
+tap NRST). The board is
+[WeActStudio.STM32F4_64Pin_CoreBoard](https://github.com/WeActStudio/WeActStudio.STM32F4_64Pin_CoreBoard)
+with the STM32F405RGT6 fitted (schematic V1.1).
+
+It is the STM32F405 above in everything but its pins: the same clock tree,
+console, memory map and flash layout, so a program built for one runs on the
+other (`freya_api.h` takes `FREYA_BOARD_WEACT_F405` for
+`FREYA_BOARD_STM32F405`). What differs:
+
+- The microSD slot (U4) is wired for the SDIO peripheral: CLK PC12, CMD PD2,
+  DAT0..DAT3 PC8..PC11. No SPI peripheral reaches those pins, so the card is
+  driven in SPI mode by the board, bit by bit, as on the STM32H562 board of
+  the same family: CS on DAT3, SCK on CLK, MOSI on CMD, MISO on DAT0.
+  Identification runs at about 250 kHz; data as fast as the GPIO toggles.
+- The slot is always powered: there is no supply switch, so `power("sd",
+  "off")` only lets go of the pins. PA8 is the slot's card-detect switch,
+  through 10 kΩ; Freya does not read it, and a program may.
+- The LED is PB2 (blue, lit high). PC13 is the KEY button, which pulls the
+  pin high when pressed.
+- Freya keeps PA2/PA3 for the console and PC8..PC12 and PD2 for the card,
+  and gives programs ports A to D. PA4..PA8 are free, unlike on the
+  STM32F405 board. On the F405 fitting PB9 and PB11 are plain pins, so PWM,
+  I2C and SPI2 are the STM32F405's.
+- USB-C is on PA11/PA12: `USB=1`, `AUDIO=1` and `CODECS=1` work as on the
+  STM32F405.
 
 ## Black Pill 2 (AT32F403ACGU7)
 

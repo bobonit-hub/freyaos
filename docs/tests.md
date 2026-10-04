@@ -40,6 +40,15 @@ and the microphone's aliases must be more than 55 dB down. Priming,
 underruns, overruns, gain, the calls' refusals and unplugging are checked
 too.
 
+The codec pack test (`CODECS=1`) builds libopus for the host as the pack
+builds it - fixed point, the pseudostack - and checks G.711 against the
+reference values, for monotonic coding and a 35 dB SNR on a tone; all 256
+codes of both laws must decode as SoX decodes them. Opus encodes five seconds
+of a tone at 16 kHz into an Ogg Opus file: the decoded tone must keep its
+level within 1.5 dB, ffprobe must see 5.000 s of mono Opus in Ogg, and ffmpeg
+must decode it to the same tone. Every mono stream at 8, 16 and 48 kHz, in
+both modes and at three complexities, must stay 2 KiB inside the scratch.
+
 The XMODEM tests drive `src/xmodem.c` with an emulated sender that answers the
 receiver's own handshake: CRC mode and checksum fallback, 128 and 1024 byte
 packets, a packet corrupted in transit and retransmitted, a duplicated packet,

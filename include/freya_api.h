@@ -75,6 +75,14 @@
  * Pill size register often still reads 64; the map runs to the end of
  * that 128 KiB anyway.
  */
+
+/* The WeAct STM32F4 64-pin core board is an STM32F405 with the same
+ * memory map; only its pins differ, and those are the kernel's business.
+ * Everything that asks for the STM32F405 means it as well. */
+#if defined(FREYA_BOARD_WEACT_F405) && !defined(FREYA_BOARD_STM32F405)
+#define FREYA_BOARD_STM32F405 1
+#endif
+
 #define FREYA_SETTINGS_MAGIC     0x54455346UL   /* 'F','S','E','T' */
 #define FREYA_SETTINGS_BLOCK     64U
 #define FREYA_SETTINGS_COPIES    2U
@@ -200,7 +208,7 @@
 /* The shell language as a Linux program (linux/board.h): no program
  * region, no program flash and no system settings. */
 #else
-#error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLACKPILL2, FREYA_BOARD_BLUEPILL, FREYA_BOARD_STM32F405, FREYA_BOARD_STM32U585, FREYA_BOARD_STM32H523, FREYA_BOARD_STM32H562 or FREYA_BOARD_STM32H723"
+#error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLACKPILL2, FREYA_BOARD_BLUEPILL, FREYA_BOARD_STM32F405, FREYA_BOARD_WEACT_F405, FREYA_BOARD_STM32U585, FREYA_BOARD_STM32H523, FREYA_BOARD_STM32H562 or FREYA_BOARD_STM32H723"
 #endif
 #ifndef FREYA_LINUX
 #if (FREYA_SETTINGS_ADDR % 128U) || (FREYA_SETTINGS_SIZE % 128U) || \
