@@ -43,6 +43,9 @@
 TARGET    := freya
 BOARD     ?= blackpill
 
+# The stamp rules below come before 'all'; plain 'make' still means it.
+.DEFAULT_GOAL := all
+
 SRC_DIR   := src
 APP_DIR   := apps
 SMPL_DIR  := samples
@@ -653,7 +656,7 @@ flash: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin tools/fwsum.py
 	st-flash $(STFLASH_OPTS) write $(FLASH_IMAGE) 0x08000000; \
 	st-flash $(STFLASH_OPTS) write $(BUILD)/$(TARGET)-kext.bin $$addr; \
 	python3 tools/fwsum.py --device \
-	    $(patsubst %,--st-opt %,$(STFLASH_OPTS)) \
+	    $(patsubst %,--st-opt=%,$(STFLASH_OPTS)) \
 	    --span 0x08000000:$(BUILD)/$(TARGET).bin \
 	    --span $$addr:$(BUILD)/$(TARGET)-kext.bin \
 	    --settings-addr $$slot \
