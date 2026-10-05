@@ -47,6 +47,30 @@ def parse_image(text):
     return addr, data
 
 
+def merge(images):
+    """Sort the images and fold each one that overlaps another into it.
+
+    A packed kernel + program image passes over the settings, and on the
+    Black Pill 2 over the extension, as 0xFF.  An image may land on that
+    filler; one that would replace programmed bytes is refused.
+    """
+    out = []
+    for addr, data in sorted(images, key=lambda item: item[0]):
+        if not out or addr >= out[-1][0] + len(out[-1][1]):
+            out.append((addr, bytes(data)))
+            continue
+        prev, prev_data = out[-1]
+        off = addr - prev
+        under = prev_data[off:off + len(data)]
+        if under.count(0xFF) != len(under):
+            die(f"image at 0x{addr:08x} overlaps programmed bytes of the one "
+                f"at 0x{prev:08x}")
+        merged = bytearray(prev_data)
+        merged[off:off + len(data)] = data
+        out[-1] = (prev, bytes(merged))
+    return out
+
+
 def build(images, vid, pid, device, alt, name):
     elements = b""
     for addr, data in images:
@@ -103,14 +127,7 @@ def main():
         if n < 0 or n > 0xFFFF:
             die(f"{label} does not fit in 16 bits")
 
-    images = [parse_image(s) for s in args.image]
-    images.sort(key=lambda item: item[0])
-    for i in range(1, len(images)):
-        prev, prev_data = images[i - 1]
-        addr, _ = images[i]
-        if addr < prev + len(prev_data):
-            die(f"image at 0x{addr:08x} overlaps the one at 0x{prev:08x}")
-
+    images = merge([parse_image(s) for s in args.image])
     blob = build(images, vid, pid, device, args.alt, args.name)
     with open(args.out, "wb") as f:
         f.write(blob)

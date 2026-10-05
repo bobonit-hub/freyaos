@@ -155,13 +155,18 @@ make openocd        # ST-Link via OpenOCD, with the board's target script
 make bootloader     # the chip's own ROM loader
 make BOARD=stm32f405 dfu
                     # build/stm32f405/freya.dfu for the ROM DFU loader
+make BOARD=stm32f405 dfu PROGRAM=basic11
+                    # build/stm32f405/freya+basic11.dfu, with the settings
 ```
 
 `make bootloader` is USB DFU on the Black Pill, the STM32F405xx and the Black
 Pill 2 (hold BOOT0, tap NRST), and `make BOARD=blackpill2 dfu` packs a DfuSe
-file for Artery's loader (`2e3c:df11`). st-flash does not know Artery parts,
-so `make flash` refuses the Black Pill 2; `make openocd` programs it over SWD
-with OpenOCD's `target/artery/at32f4x.cfg`. The STM32U585, the STM32H523,
+file for Artery's loader (`2e3c:df11`). That loader stalls a request now
+and then, so on the Black Pill 2 `make bootloader` writes the DfuSe file
+through `tools/dfu_flash.py`, a page per dfu-util run with retries. st-flash
+does not know Artery parts, so `make flash` refuses the Black Pill 2, and
+OpenOCD's artery driver has no entry for the 1 MiB AT32F403ACG, so
+`make openocd` cannot program it either. The STM32U585, the STM32H523,
 the STM32H562 and the STM32H723 take `make flash` (st-flash 1.8 knows all
 four), and
 `make bootloader` is USB DFU through the board's USB-C socket (hold BOOT0,
@@ -173,7 +178,12 @@ are not at `0x0800C000` in a 16 KiB unit names its settings sector in its
 `board.mk` (`CKSUM_PAGE_BASE`, `CKSUM_PAGE_SIZE`), which is where
 `make flash` updates the firmware sum. `make BOARD=stm32f405 dfu` packs
 the kernel and the extension into one DfuSe file, at the addresses they are
-linked for, and leaves the gap between them untouched. The F103 has no USB
+linked for, and leaves the gap between them untouched. With `PROGRAM=` or
+`SCRIPT=` the file is named after the packed image (`freya+basic11.dfu`)
+and carries the settings as well: the packed image passes over the
+settings, and on the Black Pill 2 over the extension, as 0xFF, and
+`tools/dfu_image.py` places them in that filler. An image that would land
+on programmed bytes is refused. The F103 has no USB
 loader, so on the Blue Pill it drives the serial loader in ROM with
 `stm32flash`: pull BOOT0 high, tap NRST, and add `PORT=/dev/ttyUSB1` if the
 adapter is not on `ttyUSB0`.

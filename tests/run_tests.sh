@@ -253,6 +253,11 @@ echo
 echo "================= fremote ================="
 python3 tests/host_fremote_test.py || status=1
 
+echo
+echo "================= dfu_image ================="
+python3 tests/host_dfu_image_test.py || status=1
+python3 tests/host_dfu_flash_test.py || status=1
+
 # The forth sample: its interpreter, its compiler and the machine that
 # runs what the compiler produced, driven line by line with the output
 # captured.  FREYA_APP_XIP picks the memory budget of a flash resident

@@ -73,3 +73,5 @@ host tools.
 | `tools/send.py` | XMODEM sender for hosts without lrzsz |
 | `tools/fremote.py` | remote shell and SD card utility (`fs ls`, `fs cp`, …) |
 | `tools/pack_image.py` | packs the kernel and one `.xip.bin` or shell script into the image `make flash PROGRAM=` / `SCRIPT=` writes |
+| `tools/dfu_image.py` | packs the kernel, the extension and, with a program, the settings into the DfuSe file `make dfu` writes |
+| `tools/dfu_flash.py` | writes a DfuSe file a page per dfu-util run, retrying each page; `make bootloader` on the Black Pill 2 |

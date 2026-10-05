@@ -936,11 +936,14 @@ endif
 
 # DfuSe file for a board whose ROM loader speaks USB DFU.  The kernel and
 # the extension are separate images, so the gap between them is left alone.
+# It is named after the image it carries: freya.dfu, or freya+<program>.dfu.
+DFU_FILE := $(FLASH_IMAGE:.bin=.dfu)
+
 ifdef DFU_VID
-dfu: $(BUILD)/$(TARGET).dfu
+dfu: $(DFU_FILE)
 
 ifneq ($(PROGRAM)$(SCRIPT),)
-$(BUILD)/$(TARGET).dfu: $(FLASH_IMAGE) $(SETTINGS_BIN) $(BUILD)/$(TARGET)-kext.bin tools/dfu_image.py
+$(DFU_FILE): $(FLASH_IMAGE) $(SETTINGS_BIN) $(BUILD)/$(TARGET)-kext.bin tools/dfu_image.py
 	@set -eu; \
 	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
 	slot=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__settings_start" { print "0x" $$1 }'); \
@@ -952,7 +955,7 @@ $(BUILD)/$(TARGET).dfu: $(FLASH_IMAGE) $(SETTINGS_BIN) $(BUILD)/$(TARGET)-kext.b
 	    --image $$slot:$(SETTINGS_BIN) \
 	    --out $@
 else
-$(BUILD)/$(TARGET).dfu: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin tools/dfu_image.py
+$(DFU_FILE): $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin tools/dfu_image.py
 	@set -eu; \
 	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
 	test -n "$$addr"; \
@@ -968,12 +971,19 @@ dfu:
 endif
 
 # The chip's own ROM loader: $(BOOTLOADER_HINT)
+# A board that sets BOOTLOADER_DFU writes its DfuSe file with that command
+# instead: the kernel, the extension and, with a program, the settings.
+ifdef BOOTLOADER_DFU
+bootloader: $(DFU_FILE)
+	$(BOOTLOADER_DFU) $<
+else
 bootloader: $(FLASH_IMAGE) $(BUILD)/$(TARGET)-kext.bin
 	@set -eu; \
 	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \
 	test -n "$$addr"; \
 	$(BOOTLOADER_KEXT); \
 	$(BOOTLOADER_CMD)
+endif
 
 clean:
 	@rm -rf build
