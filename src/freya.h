@@ -216,6 +216,8 @@ int      gpio_pin_mode(int pin, int mode);       /* FREYA_PIN_*          */
 int      gpio_pin_read(int pin);
 int      gpio_pin_write(int pin, int value);
 int      gpio_pin_toggle(int pin);
+int      gpio_pin_pull(int pin, int pull);       /* FREYA_PULL_*         */
+int      gpio_pin_pull_get(int pin);
 int      gpio_irq_attach(int pin, int edge, freya_irq_fn fn, void *arg);
 int      gpio_irq_detach(int pin);
 uint32_t gpio_irq_count(int pin);

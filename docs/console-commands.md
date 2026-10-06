@@ -48,6 +48,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `loglevel(["off"\|"error"\|"warn"\|"info"\|"debug"\|0..4])` | show or set the file log level |
 | `log("error"\|"warn"\|"info"\|"debug"\|1..4, message)` | append one line to the file log |
 | `pin("pin" [, "in"\|"up"\|"down"\|"out"\|"od"\|"analog"\|0\|1\|"toggle" [, 0\|1\|"toggle"]])` | read a pin, set its mode, or drive it |
+| `pull("pin" [, "none"\|"up"\|"down"])` | show a pin's pull resistor, or set it without changing the mode |
 | `pwm([["pin", hz, duty] \| ["pin", "off"]])` | list the PWM channels, or start or stop one |
 | `adc("pin"\|"temp"\|"vref")` | take one raw 12-bit ADC sample; the source is required |
 | `i2c([bus [, hz\|"off"\|"scan"\|addr, ...]])` | list the I2C buses, or open, scan and talk to one |
@@ -163,6 +164,22 @@ freya: pin("PB5", 1)
 PB5 = 1
 freya: pin("PB0", "up")
 PB0 = 1
+```
+
+`pull` is `api->pin_pull()` at the prompt. It changes only the pull resistor
+and keeps the mode, so it also works on an open-drain pin: `od` turns on the
+internal pull-up, and `pull("PB7", "none")` turns it off again, leaving only
+the external resistor. With just a pin it prints the pull the pin has.
+Push-pull, PWM and analog pins are refused. On the Blue Pill and the
+Black Pill 2 only an input can be pulled.
+
+```
+freya: pin("PB7", "od")
+PB7 = 1
+freya: pull("PB7", "none")
+PB7 pull none
+freya: pull("PB0")
+PB0 pull up
 ```
 
 `adc("PA0")` takes one analog conversion and leaves PA0 in analog mode.

@@ -41,6 +41,8 @@ int (*pin_mode)(int pin, int mode);     /* FREYA_PIN_IN, _IN_PULLUP, ...  */
 int (*pin_read)(int pin);               /* 0 or 1                         */
 int (*pin_write)(int pin, int value);
 int (*pin_toggle)(int pin);
+int (*pin_pull)(int pin, int pull);     /* FREYA_PULL_NONE, _UP, _DOWN    */
+int (*pin_pull_get)(int pin);
 ```
 
 The modes are `FREYA_PIN_IN`, `FREYA_PIN_IN_PULLUP`, `FREYA_PIN_IN_PULLDOWN`,
@@ -49,6 +51,19 @@ is on as well) and `FREYA_PIN_ANALOG`. Ports
 A, B and C exist on both boards; the register layout behind them does not
 (the F1 configures a pin in one four-bit field, the F4 in four two-bit ones),
 which is why the chip half lives in `boards/<board>/board.c`.
+
+`pin_pull()` sets the pin's pull resistor and leaves its mode alone:
+`FREYA_PULL_NONE`, `FREYA_PULL_UP` or `FREYA_PULL_DOWN`, about 40 kΩ either
+way. It works on an input or an open-drain output, so
+`pin_mode(pin, FREYA_PIN_OUT_OD)` followed by `pin_pull(pin, FREYA_PULL_NONE)`
+is an open-drain line with only its external resistor. A push-pull output,
+a PWM pin and an analog one are refused with `FREYA_ERR_ARG`. The F1 and
+the AT32 pull an input only, so there an open-drain pin accepts
+`FREYA_PULL_NONE` (which it already has) and refuses the other two with
+`FREYA_ERR_UNSUPPORTED`. `pin_mode()` sets the pull its mode implies, so set
+the pull after the mode. `pin_pull_get()` returns the pull the pin has now,
+in any mode. Both calls were added to the end of the table, so a program
+that also runs on older kernels checks `FREYA_API_HAS(api, pin_pull)` first.
 
 Freya keeps **PA2 and PA3** for the console, **PA4 to PA7** for the card
 and **PA8** for the socket's power switch, and refuses them with

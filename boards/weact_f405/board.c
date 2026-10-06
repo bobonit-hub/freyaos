@@ -275,6 +275,30 @@ void board_pin_mode(GPIO_TypeDef *port, int pin, int mode)
 }
 
 /*
+ * The pull alone.  An input and an open-drain output take any of the
+ * three.  A push-pull output would only spend current through it, a PWM
+ * pin is the timer's, and an analog one must have none, so those are
+ * refused.  FREYA_PULL_* are the PUPDR values themselves.
+ */
+int board_pin_pull(GPIO_TypeDef *port, int pin, int pull)
+{
+    uint32_t pair  = (uint32_t)(pin * 2);
+    uint32_t moder = (port->MODER >> pair) & 3UL;
+
+    if (moder >= 2UL || (moder == 1UL && !((port->OTYPER >> pin) & 1UL)))
+        return FREYA_ERR_ARG;
+    port->PUPDR = (port->PUPDR & ~(3UL << pair)) | ((uint32_t)pull << pair);
+    return 0;
+}
+
+int board_pin_pull_get(GPIO_TypeDef *port, int pin)
+{
+    uint32_t pupdr = (port->PUPDR >> (pin * 2)) & 3UL;
+
+    return (pupdr == 3UL) ? FREYA_PULL_NONE : (int)pupdr;   /* 3: reserved */
+}
+
+/*
  * Hand a pin to a peripheral - a timer channel, in the one place this is
  * called from.  The F4 names the peripheral with a number in AFR, so the
  * caller supplies the one its channel uses, and the pin is driven

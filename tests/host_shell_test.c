@@ -633,6 +633,19 @@ int  gpio_pin_write(int pin, int value)
 }
 int  gpio_pin_toggle(int pin)          { (void)pin; return 0; }
 
+/* One pull for every pin; PC13 stands for an open-drain pin on an F1,
+ * which has no resistor to give. */
+static int s_pin_pull;
+
+int  gpio_pin_pull(int pin, int pull)
+{
+    if (pin == FREYA_PIN(2, 13) && pull != FREYA_PULL_NONE)
+        return FREYA_ERR_UNSUPPORTED;
+    s_pin_pull = pull;
+    return 0;
+}
+int  gpio_pin_pull_get(int pin)        { (void)pin; return s_pin_pull; }
+
 int  pwm_info(int idx, pwm_info_t *info) { (void)idx; (void)info; return -1; }
 int  pwm_lookup(int pin)               { (void)pin; return 0; }
 int  pwm_close(int pwm)
@@ -1544,7 +1557,7 @@ int main(void)
     rc = run("help()");
     expect_rc("help() succeeds", rc, 0);
     expect_has("help() lists function commands", "use function syntax");
-    expect_lacks("help() prints no extra value", "none");
+    expect_lacks("help() prints no extra value", "\nnone\r\n");
     rc = run("sysinfo()");
     expect_rc("sysinfo() succeeds", rc, 0);
     expect_has("sysinfo() runs the command", "CPU");
@@ -2425,6 +2438,28 @@ int main(void)
     rc = run("set n get(\"PB5\")");
     rc = run("echo $n");
     expect_exact("get sees the level that was written", "1\r\n");
+
+    rc = run("pull(\"PB0\", \"up\")");
+    expect_rc("pull sets a pull-up", rc, 0);
+    expect_exact("pull prints the pull it set", "PB0 pull up\r\n");
+    rc = run("pull(\"PB0\")");
+    expect_exact("pull alone reads it back", "PB0 pull up\r\n");
+    rc = run("pull(\"PB0\", \"sideways\")");
+    expect_rc("pull of a bad word fails", rc, FREYA_EXIT_FAIL);
+    expect_has("pull prints its usage", "usage: pull <pin> [none|up|down]");
+    rc = run("pull(\"PC13\", \"down\")");
+    expect_rc("a pull the chip cannot give fails", rc, FREYA_EXIT_FAIL);
+    expect_has("pull says why", "pull: this chip pulls an input only");
+    rc = run("set n pull(\"PB0\", \"down\")");
+    expect_rc("pull as an expression succeeds", rc, 0);
+    rc = run("echo $n");
+    expect_exact("pull returns FREYA_PULL_DOWN", "2\r\n");
+    rc = run("set n pull(\"PB0\")");
+    rc = run("echo $n");
+    expect_exact("pull with only a pin reads it", "2\r\n");
+    rc = run("set n pull(\"PB0\", \"none\")");
+    rc = run("echo $n");
+    expect_exact("none is FREYA_PULL_NONE", "0\r\n");
 
     rc = run("set n adc(\"temp\")");
     expect_rc("adc of the temperature source succeeds", rc, 0);

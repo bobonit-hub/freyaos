@@ -100,8 +100,12 @@ int main(void)
     check("and has no exit_reason_str either",
           0, FREYA_API_HAS(&api, exit_reason_str) ? 1 : 0);
     api.size = sizeof(freya_api_t);
-    check("net_resolve is the last call in the table",
+    check("pin_pull_get is the last call in the table",
           (int)sizeof(freya_api_t),
+          (int)(__builtin_offsetof(freya_api_t, pin_pull_get) +
+                sizeof(api.pin_pull_get)));
+    check("pin_pull and pin_pull_get follow net_resolve",
+          (int)__builtin_offsetof(freya_api_t, pin_pull),
           (int)(__builtin_offsetof(freya_api_t, net_resolve) +
                 sizeof(api.net_resolve)));
     check("net_resolve follows audio_gain",

@@ -126,6 +126,31 @@ int gpio_pin_toggle(int pin)
     return 0;
 }
 
+/* The pull resistor on its own, leaving the mode where it is.  Which
+ * modes may have one, and which pulls a chip can give them, is the
+ * board's to say. */
+int gpio_pin_pull(int pin, int pull)
+{
+    GPIO_TypeDef *port;
+    int bit, rc;
+
+    if (pull < FREYA_PULL_NONE || pull > FREYA_PULL_DOWN) return FREYA_ERR_ARG;
+    rc = pin_resolve(pin, &port, &bit);
+    if (rc != 0) return rc;
+
+    return board_pin_pull(port, bit, pull);
+}
+
+int gpio_pin_pull_get(int pin)
+{
+    GPIO_TypeDef *port;
+    int bit, rc;
+
+    rc = pin_resolve(pin, &port, &bit);
+    if (rc != 0) return rc;
+    return board_pin_pull_get(port, bit);
+}
+
 /* ------------------------------------------------------ pin interrupts */
 static int line_irq(int line)
 {

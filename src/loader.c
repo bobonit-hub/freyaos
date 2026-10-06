@@ -617,6 +617,8 @@ static const freya_api_t s_api __attribute__((section(".rodata.kext_api"))) = {
     .audio_status    = audio_status,
     .audio_gain      = audio_gain,
     .net_resolve     = net_resolve,
+    .pin_pull        = gpio_pin_pull,
+    .pin_pull_get    = gpio_pin_pull_get,
 };
 
 const freya_api_t *app_api(void)

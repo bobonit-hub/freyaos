@@ -172,6 +172,8 @@ void board_spi_mux(SPI_TypeDef *spi, int sck, int miso, int mosi, int af);
  * driver in src/gpio.c asks the board to configure and to route. */
 GPIO_TypeDef *board_gpio_port(int port);          /* NULL: no such port  */
 void          board_pin_mode(GPIO_TypeDef *port, int pin, int mode);
+int           board_pin_pull(GPIO_TypeDef *port, int pin, int pull);
+int           board_pin_pull_get(GPIO_TypeDef *port, int pin);  /* FREYA_PULL_* */
 void          board_exti_select(int port, int pin);
 void          board_pin_af(GPIO_TypeDef *port, int pin, int af);  /* PWM  */
 int           board_adc_read(int channel);

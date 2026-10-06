@@ -223,6 +223,39 @@ void board_pin_mode(GPIO_TypeDef *port, int pin, int mode)
 }
 
 /*
+ * The pull alone.  This chip pulls an input and nothing else: CNF 10
+ * is the pull, and the pin's ODR bit chooses up or down.  An
+ * open-drain output has no resistor to give, so it takes "none" and
+ * refuses the rest; a push-pull, PWM or analog pin is refused.
+ */
+int board_pin_pull(GPIO_TypeDef *port, int pin, int pull)
+{
+    __IO uint32_t *cr = (pin < 8) ? &port->CRL : &port->CRH;
+    uint32_t cfg = (*cr >> ((pin & 7) * 4)) & 0xFUL;
+
+    if ((cfg & 3UL) != 0 && (cfg >> 2) == 1UL)     /* output, CNF 01 */
+        return (pull == FREYA_PULL_NONE) ? 0 : FREYA_ERR_UNSUPPORTED;
+    if (cfg != GPIO_IN_FLOATING && cfg != GPIO_IN_PULL) return FREYA_ERR_ARG;
+
+    if (pull == FREYA_PULL_NONE) {
+        gpio_config(port, pin, GPIO_IN_FLOATING);
+        return 0;
+    }
+    port->BSRR = 1UL << ((pull == FREYA_PULL_UP) ? pin : pin + 16);
+    gpio_config(port, pin, GPIO_IN_PULL);
+    return 0;
+}
+
+int board_pin_pull_get(GPIO_TypeDef *port, int pin)
+{
+    __IO uint32_t *cr = (pin < 8) ? &port->CRL : &port->CRH;
+
+    if (((*cr >> ((pin & 7) * 4)) & 0xFUL) != GPIO_IN_PULL)
+        return FREYA_PULL_NONE;
+    return ((port->ODR >> pin) & 1UL) ? FREYA_PULL_UP : FREYA_PULL_DOWN;
+}
+
+/*
  * Hand a pin to a peripheral - a timer channel, in the one place this is
  * called from.  Like the F1, this chip has no alternate function
  * numbers: a pin already belongs to one peripheral, and saying so is the

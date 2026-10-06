@@ -626,11 +626,14 @@ freya: set n log("error", "failed " + $code)
 
 ## Pins
 
-`get`, `set`, `adc` and `pwm` are expressions. A pin is a string in the
+`get`, `set`, `pull`, `adc` and `pwm` are expressions. A pin is a string in the
 same form as the `pin` command (`"PB0"`, `"pb0"`, `"B0"`).
 
 `get(pin)` reads it and returns 0 or 1. `set(pin, level)` makes it a
 push-pull output, writes 0 or 1, and returns the level read back.
+`pull(pin)` returns the pin's pull resistor: 0 none, 1 up, 2 down.
+`pull(pin, "none"|"up"|"down")` sets it without changing the mode and
+returns the new value. It works on an input or an open-drain pin.
 `adc(pin)` takes one raw sample and returns that count, 0 to 4095.
 `"temp"` and `"vref"` are the internal sources. `pwm(pin, hz, duty)`
 starts a channel and returns the rate. The duty is a percent and may be
@@ -641,11 +644,12 @@ channel that is not running is an error.
 freya: set n set("PB5", 1)
 freya: echo(get("PB5"))
 1
+freya: set p pull("PB7", "none")
 freya: set n adc("PA0")
 freya: set n pwm("PB6", 1000, 25)
 ```
 
-The console commands `pin`, `adc` and `pwm` do the same work from a
+The console commands `pin`, `pull`, `adc` and `pwm` do the same work from a
 command line. They are described in
 [console-commands.md](console-commands.md).
 

@@ -2363,6 +2363,7 @@ static int cmd_led(int argc, char **argv)
  * pin Freya keeps is refused at the prompt for the same reason.
  */
 #define PIN_USAGE  "pin <pin> [in|up|down|out|od|analog] [0|1|toggle]"
+#define PULL_USAGE "pull <pin> [none|up|down]"
 #define PWM_USAGE  "pwm [<pin> <hz> <duty%> | <pin> off]"
 #define ADC_USAGE  "adc <pin|temp|vref>"
 
@@ -2370,6 +2371,9 @@ static int cmd_led(int argc, char **argv)
 static const char *const s_pin_modes[] = {
     "in", "up", "down", "out", "od", "analog"
 };
+
+/* The pulls in the order the ABI numbers them, FREYA_PULL_NONE first. */
+static const char *const s_pulls[] = { "none", "up", "down" };
 
 /* "PB0", "pb0" and "B0" are the same pin; -1 is not a pin at all. */
 static int parse_pin(const char *s)
@@ -2416,6 +2420,8 @@ static int pin_fail(const char *cmd, int rc)
             why = "bus, speed, mode or length out of range";
         else if (strcmp(cmd, "w1") == 0)
             why = "not open, or the length is out of range";
+        else if (strcmp(cmd, "pull") == 0)
+            why = "not an input or an open-drain pin";
         else why = "out of range";
         break;
     case FREYA_ERR_NACK:    why = "no answer"; break;
@@ -2423,6 +2429,10 @@ static int pin_fail(const char *cmd, int rc)
         why = (strcmp(cmd, "w1") == 0) ? "the line stayed low" : "timed out";
         break;
     case FREYA_ERR_IO:      why = "bus error"; break;
+    case FREYA_ERR_UNSUPPORTED:
+        why = (strcmp(cmd, "pull") == 0) ? "this chip pulls an input only"
+                                         : "not on this board";
+        break;
     default:                why = "refused"; break;
     }
     kprintf("%s: %s\r\n", cmd, why);
@@ -2494,6 +2504,35 @@ static int cmd_pin(int argc, char **argv)
     if (rc < 0) return pin_fail("pin", rc);
     put_pin(pin);
     kprintf(" = %d\r\n", rc);
+    return 0;
+}
+
+/*
+ * The pull resistor alone, leaving the mode as it is: 'pin PB7 od' and
+ * then 'pull PB7 none' is an open-drain line with only the external
+ * resistor on it.  Set or not, it ends by printing the pull the pin has.
+ */
+static int cmd_pull(int argc, char **argv)
+{
+    int pin, rc;
+
+    if (argc < 2 || argc > 3) return usage(PULL_USAGE);
+    pin = parse_pin(argv[1]);
+    if (pin < 0) return usage(PULL_USAGE);
+
+    if (argc == 3) {
+        rc = -1;
+        for (unsigned i = 0; i < ARRAY_SIZE(s_pulls); i++)
+            if (strcmp(argv[2], s_pulls[i]) == 0) rc = (int)i;
+        if (rc < 0) return usage(PULL_USAGE);
+        rc = gpio_pin_pull(pin, rc);
+        if (rc != 0) return pin_fail("pull", rc);
+    }
+
+    rc = gpio_pin_pull_get(pin);
+    if (rc < 0) return pin_fail("pull", rc);
+    put_pin(pin);
+    kprintf(" pull %s\r\n", s_pulls[rc]);
     return 0;
 }
 
@@ -3483,6 +3522,7 @@ static const command_t s_cmds[] = {
 #ifndef FREYA_LINUX
     { "led",      cmd_led,      "led(\"on\"|\"off\"|\"blink\")" },
     { "pin",      cmd_pin,      "pin(\"pin\" [, \"in\"|\"up\"|\"down\"|\"out\"|\"od\"|\"analog\"|0|1|\"toggle\" [, 0|1|\"toggle\"]])" },
+    { "pull",     cmd_pull,     "pull(\"pin\" [, \"none\"|\"up\"|\"down\"])" },
     { "pwm",      cmd_pwm,      "pwm([[\"pin\", hz, duty] | [\"pin\", \"off\"]])" },
     { "adc",      cmd_adc,      "adc(\"pin\"|\"temp\"|\"vref\")" },
     { "i2c",      cmd_i2c,      "i2c([bus [, hz|\"off\"|\"scan\"|addr, ...]])" },
@@ -5106,7 +5146,7 @@ static int KEXT fn_reserved(const char *s, int n)
 {
     static const char *const w[] __attribute__((section(".rodata.kext_script"))) = {
         "if", "else", "end", "loop", "break", "fn", "return",
-        "get", "set", "adc", "pwm", "int", "float", "byte", "bool", "str", "hex",
+        "get", "set", "adc", "pwm", "pull", "int", "float", "byte", "bool", "str", "hex",
         "true", "false", "empty", "none", "array", "bytes", "dict", "len", "min", "max", "sort",
         "rand", "srand", "sin", "cos", "pi",
         "now", "date", "time", "year", "month", "day",
@@ -7764,6 +7804,26 @@ static int KEXT fn_builtin(const char *name, int nlen, fn_arg_t *args,
         if (rc != 0) return pin_fail("set", rc);
         rc = gpio_pin_read(pin);
         if (rc < 0) return pin_fail("set", rc);
+        out->i = rc;
+        return 1;
+    }
+    if (nlen == 4 && strncmp(name, "pull", 4) == 0) {
+        if ((argc != 1 && argc != 2) || args[0].type != V_STR ||
+            (argc == 2 && args[1].type != V_STR))
+            return vfail("bad expression");
+        pin = parse_pin(str_text(args[0].u.s));
+        if (pin < 0) return pin_fail("pull", FREYA_ERR_PIN);
+        if (argc == 2) {
+            ps = str_text(args[1].u.s);
+            rc = -1;
+            for (unsigned i = 0; i < ARRAY_SIZE(s_pulls); i++)
+                if (strcmp(ps, s_pulls[i]) == 0) rc = (int)i;
+            if (rc < 0) return vfail("bad expression");
+            rc = gpio_pin_pull(pin, rc);
+            if (rc != 0) return pin_fail("pull", rc);
+        }
+        rc = gpio_pin_pull_get(pin);
+        if (rc < 0) return pin_fail("pull", rc);
         out->i = rc;
         return 1;
     }

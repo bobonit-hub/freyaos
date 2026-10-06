@@ -373,6 +373,11 @@ typedef struct {
 #define FREYA_PIN_OUT_OD     4    /* open drain output                   */
 #define FREYA_PIN_ANALOG     5    /* input buffer off                    */
 
+/* pin_pull(), pin_pull_get().  The numbers are the F4's PUPDR field. */
+#define FREYA_PULL_NONE      0
+#define FREYA_PULL_UP        1    /* ~40 kOhm to 3.3 V                   */
+#define FREYA_PULL_DOWN      2    /* ~40 kOhm to ground                  */
+
 /* pin_irq_attach() edges.  A switch bounces for a few milliseconds, which
  * is a few dozen edges; FREYA_EDGE_DEBOUNCE takes the first of them and
  * ignores the rest for FREYA_DEBOUNCE_MS.  A program that wants another
@@ -1117,6 +1122,19 @@ typedef struct freya_api {
      * is for net_connect() and net_sendto().  The HTTP client library
      * (http/freya_http.h) uses it for http:// URLs. */
     int      (*net_resolve)(const char *host, uint32_t *addr);
+
+    /* appended: a pin's pull resistor, apart from its mode.  pin_pull()
+     * gives an input or an open-drain output FREYA_PULL_NONE, _UP or
+     * _DOWN and returns 0, which is how an open-drain line loses the
+     * pull-up FREYA_PIN_OUT_OD turns on with it.  A push-pull output, a
+     * PWM pin and an analog one are refused with FREYA_ERR_ARG.  The F1
+     * and the AT32 pull an input only: an open-drain pin there takes
+     * FREYA_PULL_NONE, which it already has, and refuses the other two
+     * with FREYA_ERR_UNSUPPORTED.  pin_mode() sets the pull its mode
+     * names, so a pull is set after the mode, not before.
+     * pin_pull_get() is the pin's pull now, in any mode, or FREYA_ERR_*. */
+    int      (*pin_pull)(int pin, int pull);              /* FREYA_PULL_* */
+    int      (*pin_pull_get)(int pin);
 } freya_api_t;
 
 /*
