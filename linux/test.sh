@@ -129,6 +129,20 @@ out=$("$FSH" -c 'echo(1 + 1)')
 if [ "$out" = 2 ]; then echo "  ok    -c runs its text"; pass=$((pass + 1))
 else echo "  FAIL  -c runs its text: $out"; fail=$((fail + 1)); fi
 
+check "cpubench refuses a bad argument" \
+      "usage: cpubench [-i|-f] [-t seconds]${nl}  -i integer (Dhrystone), -f float (Whetstone), -t 1..20 seconds each" 1 \
+      'cpubench("-t", 0)'
+
+out=$("$FSH" -c 'cpubench("-i", "-t", 1)')
+if [ $? -eq 0 ] && printf '%s\n' "$out" | grep -q '^  check         : ok$'
+then echo "  ok    cpubench runs Dhrystone and checks it"; pass=$((pass + 1))
+else echo "  FAIL  cpubench runs Dhrystone and checks it: $out"; fail=$((fail + 1)); fi
+
+out=$("$FSH" -c 'cpubench("-f", "-t", 1)')
+if [ $? -eq 0 ] && printf '%s\n' "$out" | grep -q '^  N4 result     : 12.000000$'
+then echo "  ok    cpubench runs Whetstone"; pass=$((pass + 1))
+else echo "  FAIL  cpubench runs Whetstone: $out"; fail=$((fail + 1)); fi
+
 echo
 echo "$pass checks, $fail failures"
 [ "$fail" -eq 0 ]

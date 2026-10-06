@@ -41,8 +41,9 @@ host tools.
 | `apps/`, `include/freya_api.h` | example programs and the program ABI |
 | `rust/freya/` | Rust bindings to the program ABI, checked against `freya_api.h` when they build ([rust/README.md](../rust/README.md)) |
 | `coprocessor/esp32c6/` | the ESP32-C6 network coprocessor firmware, in Rust on ESP-IDF ([README](../coprocessor/esp32c6/README.md)) |
-| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `aead`, `compress`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic11`, and `rustdemo` in Rust |
+| `samples/` | small standalone samples: `blink`, `log`, `irq`, `pwm`, `i2c`, `spi`, `w1`, `aead`, `compress`, `cpubench`, `flashprobe`, `tetris`, `edit`, `forth`, `altair`, `altair16`, `vm`, `basic11`, and `rustdemo` in Rust |
 | `qbe/` | QBE target and cproc patch for the virtual machine, and `as.py`, the assembler that makes an image |
+| `bench/` | the CPU tests, Dhrystone 2.1 and Whetstone, that `samples/cpubench` runs on a board and `fsh` as `cpubench()` |
 | `basic/` | BASIC-11 style interpreter, FPU or soft float: the interpreter, its `float` arithmetic, the PC build it is tested on |
 | `tests/` | host side tests |
 | `docs/boards.md` | every board: parts, clock trees, console and card clocks, memory maps |

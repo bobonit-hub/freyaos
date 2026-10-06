@@ -82,6 +82,12 @@ built-in function that does not need the board's hardware.
 * `threads()` and `stop("name")` show and stop the script threads that
   `spawn()` started. `status()` prints the last command's status.
 
+`cpubench(["-i"|"-f"] [, "-t", seconds])` is a command only `fsh` has:
+the CPU tests a board runs as the program `samples/cpubench`, Dhrystone
+2.1 and a single-precision Whetstone, from the same `bench/cpubench.c`
+([samples/cpubench/README.md](../samples/cpubench/README.md)). The
+host's clock speed is not known, so there is no score per MHz.
+
 ## What is left out
 
 Hardware and system commands: `sysinfo`, `meminfo`, `mount`, `power`,
@@ -105,6 +111,7 @@ and `src/shell.c` leaves out the code for the commands and functions
 above when that is defined. The firmware for each board is unchanged.
 `linux/platform.c` provides what the kernel provides on a board: the
 console (the terminal, in raw mode while the shell reads it), the clock,
-the heap, the file calls and the log, and `run()`.
+the heap, the file calls and the log, and `run()`. `bench/cpubench.c`
+is `cpubench()`, linked with the C library's `libm`.
 
 `make test` builds `fsh` and runs `linux/test.sh`.

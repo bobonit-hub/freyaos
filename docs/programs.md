@@ -39,6 +39,10 @@ loops SPI back to itself (`samples/spi/README.md`), `samples/w1`
 reads a 1-Wire thermometer (`samples/w1/README.md`),
 `samples/compress` packs and unpacks a file with heatshrink
 (`samples/compress/README.md`),
+`samples/cpubench` times the CPU with Dhrystone 2.1 and a
+single-precision Whetstone, the tests the Linux shell runs as
+`cpubench()` (`samples/cpubench/README.md`; every board but the Blue
+Pill),
 `samples/wget` fetches a URL with the HTTP client library
 (`samples/wget/README.md`; every board but the Blue Pill),
 `samples/jsonget` fetches JSON and prints it, or one value of it, with

@@ -25,6 +25,9 @@
  */
 #include "freya.h"
 #include "fat.h"
+#ifdef FREYA_LINUX
+#include "cpubench.h"
+#endif
 
 /* Two kernel services live here because the shell is their main user.
  * A NOSHELL=1 build (FREYA_NO_SHELL) compiles this file for them alone:
@@ -2342,6 +2345,23 @@ static int KEXT cmd_sleep(int argc, char **argv)
     return 0;
 }
 
+#ifdef FREYA_LINUX
+/* The CPU tests of bench/cpubench.c, which a board runs as the program
+ * samples/cpubench.  The host's clock speed is not known, so there is
+ * no score per MHz. */
+static int bench_stop(void)
+{
+    return script_interrupted();
+}
+
+static int cmd_cpubench(int argc, char **argv)
+{
+    const cpubench_io_t io = { kprintf, sys_uptime_ms, bench_stop, 0 };
+
+    return cpubench(&io, argc, argv) == 0 ? 0 : -1;
+}
+#endif /* FREYA_LINUX */
+
 #ifndef FREYA_LINUX
 static int cmd_led(int argc, char **argv)
 {
@@ -3519,6 +3539,9 @@ static const command_t s_cmds[] = {
     { "loglevel", cmd_loglevel, "loglevel([\"off\"|\"error\"|\"warn\"|\"info\"|\"debug\"|0..4])" },
     { "log",      cmd_log,      "log(\"error\"|\"warn\"|\"info\"|\"debug\"|1..4, message)" },
     { "uptime",   cmd_uptime,   "uptime()" },
+#ifdef FREYA_LINUX
+    { "cpubench", cmd_cpubench, "cpubench([\"-i\"|\"-f\"] [, \"-t\", seconds])" },
+#endif
 #ifndef FREYA_LINUX
     { "led",      cmd_led,      "led(\"on\"|\"off\"|\"blink\")" },
     { "pin",      cmd_pin,      "pin(\"pin\" [, \"in\"|\"up\"|\"down\"|\"out\"|\"od\"|\"analog\"|0|1|\"toggle\" [, 0|1|\"toggle\"]])" },

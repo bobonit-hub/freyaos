@@ -385,16 +385,17 @@ endif
 
 # Sample programs, same ABI and linker script, one directory each under samples/
 SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 aead compress flashprobe threads vm echo \
-             basic11 altair altair16 httpd
+             basic11 altair altair16 httpd cpubench
 # A sample a board has no room for at all is not built there.  The 48 KiB
 # Altair keeps the 8080's RAM in the program region.  The Blue Pill's
 # window is 8 KiB of a 20 KiB SRAM, which cannot hold that.  httpd keeps
 # a 4 KiB page beside its upload buffers and needs the ESP32-C6, which
 # the Blue Pill has no link for; echo's 32 KB delay line is for a
-# headset, which needs a USB host the Blue Pill does not have.  The
+# headset, which needs a USB host the Blue Pill does not have.
+# cpubench's Dhrystone has a 10 000-byte array of its own.  The
 # Black Pill 2's window is 40 KiB,
 # short of the Altair's 48 KiB.
-SKIP_bluepill := altair httpd echo
+SKIP_bluepill := altair httpd echo cpubench
 SKIP_blackpill2 := altair
 # And a sample only some boards have room for: basic11vm keeps the
 # 128 KiB BASIC image for the virtual machine, its workspace and its
@@ -758,6 +759,16 @@ $(BUILD)/samples/basic11.elf $(BUILD)/samples/basic11.xip.elf: \
 # basic11's system calls.
 $(BUILD)/samples/basic11vm.elf $(BUILD)/samples/basic11vm.xip.elf: \
 	basic/bas.h basic/vmsys.h $(SMPL_DIR)/basic11/sys.c
+
+# cpubench is the tests under bench/, which the Linux shell builds in
+# too.  Benchmarks are compared at -O2, not the -Os of the other samples;
+# the loops that copy bytes in its own memcpy() are not to be turned back
+# into a call to memcpy().  Whetstone takes sinf(), expf() and the rest
+# from the toolchain's libm.
+SMPL_CFLAGS_cpubench := -O2 -fno-tree-loop-distribute-patterns -Wdouble-promotion
+SMPL_LIBS_cpubench   := -lm
+$(BUILD)/samples/cpubench.elf $(BUILD)/samples/cpubench.xip.elf: \
+	bench/cpubench.c bench/cpubench.h
 
 ifeq ($(CODECS),1)
 codecs: $(CODEC_LIB)
