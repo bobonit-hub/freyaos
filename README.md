@@ -83,8 +83,9 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 * Ascon-AEAD128 sealing and opening, not on the Blue Pill ([docs/aead.md](docs/aead.md)).
 * A 32-bit PDP-11 virtual machine and a C compiler for it, not on the Blue Pill ([docs/vm.md](docs/vm.md)).
 * A BASIC-11 style interpreter, on the FPU or, on the Blue Pill, in software
-  float, which a kernel can carry a program for and run at boot
-  ([basic/README.md](basic/README.md)).
+  float, which a kernel can carry a program for and run at boot, and the
+  same interpreter compiled for the virtual machine, which prints the same
+  digits on the boards with room for it ([basic/README.md](basic/README.md)).
 * One program kept in internal flash and run in place, packed in at flash time or installed from the card ([docs/programs.md](docs/programs.md#running-from-flash)).
 * Threads inside a program, by name and priority ([docs/threads.md](docs/threads.md)).
 * Stops any program with Ctrl-C, and contains one that crashes ([docs/programs.md](docs/programs.md#stopping-a-program)).

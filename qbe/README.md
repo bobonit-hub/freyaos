@@ -34,7 +34,23 @@ argument is at `8(r5)`.
 
 Copy `freya/` into a QBE tree and apply `qbe.patch` there. Apply
 `cproc.patch` in a cproc tree, then build both. `./configure --target=freya`
-in cproc selects this machine. There is no system linker for the VM, so
+in cproc selects this machine. The patches apply to QBE commit
+`e8365dd0a2cb` and cproc commit `d1c53ddf5657`:
+
+```sh
+# beside the freya tree
+git clone git://c9x.me/qbe.git
+(cd qbe && git checkout e8365dd0a2cb && cp -r ../freya/qbe/freya . &&
+ git apply ../freya/qbe/qbe.patch && make)
+git clone https://git.sr.ht/~mcf/cproc
+(cd cproc && git checkout d1c53ddf5657 && git apply ../freya/qbe/cproc.patch &&
+ ./configure --target=freya && make cproc-qbe)
+make -C freya/basic vm CPROC=$PWD/cproc/cproc-qbe QBE=$PWD/qbe/qbe
+```
+
+Only the compiler, `cproc-qbe`, is needed; a GCC that defaults to C23
+refuses the empty arrays of the `cproc` driver's `config.h`.
+`basic/Makefile`'s `make vm` builds the BASIC image this way. There is no system linker for the VM, so
 the useful pipeline stops at the image:
 
 ```sh

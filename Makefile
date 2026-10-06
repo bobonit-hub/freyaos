@@ -396,7 +396,15 @@ SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 aead compress fl
 # short of the Altair's 48 KiB.
 SKIP_bluepill := altair httpd echo
 SKIP_blackpill2 := altair
-SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES)) $(CODEC_SAMPLES) $(HTTP_SAMPLES)
+# And a sample only some boards have room for: basic11vm keeps the
+# 128 KiB BASIC image for the virtual machine, its workspace and its
+# stack in the program window, which takes a window of 168 KiB or more.
+ONLY_stm32u585 := basic11vm
+ONLY_stm32h523 := basic11vm
+ONLY_stm32h562 := basic11vm
+ONLY_stm32h723 := basic11vm
+SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES)) $(ONLY_$(BOARD)) \
+             $(CODEC_SAMPLES) $(HTTP_SAMPLES)
 # A sample whose code is larger than a board's program RAM region is built
 # there as a flash image only: forth is 8 KiB of interpreter, which is the
 # whole of the Blue Pill's RAM window before its dictionary is counted, and
@@ -737,9 +745,19 @@ $(BUILD)/samples/altair16.elf $(BUILD)/samples/altair16.xip.elf: \
 	$(wildcard $(SMPL_DIR)/altair/*.c $(SMPL_DIR)/altair/*.h)
 
 # basic11 is the interpreter under basic/ with the float arithmetic;
-# its main.c includes basic.c, which includes the rest.
+# its main.c includes basic.c, which includes the rest.  Every float
+# operation is rounded on its own, never fused into a VFMA: that is what
+# the PC build the tests record, and the VM build, compute.
+SMPL_CFLAGS_basic11 := -ffp-contract=off
 $(BUILD)/samples/basic11.elf $(BUILD)/samples/basic11.xip.elf: \
-	basic/basic.c basic/bas.h basic/fpnat.c basic/fpnat.h
+	basic/basic.c basic/bas.h basic/fpnat.c basic/fpnat.h basic/armrt.h \
+	$(SMPL_DIR)/basic11/sys.c
+
+# basic11vm runs the same interpreter compiled for the virtual machine,
+# the card's /basic11.vm, which basic/Makefile builds; it shares
+# basic11's system calls.
+$(BUILD)/samples/basic11vm.elf $(BUILD)/samples/basic11vm.xip.elf: \
+	basic/bas.h basic/vmsys.h $(SMPL_DIR)/basic11/sys.c
 
 ifeq ($(CODECS),1)
 codecs: $(CODEC_LIB)

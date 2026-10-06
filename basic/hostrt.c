@@ -5,7 +5,10 @@
  *
  * Supplies the system calls of bas.h with stdio, so the same basic.c
  * that goes into the program for the board runs on the PC, where a
- * debugger and the sanitizers can reach it.
+ * debugger and the sanitizers can reach it.  runbasic.c, which runs
+ * the image for the virtual machine, serves that image's system calls
+ * with these same functions; built with BAS_VMHOST this file leaves
+ * main() to it.
  */
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
@@ -46,7 +49,7 @@ void sys_putc(int c)
     if ((c & 0xff) == '\n') fflush(stdout);
 }
 
-int sys_readline(char *buf, int max)
+int sys_readline(char *buf, int max, int running)
 {
     int n = 0, c;
 
@@ -186,104 +189,19 @@ int sys_autostart(int on)
     return SYS_EIO;
 }
 
-/* The pins of a pretend board, so that PIN, PWM and ADC can be tested
- * where there is no hardware: ports A, B and C of 16 pins, every one
- * an input reading 0 until it is driven, PA2 and PA3 kept back as the
- * console's are on the boards, and an input with a pull-up or a
- * pull-down reads what the pull makes it until it is driven.  A PWM
- * channel is any pin of ports A
- * and B.  The ADC reads PA0-PA7, PB0, PB1 and PC0-PC5, and answers
- * 2048 from a pin, 1000 from TEMP and 1500 from VREF. */
-#define HOST_PORTS 3
+#include "pretend.c"
 
-static struct {
-    uint8_t mode, level, pwm;
-} pins[HOST_PORTS * 16];
-
-static int pin_ok(int pin)
+/* Ready the console and, with a program, type OLD "program" and RUN
+ * for the user; the flags for bas_main(), batch mode with a program. */
+uint32_t host_start(const char *program)
 {
-    if (pin < 0 || pin >= HOST_PORTS * 16) return 0;
-    return pin != 2 && pin != 3;
-}
-
-int sys_pin_mode(int pin, int mode)
-{
-    if (!pin_ok(pin)) return SYS_EPIN;
-    if (mode < SYS_PIN_IN || mode > SYS_PIN_ANALOG) return SYS_EARG;
-    pins[pin].mode = (uint8_t)mode;
-    /* an input nothing drives follows its pull */
-    if (mode == SYS_PIN_IN_PULLUP) pins[pin].level = 1;
-    if (mode == SYS_PIN_IN_PULLDOWN) pins[pin].level = 0;
-    return 0;
-}
-
-int sys_pin_read(int pin)
-{
-    if (!pin_ok(pin)) return SYS_EPIN;
-    return pins[pin].level;
-}
-
-int sys_pin_write(int pin, int level)
-{
-    if (!pin_ok(pin)) return SYS_EPIN;
-    pins[pin].level = level ? 1 : 0;
-    return 0;
-}
-
-int sys_pin_toggle(int pin)
-{
-    if (!pin_ok(pin)) return SYS_EPIN;
-    pins[pin].level ^= 1;
-    return 0;
-}
-
-int sys_pwm(int pin, uint32_t hz, uint32_t duty)
-{
-    if (!pin_ok(pin) || pin >= 32) return SYS_EPIN;
-    if (hz == 0) {
-        if (!pins[pin].pwm) return SYS_EARG;
-        pins[pin].pwm = 0;
-        pins[pin].mode = SYS_PIN_IN;
-        return 0;
-    }
-    if (hz > 1000000 || duty > SYS_PWM_FULL) return SYS_EARG;
-    pins[pin].pwm = 1;
-    return 0;
-}
-
-int sys_adc(int source)
-{
-    if (source == SYS_ADC_TEMP) return 1000;
-    if (source == SYS_ADC_VREF) return 1500;
-    if (!pin_ok(source)) return SYS_EPIN;
-    if (!(source <= 7 || source == 16 || source == 17 ||
-          (source >= 32 && source <= 37)))
-        return SYS_EPIN;
-    pins[source].mode = SYS_PIN_ANALOG;
-    return 2048;
-}
-
-int main(int argc, char **argv)
-{
-    uint32_t memsz = 256 * 1024, flags = 0;
-    uint8_t *heap;
     static char oldcmd[600];
-    int i;
 
-    for (i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "-m") && i + 1 < argc)
-            memsz = (uint32_t)strtoul(argv[++i], 0, 0) * 1024;
-        else if (!strcmp(argv[i], "-r") && i + 1 < argc) {
-            snprintf(oldcmd, sizeof oldcmd, "OLD \"%s\"", argv[++i]);
-            queued[nqueued++] = oldcmd;
-            queued[nqueued++] = "RUN";
-            flags = 1;
-        } else {
-            fprintf(stderr, "usage: basic-host [-m kbytes] [-r program.bas]\n");
-            return 1;
-        }
+    if (program) {
+        snprintf(oldcmd, sizeof oldcmd, "OLD \"%s\"", program);
+        queued[nqueued++] = oldcmd;
+        queued[nqueued++] = "RUN";
     }
-    heap = calloc(1, memsz);
     setvbuf(stdin, NULL, _IONBF, 0);    /* so INKEY$ can poll for a key */
     {
         /* sigaction: signal() may reset to the default after one ^C */
@@ -293,5 +211,26 @@ int main(int argc, char **argv)
         sa.sa_handler = on_int;
         sigaction(SIGINT, &sa, NULL);
     }
-    return bas_main(heap, memsz, flags);
+    return program ? 1 : 0;
 }
+
+#ifndef BAS_VMHOST
+int main(int argc, char **argv)
+{
+    uint32_t memsz = 256 * 1024;
+    const char *program = NULL;
+    int i;
+
+    for (i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-m") && i + 1 < argc)
+            memsz = (uint32_t)strtoul(argv[++i], 0, 0) * 1024;
+        else if (!strcmp(argv[i], "-r") && i + 1 < argc)
+            program = argv[++i];
+        else {
+            fprintf(stderr, "usage: basic-host [-m kbytes] [-r program.bas]\n");
+            return 1;
+        }
+    }
+    return bas_main(calloc(1, memsz), memsz, host_start(program));
+}
+#endif

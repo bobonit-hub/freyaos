@@ -1,27 +1,49 @@
 /* bas.h - types and the host interface of the BASIC interpreter.
  *
- * basic.c is built two ways from the same source:
+ * basic.c is built three ways from the same source:
  *
  *   BAS_HOST   the interpreter compiled natively on the PC for the
  *              tests, which supply the sys_* calls with stdio.
+ *   BAS_VM     the image for the Freya virtual machine, compiled with
+ *              cproc and QBE.  No headers at all: the types are below,
+ *              and setjmp, longjmp and the sys_* calls are vmrt.s,
+ *              each call a TRAP that the program running the machine
+ *              serves.  Its numbers are BAS_SOFTFLOAT's, integers.
  *   neither    a Freya program, compiled with arm-none-eabi-gcc for the
  *              board itself.  Freestanding, though the compiler's
  *              <stdint.h> is there; the program that includes basic.c
  *              supplies setjmp, longjmp and the sys_* calls.
  *
- * The numbers are the C float of fpnat.c either way, so the host build
- * computes what the FPU of a Cortex-M4F computes.
+ * The numbers are IEEE single-precision floats every way, rounded the
+ * same, so each build computes what the FPU of a Cortex-M4F computes.
  */
 #ifndef BAS_H
 #define BAS_H
 
+#if defined(BAS_VM)
+/* cproc for the Freya VM is ILP32 with an unsigned char. */
+typedef unsigned int   uint32_t;
+typedef signed int     int32_t;
+typedef unsigned short uint16_t;
+typedef signed short   int16_t;
+typedef unsigned char  uint8_t;
+typedef signed char    int8_t;
+typedef uint32_t       uptr;
+#define NULL ((void *)0)
+
+/* vmrt.s: the frame pointer, the stack pointer and the return address */
+typedef uint32_t jmp_buf[3];
+int  setjmp(jmp_buf b);
+void longjmp(jmp_buf b, int val);
+#else
 #include <stdint.h>
 typedef uintptr_t uptr;
+#endif
 
 #if defined(BAS_HOST)
 #include <stddef.h>
 #include <setjmp.h>
-#else
+#elif !defined(BAS_VM)
 #define NULL ((void *)0)
 
 /* Supplied by the program: r4-r11, sp, lr and the callee-saved half
@@ -39,7 +61,10 @@ static inline int is_digit(int c)
 /* The host: stdio on the PC, the Freya API on the board. */
 void     sys_exit(int code);
 void     sys_putc(int c);
-int      sys_readline(char *buf, int max);  /* length, or -1 at end/break */
+/* A line from the terminal, the newline dropped: its length, or -1 at
+ * the end of the input.  running says whether a stored program is
+ * executing, an INPUT, or the interpreter waits for a command. */
+int      sys_readline(char *buf, int max, int running);
 int      sys_break(void);                   /* non-zero once Ctrl-C was seen */
 int      sys_open(const char *path, int mode); /* 0 read, 1 write; fd or -1 */
 int      sys_close(int fd);

@@ -191,7 +191,11 @@ void fp_fault(int code)
 #define NFN        6            /* function calls inside one another */
 #define CHBUF      32
 #else
-#define OUT_OF_LINE
+#ifdef BAS_VM
+#define OUT_OF_LINE              /* cproc inlines nothing */
+#else
+#define OUT_OF_LINE __attribute__((noinline))
+#endif
 #define TMP_BYTES  2048          /* scratch for intermediate strings */
 #define MIN_WORK   8192
 #define NFOR       16
@@ -204,6 +208,12 @@ void fp_fault(int code)
 #endif
 #define WIDTH      72
 #define ZONE       14
+/* Levels of an expression inside one another: each parenthesis, each
+ * argument of a function, each sign and each power takes one, and the
+ * body of a DEF goes on from the level of its call.  The same on every
+ * build, so a program that nests too deep stops at the same place
+ * everywhere, with ?Out of memory, whatever the stack of that build. */
+#define NNEST      16
 
 /* uptr, from bas.h, is an address as an integer: 32 bits on the VM and
  * the board, whatever the host has when the sources are built natively
@@ -344,6 +354,7 @@ static int nfnpool;              /* how many of them can allocate a string */
 static int defs_valid;           /* the table matches the program text */
 static fncall_t fnstk[NFN];
 static int fn_depth;
+static int nest;                 /* unary()s running, at most NNEST */
 
 static for_t forstk[NFOR];
 static int nfor;
@@ -659,7 +670,7 @@ static int chan_getline(int n, char *buf, int max)
 /* Read a line from channel n; on channel 0 the terminal. */
 static int read_line(int n, char *buf, int max)
 {
-    if (n == 0) return sys_readline(buf, max);
+    if (n == 0) return sys_readline(buf, max, running);
     return chan_getline(n, buf, max);
 }
 
@@ -1631,18 +1642,22 @@ static void power(val_t *v)
     }
 }
 
+/* Every nesting comes back through here.  An error leaves by
+ * longjmp() without the decrement; bas_main() starts the count again. */
 static void unary(val_t *v)
 {
     int c = peek();
 
+    if (++nest > NNEST) error(E_MEMORY);
     if (c == '-' || c == '+') {
         tp++;
         unary(v);
         if (v->str) error(E_TYPE);
         if (c == '-') fp_neg(&v->n);
-        return;
+    } else {
+        power(v);
     }
-    power(v);
+    nest--;
 }
 
 static void term(val_t *v)
@@ -3404,6 +3419,7 @@ int bas_main(uint8_t *heap, uint32_t heap_size, uint32_t flags)
             ndo = 0;
             ngosub = 0;
             fn_depth = 0;
+            nest = 0;
             events_unwind();
             tmp_lo = tmp_base;
             running = 0;
@@ -3412,7 +3428,7 @@ int bas_main(uint8_t *heap, uint32_t heap_size, uint32_t flags)
         }
         ready();
         for (;;) {
-            r = sys_readline(in_buf, sizeof in_buf);
+            r = sys_readline(in_buf, sizeof in_buf, running);
             if (r < 0) {
                 out_str(batch ? "" : "\n");
                 sys_exit(0);

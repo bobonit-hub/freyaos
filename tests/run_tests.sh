@@ -553,8 +553,24 @@ $CC $CFLAGS tests/host_vm_test.c src/vm.c -o "$OUT/hostvm"
 echo
 echo "================= BASIC ================="
 # shellcheck disable=SC2086
-$CC $CFLAGS -fno-math-errno tests/host_fpnat_test.c -lm -o "$OUT/hostfpnat"
+$CC $CFLAGS -fno-math-errno -ffp-contract=off tests/host_fpnat_test.c -lm -o "$OUT/hostfpnat"
 "$OUT/hostfpnat" || status=1
+# The same arithmetic on integers, as the virtual machine's BASIC has it,
+# has to give the FPU's bits: one hash of every result each way.
+# shellcheck disable=SC2086
+$CC $CFLAGS -O2 -fno-math-errno -ffp-contract=off tests/host_fpsoft_test.c -lm -o "$OUT/hostfpfloat"
+# shellcheck disable=SC2086
+$CC $CFLAGS -O2 -fno-math-errno -ffp-contract=off -DBAS_SOFTFLOAT tests/host_fpsoft_test.c -lm -o "$OUT/hostfpsoft"
+fp_float=$("$OUT/hostfpfloat") || status=1
+fp_soft=$("$OUT/hostfpsoft") || { echo "$fp_soft"; status=1; }
+fp_soft_hash=$(echo "$fp_soft" | tail -n 1)
+echo "$fp_soft" | grep "^  ok" || true
+if [ "$fp_float" = "$fp_soft_hash" ]; then
+    echo "  ok      fpsoft: the integer arithmetic gives the FPU's bits ($fp_float)"
+else
+    echo "  FAIL  fpsoft: the integer arithmetic differs: $fp_float with the FPU, $fp_soft_hash without"
+    status=1
+fi
 sh tests/basic_tests.sh || status=1
 
 # ---------------------------------------------------------------------

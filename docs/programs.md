@@ -61,7 +61,10 @@ kept in program flash (`samples/altair16/README.md`). `samples/basic11`
 is the BASIC-11 style interpreter of `basic/` compiled natively, with
 its numbers on the FPU, or on the Blue Pill in software and built
 smaller, as a flash image only (`run basic11 [-m KiB] [program.bas |
--e text]`; [basic/README.md](../basic/README.md)). Every
+-e text]`; [basic/README.md](../basic/README.md)). `samples/basic11vm`
+runs the same interpreter compiled for the virtual machine, the card's
+`/basic11.vm`, on the boards with a program window of 168 KiB or more
+(`run basic11vm [-m KiB] [-i image] [program.bas | -e text]`). Every
 app and sample is also built as `.xip.bin` for `install`, and a sample too
 large for a board's program RAM region is built there as the flash image
 alone — which on the Blue Pill is what happens to `forth`, whose
@@ -81,7 +84,7 @@ own layout against `freya_api.h` when they build. See
 ### BASIC and the virtual machine
 
 `samples/basic11` is a BASIC-11 style interpreter with a flat, compacting
-string pool, written in C and compiled with GCC into an 18 KiB native program
+string pool, written in C and compiled with GCC into a 21 KiB native program
 for the Cortex-M4F boards, whose numbers are the FPU's `float`, and into a
 smaller one for the Blue Pill, with the same `float` in software, with `OLD`,
 `SAVE` and the file statements on the card, `DATE$`, `TIME$`, `TIME` and
@@ -92,7 +95,11 @@ button is pressed ([basic/README.md](../basic/README.md)).
 Freya also runs a PDP-11 whose eight registers and whose words are 32 bits
 ([vm.md](vm.md)). It has a C compiler for that machine, cproc and QBE with a
 target in `qbe/`, which turns a C program into an image the VM runs from
-address 0.
+address 0. The same BASIC is compiled that way too, into the 128 KiB
+`basic11.vm`, with its floats computed in integers to the FPU's bits, and
+`samples/basic11vm` runs it on the STM32U585, STM32H523, STM32H562 and
+STM32H723: a program prints the same under either, only slower on the
+machine.
 
 ### Floats
 

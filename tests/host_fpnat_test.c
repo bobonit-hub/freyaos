@@ -105,32 +105,34 @@ static void text(const char *s, const char *want)
 }
 
 /* The operations that must fault, and how. */
-static void f_mul(void)    { fpac_t a = 1e30f, b = 1e10f; fp_mul(&a, &b); }
-static void f_div(void)    { fpac_t a = 1, b = 0; fp_div(&a, &b); }
-static void f_sqrt(void)   { fpac_t a = -1; fp_sqrt(&a); }
-static void f_log(void)    { fpac_t a = 0; fp_log(&a); }
-static void f_exp(void)    { fpac_t a = 100; fp_exp(&a); }
-static void f_toint(void)  { fpac_t a = 3e9f; fp_to_int(&a); }
-static void f_pow(void)    { fpac_t a = 10, b = 50; fp_pow(&a, &b); }
-static void f_parse(void)  { fpac_t a; fp_parse("1E39", &a); }
-static void f_zeropow(void){ fpac_t a = 0, b = -1; fp_pow(&a, &b); }
-static void f_sin(void)    { fpac_t a = 1e30f; fp_sin(&a); }
+static void fault_mul(void)    { fpac_t a = 1e30f, b = 1e10f; fp_mul(&a, &b); }
+static void fault_div(void)    { fpac_t a = 1, b = 0; fp_div(&a, &b); }
+static void fault_sqrt(void)   { fpac_t a = -1; fp_sqrt(&a); }
+static void fault_log(void)    { fpac_t a = 0; fp_log(&a); }
+static void fault_exp(void)    { fpac_t a = 100; fp_exp(&a); }
+static void fault_toint(void)  { fpac_t a = 3e9f; fp_to_int(&a); }
+static void fault_pow(void)    { fpac_t a = 10, b = 50; fp_pow(&a, &b); }
+static void fault_parse(void)  { fpac_t a; fp_parse("1E39", &a); }
+static void fault_zeropow(void){ fpac_t a = 0, b = -1; fp_pow(&a, &b); }
+static void fault_sin(void)    { fpac_t a = 1e30f; fp_sin(&a); }
+static void fault_recip(void)  { fpac_t a = 1e-20f, b = -2; fp_pow(&a, &b); }
 
 static const struct {
     const char *what;
     void (*fn)(void);
     int code;
 } faultcases[] = {
-    { "overflow on multiply",       f_mul,     FP_ERR_OVERFLOW },
-    { "division by zero",           f_div,     FP_ERR_DIVZERO },
-    { "square root of a negative",  f_sqrt,    FP_ERR_DOMAIN },
-    { "log of zero",                f_log,     FP_ERR_DOMAIN },
-    { "exp overflow",               f_exp,     FP_ERR_OVERFLOW },
-    { "integer out of range",       f_toint,   FP_ERR_RANGE },
-    { "power overflow",             f_pow,     FP_ERR_OVERFLOW },
-    { "constant too large",         f_parse,   FP_ERR_OVERFLOW },
-    { "zero to a negative power",   f_zeropow, FP_ERR_DIVZERO },
-    { "sin of a huge argument",     f_sin,     FP_ERR_RANGE },
+    { "overflow on multiply",       fault_mul,     FP_ERR_OVERFLOW },
+    { "division by zero",           fault_div,     FP_ERR_DIVZERO },
+    { "square root of a negative",  fault_sqrt,    FP_ERR_DOMAIN },
+    { "log of zero",                fault_log,     FP_ERR_DOMAIN },
+    { "exp overflow",               fault_exp,     FP_ERR_OVERFLOW },
+    { "integer out of range",       fault_toint,   FP_ERR_RANGE },
+    { "power overflow",             fault_pow,     FP_ERR_OVERFLOW },
+    { "reciprocal of a denormal",   fault_recip,   FP_ERR_OVERFLOW },
+    { "constant too large",         fault_parse,   FP_ERR_OVERFLOW },
+    { "zero to a negative power",   fault_zeropow, FP_ERR_DIVZERO },
+    { "sin of a huge argument",     fault_sin,     FP_ERR_RANGE },
 };
 
 int main(void)

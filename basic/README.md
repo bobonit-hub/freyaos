@@ -1,13 +1,22 @@
 # BASIC for Freya
 
-A BASIC in the manner of DEC's BASIC-11, written in C. Compiled with
-GCC it is the native program `basic11`, whose numbers are the C
-`float`: on the FPU of the boards that have one, and on the Blue Pill,
-whose Cortex-M3 has none, in the soft-float helpers of `src/softfp.c`.
-The same source compiles for the PC, with the same arithmetic, for
-testing. Nothing here needs
-a C library; the interpreter talks to whatever runs it through a few
-system calls.
+A BASIC in the manner of DEC's BASIC-11, written in C. One source,
+built two ways for the boards:
+
+- **`basic11`**, native ARM32: compiled with GCC for the Cortex-M, its
+  numbers the C `float` on the FPU of the boards that have one, and on
+  the Blue Pill, whose Cortex-M3 has none, in the soft-float helpers of
+  `src/softfp.c`.
+- **`basic11.vm`**, for the Freya virtual machine: compiled with cproc
+  and QBE for the 32-bit PDP-11 of the kernel's `vm_run()`, its numbers
+  the same IEEE floats computed with integers, and run on a board by
+  `basic11vm` (see [The virtual machine](#the-virtual-machine)).
+
+The two print the same thing for the same program, digit for digit;
+[One BASIC, two builds](#one-basic-two-builds) says how that is kept.
+The same source also compiles for the PC, with the same arithmetic, for
+testing. Nothing here needs a C library; the interpreter talks to
+whatever runs it through a few system calls.
 
 ```
 $ build/basic/basic-host
@@ -34,44 +43,67 @@ BYE
 | file         | what it is                                                     |
 |--------------|----------------------------------------------------------------|
 | `basic.c`    | the interpreter, one translation unit that includes its arithmetic |
-| `fpnat.c/.h` | BASIC's numbers as the C `float`                               |
+| `fpnat.c/.h` | BASIC's numbers as IEEE single floats, on primitives that are the C `float` or `fpsoft.c` |
+| `fpsoft.c`   | IEEE single with 32-bit integers only, the VM build's primitives |
 | `bas.h`      | the types, `setjmp` and the system call prototypes per target  |
-| `hostrt.c`   | the calls with stdio, and a pretend board's pins, for the PC build |
-| `Makefile`   | builds the PC interpreter                                      |
+| `hostrt.c`   | the calls with stdio, for the PC build and `runbasic`          |
+| `pretend.c`  | a pretend board's pins, for the builds that run on the PC      |
+| `armrt.h`    | `setjmp`, `longjmp` and `bas_main_on()` for the Cortex-M       |
+| `vmrt.s`     | `_start`, a `TRAP` per system call, `setjmp` and `longjmp` for the VM |
+| `vmsys.h`    | the `TRAP` numbers of the system calls                         |
+| `runbasic.c` | runs `basic11.vm` on the PC, on `src/vm.c`                     |
+| `armrt.c`    | runs the board's code on the PC under `qemu-arm`, for the tests |
+| `Makefile`   | builds the PC interpreter, the VM image and the two test runners |
 
 `samples/basic11/main.c` is the Freya program that hosts it. It
 includes `basic.c` and is compiled by the top-level Makefile for every
-board: it implements the system calls on the Freya API, supplies
-`setjmp` and `longjmp` for the Cortex-M4F and the Cortex-M3, and takes
-the workspace from the heap, or on the Blue Pill from its own RAM
-window (see [The Blue Pill](#the-blue-pill)).
+board: it takes the workspace and the interpreter's stack from the heap,
+or on the Blue Pill from its own RAM window (see [The Blue
+Pill](#the-blue-pill)), and the system calls are
+`samples/basic11/sys.c`, on the Freya API. `samples/basic11vm/main.c`
+loads `basic11.vm` and serves its system calls with the same `sys.c`.
 
-`BAS_HOST` picks the PC build, with a C library; without it the source
-is the bare-metal program. `BAS_BANNER` is the first line printed.
-`BAS_SMALL` is the build for a few KiB of RAM, and `BAS_STACK_FLOOR`
-the lowest address the stack may reach; both are the Blue Pill's.
+`BAS_HOST` picks the PC build, with a C library, and `BAS_VM` the image
+for the virtual machine; with neither the source is the bare-metal
+program. `BAS_SOFTFLOAT` makes the numbers integers (`fpsoft.c`), which
+`BAS_VM` needs. `BAS_BANNER` is the first line printed. `BAS_SMALL` is
+the build for a few KiB of RAM, and `BAS_STACK_FLOOR` the lowest
+address the stack may reach.
 
 ## Building
 
 ```sh
 make BOARD=blackpill samples   # build/blackpill/samples/basic11.bin
 make BOARD=bluepill samples    # build/bluepill/samples/basic11.xip.bin
+make BOARD=stm32h723 samples   # ... and build/stm32h723/samples/basic11vm.bin
 make -C basic                  # build/basic/basic-host
-make -C basic test             # tests/basic on the host build
+make -C basic vm               # build/basic/basic11.vm and runbasic
+make -C basic arm              # build/basic/basic-arm, for qemu-arm
+make -C basic test             # tests/basic on every build there is
 ```
+
+`make -C basic vm` needs cproc and QBE with the Freya target, which
+[../qbe/README.md](../qbe/README.md) says how to build; `CPROC=` and
+`QBE=` point at them when they are not on the `PATH`.
 
 `basic-host` computes what `basic11` computes, so the expected outputs
 under `tests/basic` are what the board prints — except for
-`pins.bas`, whose pins are the pretend ones of `hostrt.c`.
+`pins.bas`, whose pins are the pretend ones of `pretend.c`. The tests
+run every program on `basic-host`, then on `basic11.vm` under
+`runbasic` when it has been built, then on the board's own code under
+`qemu-arm` when that is installed, and each has to print the same
+bytes.
 
 ```
 run basic11 [-m KiB] [program.bas | -e text]
+run basic11vm [-m KiB] [-i image] [program.bas | -e text]
 basic-host [-m KiB] [-r program.bas]
+runbasic [-m KiB] [-r program.bas] [-s] basic11.vm
 ```
 
 On the board `-m` asks for a workspace of that many KiB from the heap;
 without it the program takes 32 KiB, or the largest multiple of 4 KiB
-down to 12 that the heap can give. A program named on the command line
+down to 12 that the heap can give with the interpreter's stack. A program named on the command line
 is loaded and run as though `OLD` and `RUN` had been typed, without the
 banner and the prompts, and `basic11` exits when the program ends, with
 1 after an error and 0 otherwise. `-e text` does the same with the
@@ -81,10 +113,19 @@ Without either the interpreter takes commands until `BYE`, which
 returns to the shell. On the
 PC `-m` is the size of the machine's memory, 256 KiB by default. `-r`
 loads a program, runs it without the banner and the prompts and exits
-with 0 at END, or 1 after an error.
+with 0 at END, or 1 after an error. `runbasic -s` reports how many
+instructions the machine ran and how deep its stack went.
 
-The native program is 18 KiB of Thumb-2 code plus 12 KiB of static
-data, the variable tables mostly, and runs from the shell's stack.
+The native program is 21 KiB of Thumb-2 code plus 12 KiB of static
+data, the variable tables mostly. The interpreter runs on a stack of its
+own, 12 KiB taken from the heap with the workspace, not on the shell's:
+that is 6 KiB, with the program window right under it, and a program
+run from flash has its code copied to the top of that window, where an
+expression nested deep enough would write over it. The nesting limit
+below keeps the stack under 8 KiB, which `make -C basic arm` and
+`basic-arm -s` measured; `BAS_STACK_FLOOR` stops the interpreter with
+`?Out of memory` 1.5 KiB short of the bottom should anything ever go
+deeper.
 
 ## The Blue Pill
 
@@ -95,9 +136,9 @@ same, with three differences.
 - **Numbers.** It is compiled soft-float, so every `float` operation
   is a call into `src/softfp.c`, which the Makefile links into each
   Blue Pill program. The square root is worked out from the bits
-  (`sqrt_bits()` in `fpnat.c`), correctly rounded; it agrees with libm
-  on every non-negative float. The results are the same as on the FPU
-  boards, only slower.
+  (`sqrt_bits()` in `fpnat.c`), correctly rounded; it agrees with the
+  FPU on every non-negative float. The results are the same as on the
+  FPU boards, only slower.
 - **Memory** (`BAS_SMALL`). The variables are not three tables of all
   286 names of each kind but records in the arena, made when a name is
   first used and cleared with the rest of the arena. The other tables
@@ -114,7 +155,7 @@ same, with three differences.
   with `?Out of memory`, instead of letting it run over the workspace.
   That allows about seven built-in functions nested inside one another,
   a dozen levels of parentheses, or a `DEF` that calls itself four
-  deep.
+  deep, short of the 16 levels the other boards allow.
 
 It is 23 KiB of code, so it is built only as `basic11.xip.bin`, and
 runs from the program flash where `install` or `make flash PROGRAM=`
@@ -165,17 +206,100 @@ saved for.
 run from the card it answers `?Not run from flash`. The text starts at
 the first erase unit after the image, so there is room for anything on
 the other boards. On the Blue Pill `basic11` fills all but the last
-half kilobyte of its region and the text goes there, in the image's
-last page: about 500 bytes of listing, `?No room in flash` past that.
+1.3 KiB of its region and the text goes there, straight after the
+image: about 1.3 KiB of listing, `?No room in flash` past that.
 `BASIC=` still takes larger programs. A saved text is used before the
 one `BASIC=` built in.
+
+## The virtual machine
+
+`basic11.vm` is `basic.c` compiled by cproc and QBE for the 32-bit
+PDP-11 of [docs/vm.md](../docs/vm.md) and assembled by `qbe/as.py`,
+with `vmrt.s` first so that address 0 jumps to `bas_main()`. It is
+128 KiB: 115 KiB of code, since every instruction of that machine and
+most operands are four bytes, and the static data of the native
+program. On a board, `basic11vm` runs it:
+
+```
+copy build/basic/basic11.vm to the card's root, then
+> run basic11vm
+BASIC-11 for Freya
+```
+
+`basic11vm` is 3 KiB. The machine's memory is the program window from
+the end of `basic11vm`'s own variables up to the window's end, or up to
+its code when the loader copied that to the top: the image, then the
+workspace bas_main() is given, then 20 KiB of stack for the machine,
+then a `HALT` that `bas_main()` would return to. The workspace is
+`-m`, or 32 KiB when there is room and the most there is in steps of
+4 KiB down to 12 otherwise. So only the boards with a window of 168
+KiB or more build it: the STM32U585, the STM32H562 and the STM32H723,
+which give it 32 KiB, and the STM32H523, which has room for 16. The
+F4 boards' 56 KiB windows and the Blue Pill's 7 KiB cannot hold the
+image, and the Blue Pill has no machine at all.
+
+Each system call is a `TRAP`, its number from `vmsys.h` in the low
+byte, with the arguments in R0–R2; `basic11vm` checks that every
+address the image hands it is inside the machine's memory and calls the
+function of `samples/basic11/sys.c` that `basic11` calls, so the
+console, the files, the clock, the pins and Ctrl-C behave the same. It
+runs the machine 20 000 instructions at a time and stops it, with a
+message, if its stack ever reached the workspace; the deepest nesting
+takes 12 KiB of it (`runbasic -s`). It is slower than `basic11`, by as
+much as an interpreter running on an interpreter is. `FSAVE` and
+`AUTOSTART` answer `?Not run from flash`, as `basic11` run from the card
+does.
+
+On the PC, `runbasic` runs the image the same way, on `src/vm.c`, and
+serves the calls with the functions of `hostrt.c` that `basic-host`
+uses, so the tests compare the two byte for byte.
+
+## One BASIC, two builds
+
+The language, the limits and the messages are `basic.c`'s, the same
+file in both. What could still make them differ, and what keeps them
+apart:
+
+- **The numbers.** `fpnat.c` is written on a handful of primitives,
+  `f_add()`, `f_mul()`, `f_div()`, the comparisons, the conversions,
+  the square root: the C operators on the FPU, `fpsoft.c` on integers.
+  Each rounds once, to nearest, as IEEE says, so the exponential, the
+  logarithm, the sines, the power and the decimal conversions, which
+  are made of them, come out the same bit for bit. The decimal
+  conversions need 64-bit integers, which the VM's compiler has not
+  got, so both builds use two 32-bit halves. The board build is
+  compiled `-ffp-contract=off`: GCC would otherwise fuse a multiply and
+  an add into one `vfma` with one rounding, and the series would print
+  a different last digit for about one argument in three hundred.
+- **The stack.** An expression may nest 16 deep — each parenthesis,
+  argument of a function, sign and power is a level, and the body of
+  a `DEF` goes on from the level of its call — and the 17th is `?Out of
+  memory`, the same in both, since a limit that came from the size of
+  the stack would come at a different depth in each.
+- **The system calls.** On a board both builds call the same
+  `samples/basic11/sys.c`, and on the PC the same `hostrt.c`.
+
+What does differ is the speed, and so what a program that counts
+against the clock counts. The free memory `LENGTH` and the banner
+report is the same for the same workspace; it differs only where the
+workspace does, as on the STM32H523, which has room for 16 KiB beside
+the image.
+
+`tests/host_fpsoft_test.c` builds `fpnat.c` both ways and runs two
+million operations through each, which have to give the same bits; it
+also checks `fpsoft.c` against the PC's FPU directly, the square root
+over every 61st float. `tests/basic` runs every program on the PC
+build, on the image and on the board's code under `qemu-arm`, against
+one expected output; `math.bas` prints 2 000 values of the functions,
+enough that a build with fused multiply-adds fails it.
 
 ## The system calls
 
 The interpreter is entered through `bas_main(heap, size, flags)`;
 `flags & 1` is batch mode. It calls back through the functions
 `sys_exit` to `sys_adc` in `bas.h`, that the host defines. In
-`basic11` they are ordinary functions on the Freya API: `readline`
+`basic11` they are ordinary functions on the Freya API, and
+`basic11vm` calls the same ones for its image's `TRAP`s: `readline`
 reads the console with echo and editing, `break` polls it for Ctrl-C,
 `open` and the rest are the file calls, `ticks` the millisecond clock,
 `clock` and `sleep` the calendar and the wait, `inkey` takes what
@@ -186,7 +310,7 @@ of the pin, PWM and ADC calls.
 |-------------------------|-----------------------------------------|
 | `exit(code)`            |                                         |
 | `putc(c)`               | `\n` ends a line                        |
-| `readline(buf, max)`    | length without the newline, −1 at EOF   |
+| `readline(buf, max, running)` | length without the newline, −1 at EOF; `running` a program's INPUT, not a command |
 | `break()`               | 1 once since the last call ^C was seen  |
 | `open(path, mode)`      | mode 0 read, 1 write and create; fd/−1  |
 | `close(fd)`             |                                         |
@@ -211,7 +335,7 @@ The pin calls answer with the value, or with `SYS_EPIN`, `SYS_EBUSY`,
 argument` and `Device error` to the program. The first three are the
 `FREYA_ERR_*` codes of the same names; everything else the API can
 answer, and a kernel too old to have the call at all, is `SYS_EIO`.
-The PC build has no pins, so `hostrt.c` pretends: ports A, B and C of
+The PC builds have no pins, so `pretend.c` pretends: ports A, B and C of
 16 pins, each an input reading 0 until it is driven, PA2 and PA3 kept
 back as the console's are on the boards, PWM on ports A and B, and an
 ADC that answers 2048 from a pin, 1000 from `TEMP` and 1500 from
@@ -513,7 +637,8 @@ divide, compare, truncate, floor, the conversions, and on top of them
 square root and the elementary functions.
 
 `fpnat.c` implements them on `float`, so on the M4F an add is one
-instruction and the square root is `vsqrt`. It keeps BASIC's view of
+instruction and the square root is `vsqrt`; with `BAS_SOFTFLOAT` on
+the integers of `fpsoft.c`, the same operations to the same bits. It keeps BASIC's view of
 arithmetic rather than IEEE's: a result that would be infinite or NaN
 is an `Overflow` or `Illegal argument` error, a result that underflows
 is 0, and there is no negative zero. The elementary functions are
@@ -523,7 +648,7 @@ cos by a four-piece π/2 that stays exact out to 2^31 quadrants, atan by
 inversion and two halvings, power as 2^(y·log₂x) with the integer part
 of the exponent split off in halves so the result is within a few
 units in the last place. Reading and printing numbers goes through
-64-bit integers, so `VAL` and a typed constant give the nearest float
-and `PRINT` shows the 6 digits nearest the value; no libm or soft-float
-is linked. `tests/host_fpnat_test.c` runs 330 000 comparisons of it
-against libm.
+64-bit integers, kept as two 32-bit halves, so `VAL` and a typed
+constant give the nearest float and `PRINT` shows the 6 digits nearest
+the value; no libm or soft-float is linked. `tests/host_fpnat_test.c`
+runs 330 000 comparisons of it against libm.

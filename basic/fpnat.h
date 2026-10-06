@@ -1,7 +1,11 @@
-/* fpnat.h - BASIC's numbers as the C compiler's float.
+/* fpnat.h - BASIC's numbers as IEEE single-precision floats.
  *
  * A number is a single-precision IEEE float: what the FPU of a
  * Cortex-M4F computes in hardware, and what the STM32F103 lacks.
+ * Built with BAS_SOFTFLOAT, for the virtual machine, whose compiler
+ * has no floating point, a number is the 32 bits of that float and
+ * every operation on it is done with integers (fpsoft.c), to the same
+ * bits the FPU gives.
  *
  * A float has a 24-bit fraction, about seven decimal digits, and
  * magnitudes up to 3.4E38.  fp_format() prints six of those digits,
@@ -14,7 +18,11 @@
 
 #include "bas.h"
 
+#ifdef BAS_SOFTFLOAT
+typedef uint32_t fpac_t;
+#else
 typedef float fpac_t;
+#endif
 
 #define FP_ERR_OVERFLOW 1
 #define FP_ERR_DIVZERO  2
