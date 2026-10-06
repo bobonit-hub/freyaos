@@ -325,6 +325,8 @@ of the pin, PWM and ADC calls.
 | `pin_read(pin)`         | 0 or 1                                  |
 | `pin_write(pin, level)` |                                         |
 | `pin_toggle(pin)`       |                                         |
+| `pin_pull(pin, pull)`   | `SYS_PULL_NONE`, `_UP`, `_DOWN`; the mode stays |
+| `pin_pull_get(pin)`     | the pull now, `SYS_PULL_*`              |
 | `pwm(pin, hz, duty)`    | duty in ten-thousandths; hz 0 stops the channel |
 | `adc(source)`           | a pin, or `SYS_ADC_TEMP`, `SYS_ADC_VREF`; 0..4095 |
 | `flash_save(text, n)`   | FSAVE; `SYS_EARG` when it does not fit  |
@@ -337,8 +339,9 @@ argument` and `Device error` to the program. The first three are the
 answer, and a kernel too old to have the call at all, is `SYS_EIO`.
 The PC builds have no pins, so `pretend.c` pretends: ports A, B and C of
 16 pins, each an input reading 0 until it is driven, PA2 and PA3 kept
-back as the console's are on the boards, PWM on ports A and B, and an
-ADC that answers 2048 from a pin, 1000 from `TEMP` and 1500 from
+back as the console's are on the boards, PWM on ports A and B, a pull
+that follows the F4's (each mode sets the one it names, open drain a
+pull-up), and an ADC that answers 2048 from a pin, 1000 from `TEMP` and 1500 from
 `VREF`. That is enough for `tests/basic/pins.bas` to check what the
 interpreter does with the names, the modes and the values.
 
@@ -420,8 +423,8 @@ parts bitwise.
 
 Functions: `ABS ATN COS EXP INT LOG LOG10 PI RND SGN SIN SQR TAN`,
 `LEN ASC CHR$ POS(a$,b$,n) SEG$(a$,i,j) STR$ VAL TRM$ LEFT$(a$,n)
-RIGHT$(a$,n) MID$(a$,i,n)`, `DATE$ TIME$ TIME INKEY$`, `PIN PWM ADC` and
-`FN`.
+RIGHT$(a$,n) MID$(a$,i,n)`, `DATE$ TIME$ TIME INKEY$`, `PIN PULL PWM ADC`
+and `FN`.
 `RIGHT$(A$,N)` is BASIC-11's: the characters from position N to the
 end, not the last N. `INT` is the floor.
 
@@ -447,8 +450,8 @@ statements, and a negative n is `?Illegal argument`.
 70 PRINT "took"; TIME - T; "ms"
 ```
 
-The pins: `PIN`, `PWM` and `ADC` are the shell's `pin`, `pwm` and `adc`
-as functions, on the same kernel calls, so a pin Freya keeps for itself
+The pins: `PIN`, `PULL`, `PWM` and `ADC` are the shell's `pin`, `pull`,
+`pwm` and `adc` as functions, on the same kernel calls, so a pin Freya keeps for itself
 is refused here for the same reason. A pin is named as the shell names
 one, `"PB0"`, `"pb0"` or `"B0"`, and the name may be computed. `PIN(P$)`
 reads the pin, 0 or 1. `PIN(P$, L)` makes it a push-pull output, drives
@@ -457,6 +460,14 @@ it to L — 0 for 0, anything else for 1, so a relation will do — and
 `"UP"`, `"DOWN"`, `"OUT"`, `"OD"` or `"ANALOG"`, in either case, and
 `PIN(P$, M$, L)` sets the mode and then drives it. Whatever it did, the
 value is what the pin reads afterwards, which is what it really is.
+`PULL(P$)` is the pin's pull resistor, 0 for none, 1 up, 2 down, and
+`PULL(P$, M$)` sets it first to `"NONE"`, `"UP"` or `"DOWN"`, in either
+case, leaving the mode as it is. That works on an input or an
+open-drain pin: `PIN(P$, "OD")` turns the pin's pull-up on with it, and
+`PULL(P$, "NONE")` turns it off again, leaving the line to its external
+resistor. A push-pull, PWM or analog pin is `?Illegal argument`. The
+Blue Pill and the Black Pill 2 pull an input only, and a pull-up on an
+open-drain pin there is `?Device error`.
 `ADC(S$)` is one raw 12-bit conversion, 0 to 4095, from a pin, or from
 `"TEMP"` or `"VREF"`, the chip's own sources; the pin is left in analog
 mode. `PWM(P$, HZ, D)` starts the channel on the pin at HZ hertz with a
@@ -478,12 +489,13 @@ chip has one that Freya drives.
 60 PRINT "PA0 reads"; ADC("PA0"); "of 4095"
 70 X = PWM("PB6", 1000, 25)
 80 IF PIN("PB0", "UP") = 0 THEN X = PWM("PB6")
+90 X = PIN("PB7", "OD") + PULL("PB7", "NONE")
 ```
 
 A pin that is not one, or is one the kernel keeps, is `?Bad pin`; a
 pin or a timer that is taken is `?Pin in use`; a frequency or duty
-cycle out of range, a mode or action word that is not one, and
-stopping a channel that is not running are `?Illegal argument`; a
+cycle out of range, a mode, pull or action word that is not one, a
+pull on a pin that cannot have one, and stopping a channel that is not running are `?Illegal argument`; a
 conversion that did not finish, or a kernel too old to have these
 calls, is `?Device error`.
 
@@ -554,7 +566,7 @@ long`, `DEF without FNEND`, `No clock`, `Bad pin`, `Pin in use`,
 
 Not BASIC-11: `DATE$`, `TIME$` and `TIME` take no argument, where
 BASIC-11 wanted one and counted `TIME` in seconds since midnight;
-`SLEEP`, `PIN`, `PWM`, `ADC`, `DO` / `LOOP`, `INKEY$`, `FSAVE`,
+`SLEEP`, `PIN`, `PULL`, `PWM`, `ADC`, `DO` / `LOOP`, `INKEY$`, `FSAVE`,
 `AUTOSTART` and the `TIMER` and `KEY` events are new. No `ON ERROR`, no `CHAIN`, no virtual arrays, no
 `PRINT USING`, no `FNEXIT` (`IF ... THEN FNEND` does as much), no
 integer-only arithmetic (`I%` is stored truncated but computed in

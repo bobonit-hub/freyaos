@@ -151,6 +151,19 @@ sys_adc:
 	trap 20
 	rts pc
 
+.globl sys_pin_pull
+sys_pin_pull:
+	mov 4(sp), r0
+	mov 8(sp), r1
+	trap 21
+	rts pc
+
+.globl sys_pin_pull_get
+sys_pin_pull_get:
+	mov 4(sp), r0
+	trap 22
+	rts pc
+
 /* int setjmp(jmp_buf b): b[0] = r5, b[1] = sp at the return address,
  * b[2] = the return address.  R0-R4 are not kept across a call, so
  * nothing else survives one and nothing else needs saving. */

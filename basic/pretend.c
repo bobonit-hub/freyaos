@@ -9,14 +9,16 @@
  * where there is no hardware: ports A, B and C of 16 pins, every one
  * an input reading 0 until it is driven, PA2 and PA3 kept back as the
  * console's are on the boards, and an input with a pull-up or a
- * pull-down reads what the pull makes it until it is driven.  A PWM
+ * pull-down reads what the pull makes it until it is driven.  The pull
+ * is the F4's: every mode sets the one it names, open drain a pull-up,
+ * and sys_pin_pull() changes it on an input or an open-drain pin.  A PWM
  * channel is any pin of ports A
  * and B.  The ADC reads PA0-PA7, PB0, PB1 and PC0-PC5, and answers
  * 2048 from a pin, 1000 from TEMP and 1500 from VREF. */
 #define HOST_PORTS 3
 
 static struct {
-    uint8_t mode, level, pwm;
+    uint8_t mode, level, pwm, pull;
 } pins[HOST_PORTS * 16];
 
 static int pin_ok(int pin)
@@ -30,10 +32,33 @@ int sys_pin_mode(int pin, int mode)
     if (!pin_ok(pin)) return SYS_EPIN;
     if (mode < SYS_PIN_IN || mode > SYS_PIN_ANALOG) return SYS_EARG;
     pins[pin].mode = (uint8_t)mode;
+    pins[pin].pull = mode == SYS_PIN_IN_PULLUP || mode == SYS_PIN_OUT_OD
+                         ? SYS_PULL_UP
+                   : mode == SYS_PIN_IN_PULLDOWN ? SYS_PULL_DOWN : SYS_PULL_NONE;
     /* an input nothing drives follows its pull */
     if (mode == SYS_PIN_IN_PULLUP) pins[pin].level = 1;
     if (mode == SYS_PIN_IN_PULLDOWN) pins[pin].level = 0;
     return 0;
+}
+
+int sys_pin_pull(int pin, int pull)
+{
+    int m;
+
+    if (!pin_ok(pin)) return SYS_EPIN;
+    if (pull < SYS_PULL_NONE || pull > SYS_PULL_DOWN) return SYS_EARG;
+    m = pins[pin].mode;
+    if (pins[pin].pwm || m == SYS_PIN_OUT || m == SYS_PIN_ANALOG) return SYS_EARG;
+    pins[pin].pull = (uint8_t)pull;
+    if (m != SYS_PIN_OUT_OD && pull != SYS_PULL_NONE)
+        pins[pin].level = pull == SYS_PULL_UP;
+    return 0;
+}
+
+int sys_pin_pull_get(int pin)
+{
+    if (!pin_ok(pin)) return SYS_EPIN;
+    return pins[pin].pull;
 }
 
 int sys_pin_read(int pin)

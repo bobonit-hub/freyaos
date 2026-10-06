@@ -253,6 +253,21 @@ int sys_pin_toggle(int pin)
     return pin_rc(g->pin_toggle(pin));
 }
 
+/* A chip that pulls an input only refuses a pull-up on an open-drain
+ * pin with FREYA_ERR_UNSUPPORTED, which is a device error here, as a
+ * kernel older than the call is. */
+int sys_pin_pull(int pin, int pull)
+{
+    if (!FREYA_API_HAS(g, pin_pull_get)) return SYS_EIO;
+    return pin_rc(g->pin_pull(pin, pull));
+}
+
+int sys_pin_pull_get(int pin)
+{
+    if (!FREYA_API_HAS(g, pin_pull_get)) return SYS_EIO;
+    return pin_rc(g->pin_pull_get(pin));
+}
+
 /* pwm_open() hands out a handle, and the same one again for a pin that
  * is already open, so the handles of the channels this program started
  * are kept by pin for PWM(P$) to close with.  The kernel closes them

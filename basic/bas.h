@@ -100,6 +100,9 @@ int      sys_autostart(int on);
 #define SYS_PIN_OUT         3
 #define SYS_PIN_OUT_OD      4
 #define SYS_PIN_ANALOG      5
+#define SYS_PULL_NONE       0       /* sys_pin_pull(), FREYA_PULL_* */
+#define SYS_PULL_UP         1
+#define SYS_PULL_DOWN       2
 #define SYS_ADC_TEMP        0x100   /* the internal sources of sys_adc() */
 #define SYS_ADC_VREF        0x101
 #define SYS_PWM_FULL        10000u  /* a duty cycle is in ten-thousandths */
@@ -111,6 +114,10 @@ int      sys_pin_mode(int pin, int mode);
 int      sys_pin_read(int pin);             /* 0 or 1 */
 int      sys_pin_write(int pin, int level);
 int      sys_pin_toggle(int pin);
+/* The pull resistor alone, the mode left as it is: on an input or an
+ * open-drain pin.  sys_pin_pull_get() is the pull now, SYS_PULL_*. */
+int      sys_pin_pull(int pin, int pull);
+int      sys_pin_pull_get(int pin);
 /* Start a channel at hz with that duty, or with hz 0 stop the one on
  * the pin; 0 when done. */
 int      sys_pwm(int pin, uint32_t hz, uint32_t duty);

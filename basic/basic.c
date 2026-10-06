@@ -91,7 +91,7 @@ enum {
     T_ABS, T_ATN, T_COS, T_EXP, T_INT, T_LOG10, T_LOG, T_PI, T_RND,
     T_SGN, T_SIN, T_SQR, T_TAN, T_TIME, T_LEN, T_ASC, T_CHRS, T_POS,
     T_SEGS, T_STRS, T_VAL, T_TRMS, T_LEFTS, T_RIGHTS, T_MIDS,
-    T_DATES, T_TIMES, T_INKEYS, T_PIN, T_PWM, T_ADC, T_FN, T_TAB,
+    T_DATES, T_TIMES, T_INKEYS, T_PIN, T_PWM, T_ADC, T_PULL, T_FN, T_TAB,
     T_LAST,
     T_NUM = 0xff                 /* followed by the bytes of a number */
 };
@@ -114,7 +114,7 @@ static const char *const keywords[] = {
     "ABS", "ATN", "COS", "EXP", "INT", "LOG10", "LOG", "PI", "RND",
     "SGN", "SIN", "SQR", "TAN", "TIME", "LEN", "ASC", "CHR$", "POS",
     "SEG$", "STR$", "VAL", "TRM$", "LEFT$", "RIGHT$", "MID$",
-    "DATE$", "TIME$", "INKEY$", "PIN", "PWM", "ADC", "FN", "TAB",
+    "DATE$", "TIME$", "INKEY$", "PIN", "PWM", "ADC", "PULL", "FN", "TAB",
 };
 
 /* ------------------------------------------------------------------ */
@@ -1322,6 +1322,32 @@ static void fn_pin(val_t *v)
     num_val(v, &n);
 }
 
+/* The pulls of the shell's pull command, in the order of SYS_PULL_*. */
+static const char *const pull_names[] = { "NONE", "UP", "DOWN" };
+
+/* PULL(P$) is the pin's pull resistor, 0 none, 1 up, 2 down.
+ * PULL(P$, M$) sets it first, the mode left as it is, which an input
+ * and an open-drain pin allow. */
+static void fn_pull(val_t *v)
+{
+    val_t a;
+    fpac_t n;
+    int pin, pull = -1, i;
+
+    eval_str(&a);
+    pin = pin_name(&a);
+    if (accept(',')) {
+        eval_str(&a);
+        for (i = 0; i < (int)(sizeof pull_names / sizeof pull_names[0]); i++)
+            if (str_is(&a, pull_names[i])) pull = i;
+        if (pull < 0) error(E_ARG);
+    }
+    expect(')');
+    if (pull >= 0) pin_check(sys_pin_pull(pin, pull));
+    fp_from_int(&n, pin_check(sys_pin_pull_get(pin)));
+    num_val(v, &n);
+}
+
 /* PWM(P$, HZ, D) starts the channel on the pin at HZ hertz with a duty
  * cycle of D percent, which may be fractional, and is HZ; PWM(P$) stops
  * it and is 0.  Nothing else stops a channel: it runs on after END,
@@ -1446,6 +1472,7 @@ OUT_OF_LINE static void function(int t, val_t *v)
     case T_PIN: fn_pin(v); return;
     case T_PWM: fn_pwm(v); return;
     case T_ADC: fn_adc(v); return;
+    case T_PULL: fn_pull(v); return;
     case T_LEN:
         eval_str(&a);
         expect(')');
@@ -1614,7 +1641,7 @@ static void primary(val_t *v)
         fn_call(v);
         return;
     }
-    if ((c >= T_ABS && c <= T_TIME) || (c >= T_LEN && c <= T_ADC)) {
+    if ((c >= T_ABS && c <= T_TIME) || (c >= T_LEN && c <= T_PULL)) {
         function(c, v);
         return;
     }

@@ -6,6 +6,9 @@
 60 PRINT PIN("PB5","TOGGLE"); PIN("PB5","toggle"); PIN("PB5",-1)
 70 PRINT PIN("PB0","UP"); PIN("PB0","out",1); PIN("PB0","in")
 80 PRINT PIN("PB0","OD","TOGGLE"); PIN("PB0","ANALOG"); PIN("PB0","DOWN")
+90 ! the pull alone: an input follows it, open drain turns the pull-up on
+91 PRINT PULL("PB1"); PULL("PB1","UP"); PIN("PB1"); PULL("pb1","down"); PIN("PB1"); PULL("PB1","none")
+92 PRINT PIN("PB1","OD"); PULL("PB1"); PULL("PB1","NONE"); PIN("PB1","IN"); PULL("B1")
 100 ! a name may be computed, and a level is any number: 0 or not
 110 P$ = "PC" + STR$(15)
 120 FOR I = 0 TO 3

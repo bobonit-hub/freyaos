@@ -30,6 +30,8 @@ enum {
     VMSYS_PIN_TOGGLE,  /* 18 */
     VMSYS_PWM,         /* 19 */
     VMSYS_ADC,         /* 20 */
+    VMSYS_PIN_PULL,    /* 21 */
+    VMSYS_PIN_PULL_GET,/* 22 */
     VMSYS_COUNT
 };
 

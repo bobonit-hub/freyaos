@@ -150,6 +150,12 @@ static int syscall_(freya_vm_t *vm, unsigned num)
     case VMSYS_ADC:
         r = sys_adc((int32_t)a0);
         break;
+    case VMSYS_PIN_PULL:
+        r = sys_pin_pull((int32_t)a0, (int32_t)a1);
+        break;
+    case VMSYS_PIN_PULL_GET:
+        r = sys_pin_pull_get((int32_t)a0);
+        break;
     default:
         return 0;
     }
