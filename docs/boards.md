@@ -320,6 +320,12 @@ Its RAM is the Black Pill's shape in 96 KiB: kernel data and heap up to
 `0x2000AFFF`, the thread stacks, the 40 KiB program region at `0x2000C000`,
 then the shell and interrupt stacks to `0x20018000`.
 
+BASIC at power-on: `make BOARD=blackpill2 PROGRAM=basic11 AUTOSTART=1
+bootloader` puts basic11 in the program flash region with the auto-start
+flag set, and the board boots into it on the USART2 console. `basic11vm`
+is not built here: the VM image, its workspace and its stack take about
+168 KiB of the program window, four times this board's 40 KiB.
+
 ## STM32U585 (WeAct STM32U585CIU6 core board)
 
 Build with `make BOARD=stm32u585`.
