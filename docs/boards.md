@@ -348,7 +348,10 @@ so it builds everything the F4 boards do except the 48 KiB Altair, which
 does not fit its 40 KiB program window. The AT32F403A can trade fast flash
 for 128 KiB more SRAM through an option byte; Freya leaves the option byte
 alone and uses the 96 KiB the chip ships with. It has no SPI flash volume:
-the board's SOP-8 footprint is wired to the chip's SPIM pins, not SPI1.
+the board's SOP-8 footprint is wired to the chip's SPIM pins, not SPI1
+(CS PA8, SCK PB1, IO0..IO3 PB10, PB11, PB7, PB6: `EXT_SPIM_GMUX` 001),
+and no SPI peripheral reaches PB1. It is unpopulated; a chip fitted there
+shares PA8 with the card's power switch, so fit one or the other.
 
 Clock tree: an 8 MHz crystal → PLL ×30 → 240 MHz SYSCLK, 120 MHz APB1,
 60 MHz APB2, switched in steps by the chip's auto step mode.

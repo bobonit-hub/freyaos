@@ -44,7 +44,10 @@
  * applies VDD.  A pull-down on the gate keeps the card powered while
  * the pin is still an input, which is how reset leaves it.  The board's
  * empty SOP-8 footprint also uses PA8, as its chip select: fit the card
- * socket or a flash chip, not both. */
+ * socket or a flash chip, not both.  The rest of that footprint is the
+ * SPIM interface (SCK PB1, IO0..IO3 PB10, PB11, PB7, PB6), which Freya
+ * does not drive; a fitted chip, selected while the card is powered,
+ * would see PWM on PB1 as a clock and could drive PB11, I2C2's SDA. */
 #define BOARD_SD_PWR_PORT   GPIOA
 #define BOARD_SD_PWR_PIN    8
 #define BOARD_SD_PWR_ON     0
