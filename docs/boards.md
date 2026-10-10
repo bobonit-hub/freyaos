@@ -21,7 +21,7 @@ same on every board is in [hardware.md](hardware.md).
 | Console rate | 923077 baud | 923077 baud | 913043 baud | 913043 baud | 923077 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 922509 baud | 921986 baud |
 | SD identification clock | 375 kHz | 281 kHz | 328 kHz | 328 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged |
 | SD data clock | 12 MHz | 9 MHz | 10.5 MHz | 10.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured |
-| SPI flash volume (`/spi1`) | yes | no | no | no | no | no | no | yes | yes | no | yes, beside the card |
+| SPI flash volume (`/spi1`) | yes | no | yes | no | no | no | yes, clocked in software | yes | yes | no | yes, beside the card |
 | Calendar RTC (`RTC=internal`, [rtc.md](rtc.md)) | yes | no | yes | yes | yes | yes, with the 32.768 kHz crystal fitted | no | yes | yes | yes | yes |
 
 ## What a board is
@@ -168,8 +168,9 @@ Build with `make BOARD=stm32f401`; `make BOARD=stm32f401 dfu` packs
 A Cortex-M4F at 84 MHz from a 25 MHz crystal, with 256 KiB of flash and
 64 KiB of SRAM, in the LQFP64. Pins follow the Black Pill: the console on
 USART2 (PA2/PA3), the card on SPI1 (PA4..PA7) with its supply switched by
-PA8, the LED on PC13, lit low; programs get ports A to C. There is no SPI
-flash footprint, so no `/spi1`. The LQFP64 puts VCAP1 where PB11 would be,
+PA8, the LED on PC13, lit low; programs get ports A to C. As on the Black
+Pill, a SPI NOR chip on SPI1 with chip select PA4, in place of the card,
+is a LittleFS volume at `/spi1`. The LQFP64 puts VCAP1 where PB11 would be,
 so I2C bus 2 is PB10/PB9, as on the Black Pill.
 
 Clock tree: a 25 MHz crystal → PLL (M=25, N=336, P=4) → 84 MHz SYSCLK,
@@ -200,12 +201,13 @@ Flash:
 0x08010000  +--------------------------------+
             |  program flash region          |  64 KiB, sector 4
 0x08020000  +--------------------------------+
-            |  kernel extension (~76 KiB)    |  128 KiB, sector 5
+            |  kernel extension (~95 KiB)    |  128 KiB, sector 5
 0x08040000  +--------------------------------+
 ```
 
 RAM, the Black Pill's in half the SRAM. The program window is 24 KiB, and
-the heap gets about 19 KiB:
+the heap gets about 12 KiB, after the SPI flash's sector cache and
+LittleFS's buffers:
 
 ```
 0x20000000  +--------------------------------+
@@ -347,11 +349,21 @@ F103's, so it is wired and driven like the Blue Pill; its core has the FPU,
 so it builds everything the F4 boards do except the 48 KiB Altair, which
 does not fit its 40 KiB program window. The AT32F403A can trade fast flash
 for 128 KiB more SRAM through an option byte; Freya leaves the option byte
-alone and uses the 96 KiB the chip ships with. It has no SPI flash volume:
-the board's SOP-8 footprint is wired to the chip's SPIM pins, not SPI1
-(CS PA8, SCK PB1, IO0..IO3 PB10, PB11, PB7, PB6: `EXT_SPIM_GMUX` 001),
-and no SPI peripheral reaches PB1. It is unpopulated; a chip fitted there
-shares PA8 with the card's power switch, so fit one or the other.
+alone and uses the 96 KiB the chip ships with.
+
+The SPI flash: the board's SOP-8 footprint (a W25QxxJV in WeAct's
+schematic, unpopulated) is wired to the chip's SPIM pins, not SPI1: CS
+PA8, SCK PB1, DI (IO0) PB10, DO (IO1) PB11, WP (IO2) PB7, HOLD (IO3) PB6.
+No SPI peripheral reaches PB1, so `boards/blackpill2/board.c` clocks the
+chip in software, in plain SPI mode 0 with WP and HOLD held high, and it
+is a LittleFS volume at `/spi1` like the Black Pill's. Its chip select is
+the card's power switch, so fit one or the other: the boot asks for a card
+first and mounts the flash only when none answers. The flash takes the
+five port B pins only while it is selected and puts back the mode and
+level each had, so programs keep I2C1 (PB6/PB7), I2C2 (PB10/PB11), PWM on
+PB1, PB6 and PB7, and the ESP32-C6 link's READY (PB10); but those pins
+move while the volume is read or written, so a chip fitted there and any
+of them in use at the same time do not mix.
 
 Clock tree: an 8 MHz crystal → PLL ×30 → 240 MHz SYSCLK, 120 MHz APB1,
 60 MHz APB2, switched in steps by the chip's auto step mode.

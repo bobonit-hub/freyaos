@@ -341,8 +341,9 @@ void     sdspi_write(const uint8_t *buf, uint32_t len);
 void     sdspi_read(uint8_t *buf, uint32_t len);
 void     sdspi_cs(int low);
 void     sdspi_quiesce(void);             /* stop SPI1, release its pins */
-#ifdef BOARD_SD_BITBANG
-/* SPI1 for the SPI flash alone, on a board that drives its card itself. */
+#if defined(BOARD_SD_BITBANG) || defined(BOARD_SPIFLASH_BITBANG)
+/* SPI1 for the SPI flash alone, on a board that drives its card itself,
+ * or the board's own code for a flash no SPI reaches. */
 void     flspi_init(void);
 void     flspi_set_speed(int fast);
 uint8_t  flspi_xfer(uint8_t v);

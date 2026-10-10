@@ -1,6 +1,6 @@
 /*
  * Freya - board support for the WeAct AT32F403ACGU7 "Black Pill 2":
- * clock tree, console and SD card pin mux, status LED.
+ * clock tree, console and SD card pin mux, the SPI flash, status LED.
  *
  * The AT32F403A keeps the F103's single PLL multiplier and widens it to
  * 64, with an output range bit for anything above 72 MHz.  The board's
@@ -140,6 +140,111 @@ void board_spi_pins(void)
      * the card never sees a chip select glitch. */
     BOARD_SD_CS_PORT->BSRR = (1UL << BOARD_SD_CS_PIN);
     gpio_config(BOARD_SD_CS_PORT, BOARD_SD_CS_PIN, GPIO_OUT_PP_50M);
+}
+
+/* ----------------------------------------------------------- SPI flash */
+/*
+ * The SOP-8 footprint is wired to the SPIM pins, not to SPI1, so the chip
+ * is spoken to in plain SPI mode 0 by toggling them: CS PA8, SCK PB1,
+ * DI PB10, DO PB11, with WP (PB7) and HOLD (PB6) held high.  Selecting
+ * the chip takes the five port B pins and deselecting it puts back the
+ * configuration and output level each had, so a program that uses them
+ * keeps them between transfers.  A byte clocked while the chip is not
+ * selected touches no pin.  The flash runs far above what the GPIO can
+ * toggle, so there is no slow mode.  Own sections: the kernel extension.
+ */
+#define FL_SCK          1
+#define FL_HOLD         6
+#define FL_WP           7
+#define FL_DI           10
+#define FL_DO           11
+#define FL_CS           8               /* on GPIOA */
+
+#define FL_CRL_MASK     ((0xFUL << (FL_SCK * 4)) | (0xFUL << (FL_HOLD * 4)) | \
+                         (0xFUL << (FL_WP * 4)))
+#define FL_CRH_MASK     ((0xFUL << ((FL_DI - 8) * 4)) | (0xFUL << ((FL_DO - 8) * 4)))
+#define FL_ODR_MASK     ((1UL << FL_SCK) | (1UL << FL_HOLD) | (1UL << FL_WP) | \
+                         (1UL << FL_DI) | (1UL << FL_DO))
+
+#define FL_TEXT(n)      __attribute__((noinline, section(".text.flspi_" n)))
+
+static uint32_t s_fl_crl;
+static uint32_t s_fl_crh;
+static uint32_t s_fl_odr;
+static uint8_t  s_fl_selected;
+
+void FL_TEXT("init") flspi_init(void)
+{
+    RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_IOPBEN;
+    (void)RCC->APB2ENR;
+
+    GPIOA->BSRR = (1UL << FL_CS);               /* deselected first */
+    gpio_config(GPIOA, FL_CS, GPIO_OUT_PP_50M);
+    s_fl_selected = 0;
+}
+
+void FL_TEXT("set_speed") flspi_set_speed(int fast)
+{
+    (void)fast;
+}
+
+void FL_TEXT("cs") flspi_cs(int low)
+{
+    if (low) {
+        if (s_fl_selected) return;
+        s_fl_crl = GPIOB->CRL & FL_CRL_MASK;
+        s_fl_crh = GPIOB->CRH & FL_CRH_MASK;
+        s_fl_odr = GPIOB->ODR & FL_ODR_MASK;
+
+        /* Levels before directions: SCK low, WP and HOLD high, DO's
+         * pull up. */
+        GPIOB->BSRR = (1UL << FL_HOLD) | (1UL << FL_WP) | (1UL << FL_DO) |
+                      (1UL << (FL_SCK + 16)) | (1UL << (FL_DI + 16));
+        GPIOB->CRL = (GPIOB->CRL & ~FL_CRL_MASK) |
+                     (GPIO_OUT_PP_50M << (FL_SCK * 4)) |
+                     (GPIO_OUT_PP_50M << (FL_HOLD * 4)) |
+                     (GPIO_OUT_PP_50M << (FL_WP * 4));
+        GPIOB->CRH = (GPIOB->CRH & ~FL_CRH_MASK) |
+                     (GPIO_OUT_PP_50M << ((FL_DI - 8) * 4)) |
+                     (GPIO_IN_PULL << ((FL_DO - 8) * 4));
+        s_fl_selected = 1;
+        GPIOA->BSRR = 1UL << (FL_CS + 16);
+    } else {
+        GPIOA->BSRR = 1UL << FL_CS;
+        if (!s_fl_selected) return;
+        s_fl_selected = 0;
+
+        /* Levels first again, so a pulled input comes back pulled the
+         * same way. */
+        GPIOB->BSRR = s_fl_odr | ((~s_fl_odr & FL_ODR_MASK) << 16);
+        GPIOB->CRL = (GPIOB->CRL & ~FL_CRL_MASK) | s_fl_crl;
+        GPIOB->CRH = (GPIOB->CRH & ~FL_CRH_MASK) | s_fl_crh;
+    }
+}
+
+uint8_t FL_TEXT("xfer") flspi_xfer(uint8_t v)
+{
+    uint32_t in = 0;
+
+    if (!s_fl_selected) return 0xFF;
+    for (int b = 7; b >= 0; b--) {
+        GPIOB->BSRR = ((v >> b) & 1U) ? (1UL << FL_DI) : (1UL << (FL_DI + 16));
+        GPIOB->BSRR = 1UL << FL_SCK;
+        (void)GPIOB->IDR;               /* hold SCK high a bus round trip */
+        in = (in << 1) | ((GPIOB->IDR >> FL_DO) & 1U);
+        GPIOB->BSRR = 1UL << (FL_SCK + 16);
+    }
+    return (uint8_t)in;
+}
+
+void FL_TEXT("write") flspi_write(const uint8_t *buf, uint32_t len)
+{
+    while (len--) (void)flspi_xfer(*buf++);
+}
+
+void FL_TEXT("read") flspi_read(uint8_t *buf, uint32_t len)
+{
+    while (len--) *buf++ = flspi_xfer(0xFF);
 }
 
 /* Hand SCK and MOSI to a program's SPI, and leave MISO an input with a

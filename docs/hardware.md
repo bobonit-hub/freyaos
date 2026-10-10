@@ -45,11 +45,14 @@ The identification and data clocks of the card bus are per board, in
 [boards.md](boards.md#sd-card-clock).
 
 On the Black Pill and the STM32U585 and STM32H523 boards the SOP-8 footprint on the back
-shares that bus, with chip select on PA4 like the card. A SPI NOR
+shares that bus, with chip select on PA4 like the card; on the STM32F401
+a SPI NOR chip is wired the same way, in place of the card. A SPI NOR
 chip fitted there, and no card in the socket, is mounted at `/spi1` as
 LittleFS, with the same file calls. A blank chip is formatted on the first
-mount. The Black Pill 2 has no SPI flash volume: its footprint is wired to
-the chip's SPIM pins, not SPI1.
+mount. The Black Pill 2's footprint is wired to the chip's SPIM pins, not
+SPI1 (CS PA8, the card's power switch, SCK PB1, DI PB10, DO PB11, WP PB7,
+HOLD PB6), and Freya clocks it in software; it too is `/spi1` when no card
+answers ([boards.md](boards.md#black-pill-2-at32f403acgu7)).
 
 The STM32H723 board is wired differently: its own microSD slot, driven in
 SPI mode on the SDMMC1 pins, and its own 8 MiB SPI NOR on SPI1 with a

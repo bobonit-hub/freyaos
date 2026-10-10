@@ -70,8 +70,8 @@ about 10 KiB of flash and 1 KiB of RAM smaller:
 
 - Nothing is mounted on `/`. The boot does not look for a card, and
   `/autorun.bin` is never run.
-- On a board with SPI flash (the Black Pill, the STM32U585, the STM32H523
-  and the STM32H723), `/spi1` is still LittleFS with the same file calls,
+- On a board with SPI flash (the Black Pill, the STM32F401, the Black
+  Pill 2, the STM32U585, the STM32H523 and the STM32H723), `/spi1` is still LittleFS with the same file calls,
   and the shell starts there. `mount()` mounts that volume again.
 - With no SPI flash either, every file call answers that there is no
   filesystem. `mount()` is not in the shell.

@@ -16,7 +16,7 @@ Every command Freya implements.  The Black Pill now has the same list.
 | `sysinfo()` | OS version, firmware version, CPU, unique id, clocks, reset cause, uptime, log level, auto-start, ram-dump and password flags, card, filesystem |
 | `cksum()` | firmware control sum of the kernel and the extension, and whether the stored sum matches |
 | `meminfo()` | flash and RAM usage: .data, .bss, heap, program region, stack |
-| `mount()` | initialise the card and mount it on `/`, or the Black Pill SPI flash (LittleFS) on `/spi1`; without `SD=1`, only the SPI flash |
+| `mount()` | initialise the card and mount it on `/`, or the board's SPI flash (LittleFS) on `/spi1`; without `SD=1`, only the SPI flash |
 | `power(["sd" [, "on"\|"off"]])` | show the socket supply, or switch it (`SD=1` builds only) |
 | `usb(["mount"\|"eject"])` | show the USB device, take it (a stick is mounted on `/usb`), or write it out and let it go (`USB=1` builds only; [usb.md](usb.md)) |
 | `audio(["tone", hz \| "loop"] [, seconds [, rate]])` | show the headset, play a tone, or play the microphone back on the speaker (`AUDIO=1` builds only; [audio.md](audio.md)) |

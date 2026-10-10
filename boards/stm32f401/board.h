@@ -8,7 +8,8 @@
  * the include path.
  *
  * The crystal is 25 MHz.  Pins follow the other ports: console on PA2/PA3,
- * SD on SPI1 (PA4..PA7) with the socket supply on PA8, LED on PC13.
+ * SD on SPI1 (PA4..PA7) with the socket supply on PA8, or a SPI NOR
+ * chip in its place, LED on PC13.
  * The F401 stops at 84 MHz and has 64 KiB of SRAM, half the Black Pill's,
  * so the program window is 24 KiB.
  */
@@ -51,6 +52,10 @@
  * is whatever the card and the wiring stand.  PCLK2 is 84 MHz here. */
 #define BOARD_SPI_BR_SLOW   7           /* /256 = 328 kHz                */
 #define BOARD_SPI_BR_FAST   2           /* /8   = 10.5 MHz               */
+
+/* A SPI NOR chip on SPI1, chip select PA4 like the card, as on the Black
+ * Pill: fit one or the other.  It is a LittleFS volume at /spi1. */
+#define BOARD_SPIFLASH      1
 
 /* ------------------------------------------------- pins and interrupts */
 /* The ports a program may name, and within them the pins Freya keeps for

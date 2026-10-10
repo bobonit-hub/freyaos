@@ -44,10 +44,7 @@
  * applies VDD.  A pull-down on the gate keeps the card powered while
  * the pin is still an input, which is how reset leaves it.  The board's
  * empty SOP-8 footprint also uses PA8, as its chip select: fit the card
- * socket or a flash chip, not both.  The rest of that footprint is the
- * SPIM interface (SCK PB1, IO0..IO3 PB10, PB11, PB7, PB6), which Freya
- * does not drive; a fitted chip, selected while the card is powered,
- * would see PWM on PB1 as a clock and could drive PB11, I2C2's SDA. */
+ * socket or a flash chip, not both. */
 #define BOARD_SD_PWR_PORT   GPIOA
 #define BOARD_SD_PWR_PIN    8
 #define BOARD_SD_PWR_ON     0
@@ -57,6 +54,18 @@
  * at a quarter of HCLK so that /256 is still inside that window. */
 #define BOARD_SPI_BR_SLOW   7           /* /256 = 234 kHz                */
 #define BOARD_SPI_BR_FAST   1           /* /4   =  15 MHz                */
+
+/* The SOP-8 footprint on the back is a SPI NOR chip (W25QxxJV) on the
+ * chip's SPIM pins, which SPI1 cannot reach: CS PA8, SCK PB1, DI (IO0)
+ * PB10, DO (IO1) PB11, WP (IO2) PB7 and HOLD (IO3) PB6.  board.c clocks
+ * it in software (flspi_*()).  As on the Black Pill it is mounted at
+ * /spi1 when no card answers, since PA8 is also the socket's supply.
+ * The flash takes PB1, PB6, PB7, PB10 and PB11 only while it is
+ * selected and gives them back as it found them, so a program may still
+ * use them; while the volume is read or written they move, and I2C, PWM
+ * or the ESP32-C6 link's READY (PB10) on them see it. */
+#define BOARD_SPIFLASH          1
+#define BOARD_SPIFLASH_BITBANG  1
 
 /* ------------------------------------------------- pins and interrupts */
 /* The ports a program may name, and within them the pins Freya keeps for

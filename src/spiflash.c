@@ -1,10 +1,12 @@
 /*
  * Freya - SPI NOR on the SOP-8 footprint of the Black Pill and of the
- * WeAct STM32U585 board (BOARD_SPIFLASH).
+ * WeAct STM32U585 board, and in the STM32F401's card slot (BOARD_SPIFLASH).
  *
  * The chip shares SPI1 with the SD socket: CS, SCK and MOSI are PA4, PA5
  * and PA7, and MISO is PA6, or PB4 on a v2.0 Black Pill.  Chip
  * select is the same pin as the card, so only one of the two is present.
+ * The Black Pill 2's footprint is on the SPIM pins and its chip select is
+ * the socket's supply switch, PA8; its board.c clocks the chip itself.
  * A chip that answers JEDEC is a LittleFS volume at /spi1, the same calls
  * the card uses at /.  A blank chip is formatted on the first mount.
  */
@@ -14,8 +16,10 @@
 #ifdef BOARD_SPIFLASH
 
 /* The chip shares the card's bus and chip select, or, on a board with
- * BOARD_SPIFLASH_OWN_BUS, has SPI1 to itself (flspi_*() in src/spi.c). */
-#ifndef BOARD_SPIFLASH_OWN_BUS
+ * BOARD_SPIFLASH_OWN_BUS, has SPI1 to itself (flspi_*() in src/spi.c),
+ * or, with BOARD_SPIFLASH_BITBANG, is clocked by the board (flspi_*() in
+ * its board.c). */
+#if !defined(BOARD_SPIFLASH_OWN_BUS) && !defined(BOARD_SPIFLASH_BITBANG)
 #define flspi_init      sdspi_init
 #define flspi_set_speed sdspi_set_speed
 #define flspi_cs        sdspi_cs

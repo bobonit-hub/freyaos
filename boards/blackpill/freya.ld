@@ -144,6 +144,12 @@ SECTIONS
         *shell.o(.text.cmd_loglevel)
         *shell.o(.rodata.cmd_loglevel*)
         *shell.o(.text.cmd_meminfo)
+        /* df, and its FAT half: with SD=1 and the SPI flash both in, the
+         * 48 KiB image was a few hundred bytes over, as on the Blue Pill. */
+        *shell.o(.text.cmd_df)
+        *shell.o(.text.df_fat)
+        *shell.o(.rodata.cmd_df*)
+        *shell.o(.rodata.df_fat*)
         *shell.o(.rodata.cmd_meminfo*)
         *shell.o(.text.cmd_uptime)
         *shell.o(.rodata.cmd_uptime*)

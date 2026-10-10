@@ -5,6 +5,9 @@
 CPUFLAGS       := -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard
 OPENOCD_TARGET := target/artery/at32f4x.cfg
 
+# The SOP-8 footprint takes a SPI NOR chip: LittleFS at /spi1.
+SPIFLASH       := 1
+
 # Upstream st-flash does not know Artery parts; 'make flash' needs the
 # patched one from https://github.com/bobonit-hub/stlink, which programs
 # the AT32F403ACGU7 over SWD.  OpenOCD's artery driver has no entry for
