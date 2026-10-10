@@ -923,10 +923,7 @@ CKSUM_PAGE_SIZE := 16384
 endif
 endif
 
-ifdef FLASH_UNSUPPORTED
-flash:
-	$(error $(FLASH_UNSUPPORTED))
-else ifneq ($(PROGRAM)$(SCRIPT),)
+ifneq ($(PROGRAM)$(SCRIPT),)
 flash: $(FLASH_IMAGE) $(SETTINGS_BIN) $(BUILD)/$(TARGET)-kext.bin tools/fwsum.py
 	@set -eu; \
 	addr=$$($(NM) $(BUILD)/$(TARGET).elf | awk '$$3 == "__kext_start" { print "0x" $$1 }'); \

@@ -161,13 +161,16 @@ make BOARD=stm32f405 dfu PROGRAM=basic11
 ```
 
 `make bootloader` is USB DFU on the Black Pill, the STM32F401RCT6, the
-STM32F405xx and the Black Pill 2 (hold BOOT0, tap NRST), and `make BOARD=blackpill2 dfu` packs a DfuSe
-file for Artery's loader (`2e3c:df11`). That loader stalls a request now
-and then, so on the Black Pill 2 `make bootloader` writes the DfuSe file
-through `tools/dfu_flash.py`, a page per dfu-util run with retries. st-flash
-does not know Artery parts, so `make flash` refuses the Black Pill 2, and
-OpenOCD's artery driver has no entry for the 1 MiB AT32F403ACG, so
-`make openocd` cannot program it either. The STM32U585, the STM32H523,
+STM32F405xx and the Black Pill 2 (hold BOOT0, tap NRST). On the Black
+Pill 2 `make flash` is the way in: upstream st-flash does not know Artery
+parts, so it needs the patched st-flash from
+[bobonit-hub/stlink](https://github.com/bobonit-hub/stlink), which
+programs the AT32F403ACGU7. Without an ST-Link, `make BOARD=blackpill2 dfu`
+packs a DfuSe file for Artery's loader (`2e3c:df11`). That loader stalls a
+request now and then, so on the Black Pill 2 `make bootloader` writes the
+DfuSe file through `tools/dfu_flash.py`, a page per dfu-util run with
+retries. OpenOCD's artery driver has no entry for the 1 MiB AT32F403ACG,
+so `make openocd` cannot program it. The STM32U585, the STM32H523,
 the STM32H562 and the STM32H723 take `make flash` (st-flash 1.8 knows all
 four), and
 `make bootloader` is USB DFU through the board's USB-C socket (hold BOOT0,

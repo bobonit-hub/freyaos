@@ -362,16 +362,21 @@ identification at 234 kHz, then 15 MHz.
 I2C bus 2 is PB10/PB11. The pins have no weak pull-up of their own, so the
 I2C resistors are required.
 
-Programming: `make bootloader` is USB DFU (hold BOOT0, tap NRST; the
-loader is `2e3c:df11`). Artery's loader stalls a request now and then and
-dfu-util stops at the first stall, so `tools/dfu_flash.py` writes the DfuSe
-file from `make BOARD=blackpill2 dfu` a page per dfu-util run and retries
-each page. With `PROGRAM=` the file covers the whole flash, so the chip is
-mass-erased and the settings are written too. st-flash does not know Artery
-parts, so `make flash` refuses this board, and OpenOCD's
-`target/artery/at32f4x.cfg` debugs it over SWD but cannot program it: the
-artery driver has no entry for the 1 MiB AT32F403ACG ("Cannot identify
-target as an Artery device").
+Programming: `make flash` over an ST-Link. Upstream st-flash does not
+know Artery parts, so this takes the patched st-flash from
+[bobonit-hub/stlink](https://github.com/bobonit-hub/stlink), which
+programs the AT32F403ACGU7; build it and put its `st-flash` first on
+`PATH`. A kernel-only flash updates the firmware sum in the settings page,
+`0x0800C000`, 2 KiB (`CKSUM_PAGE_BASE`, `CKSUM_PAGE_SIZE` in the
+`board.mk`). Without an ST-Link, `make bootloader` is USB DFU (hold BOOT0,
+tap NRST; the loader is `2e3c:df11`). Artery's loader stalls a request now
+and then and dfu-util stops at the first stall, so `tools/dfu_flash.py`
+writes the DfuSe file from `make BOARD=blackpill2 dfu` a page per dfu-util
+run and retries each page. With `PROGRAM=` the file covers the whole flash,
+so the chip is mass-erased and the settings are written too. OpenOCD's
+`target/artery/at32f4x.cfg` debugs the board over SWD but cannot program
+it: the artery driver has no entry for the 1 MiB AT32F403ACG ("Cannot
+identify target as an Artery device").
 
 Flash — 2 KiB pages, two banks, and the first 256 KiB read without wait
 states, so both kernel images sit there:
@@ -395,8 +400,8 @@ Its RAM is the Black Pill's shape in 96 KiB: kernel data and heap up to
 then the shell and interrupt stacks to `0x20018000`.
 
 BASIC at power-on: `make BOARD=blackpill2 PROGRAM=basic11 AUTOSTART=1
-bootloader` puts basic11 in the program flash region with the auto-start
-flag set, and the board boots into it on the USART2 console. `basic11vm`
+flash` (or `bootloader`, over USB DFU) puts basic11 in the program flash
+region with the auto-start flag set, and the board boots into it on the USART2 console. `basic11vm`
 is not built here: the VM image, its workspace and its stack take about
 168 KiB of the program window, four times this board's 40 KiB.
 
