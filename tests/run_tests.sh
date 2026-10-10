@@ -364,7 +364,7 @@ echo
 echo "================= DS3231 ================="
 # The driver is optional.  Compile it for every board: PB6/PB7 have to be
 # that board's I2C bus 1, and the register coding does not depend on which.
-for b in blackpill bluepill stm32f405 weact_f405 apm32f407 blackpill2; do
+for b in blackpill bluepill stm32f401 stm32f405 weact_f405 apm32f407 blackpill2; do
     bdef="-DFREYA_BOARD_$(echo "$b" | tr '[:lower:]' '[:upper:]')"
     # shellcheck disable=SC2086
     $CC -std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
@@ -376,7 +376,7 @@ done
 echo
 echo "================= calendar RTC ================="
 # Optional too, and only for the boards whose chip has the calendar RTC.
-for b in blackpill stm32f405 weact_f405 apm32f407 stm32u585 stm32h523 stm32h562 stm32h723; do
+for b in blackpill stm32f401 stm32f405 weact_f405 apm32f407 stm32u585 stm32h523 stm32h562 stm32h723; do
     bdef="-DFREYA_BOARD_$(echo "$b" | tr '[:lower:]' '[:upper:]')"
     # shellcheck disable=SC2086
     $CC -std=gnu11 -g -O1 -Wall -Wextra -Wno-unused-parameter -fno-builtin \
@@ -674,6 +674,7 @@ else
     case "$BOARD" in
         bluepill)  flash_end=$((0x08020000)) ;;
         blackpill) flash_end=$((0x08080000)) ;;
+        stm32f401) flash_end=$((0x08040000)) ;;
         stm32u585) flash_end=$((0x08200000)) ;;
         stm32h523) flash_end=$((0x08080000)) ;;
         stm32h562) flash_end=$((0x08100000)) ;;

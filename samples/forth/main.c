@@ -26,12 +26,12 @@ typedef uint32_t ucell_t;
 
 /*
  * Every arena is sized from the program region, because the region is
- * what differs between boards: 7 KiB on the Blue Pill, 56 KiB on the
- * Black Pill.  A flash resident image spends the whole window on data; a
- * RAM image shares it with its own code, so it settles for a dictionary
- * that is small but still enough to define in.
+ * what differs between boards: 7 KiB on the Blue Pill, 24 KiB on the
+ * STM32F401, 56 KiB on the Black Pill.  A flash resident image spends the
+ * whole window on data; a RAM image shares it with its own code, so it
+ * settles for a dictionary that is small but still enough to define in.
  */
-#if FREYA_APP_REGION_SIZE >= 32u * 1024u
+#if FREYA_APP_REGION_SIZE >= 24u * 1024u
 #define DICT_SIZE   (FREYA_APP_REGION_SIZE - 14u * 1024u)
 #define DS_CELLS    128
 #define RS_CELLS    128

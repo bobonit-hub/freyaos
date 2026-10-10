@@ -39,6 +39,9 @@
  * It was 3072 while the region was 8 KiB, before the kernel took a
  * kilobyte back for its own buffers. */
 #define BUF_CAP     2048
+#elif FREYA_APP_REGION_SIZE < 32u * 1024u
+/* The STM32F401's 24 KiB region: the editor's code and 16 KiB of text. */
+#define BUF_CAP     (16 * 1024)
 #else
 #define BUF_CAP     (32 * 1024)
 #endif

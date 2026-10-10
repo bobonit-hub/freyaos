@@ -2,6 +2,7 @@
 #
 #   make                    build the kernel image and the example programs
 #   make BOARD=bluepill     build for the STM32F103C8T6 "Blue Pill"
+#   make BOARD=stm32f401    build for the STM32F401RCT6 (25 MHz crystal)
 #   make BOARD=stm32f405    build for the STM32F405xx (8 MHz crystal)
 #   make BOARD=weact_f405   build for the WeAct STM32F4 64-pin board (F405RGT6)
 #   make BOARD=apm32f407    build for a Geehy APM32F407ZGT6 board (LED on PF9)
@@ -394,9 +395,11 @@ SAMPLES   := blink tetris edit log forth irq pwm adc i2c spi w1 aead compress fl
 # headset, which needs a USB host the Blue Pill does not have.
 # cpubench's Dhrystone has a 10 000-byte array of its own.  The
 # Black Pill 2's window is 40 KiB,
-# short of the Altair's 48 KiB.
+# short of the Altair's 48 KiB.  The STM32F401's is 24 KiB, and its
+# 256 KiB of flash leaves no room for the audio echo needs.
 SKIP_bluepill := altair httpd echo cpubench
 SKIP_blackpill2 := altair
+SKIP_stm32f401 := altair echo
 # And a sample only some boards have room for: basic11vm keeps the
 # 128 KiB BASIC image for the virtual machine, its workspace and its
 # stack in the program window, which takes a window of 168 KiB or more.
@@ -413,9 +416,12 @@ SAMPLES   := $(filter-out $(SKIP_$(BOARD)),$(SAMPLES)) $(ONLY_$(BOARD)) \
 # altair16 on the Blue Pill keeps its 16 KiB in the top of program flash,
 # so the interpreter runs from flash too.  rustdemo carries core::fmt and
 # the heap behind alloc, 12 KiB, which is past that window too.  basic11
-# is 22 KiB of interpreter and soft float there.
+# is 22 KiB of interpreter and soft float there.  On the STM32F401 the
+# window is 24 KiB: altair16's 16 KiB of memory and basic11's workspace
+# leave no room there for their code.
 XIP_ONLY_bluepill  := forth altair16 rustdemo basic11
 XIP_ONLY_blackpill := altair
+XIP_ONLY_stm32f401 := altair16 basic11
 XIP_ONLY_stm32f405 := altair
 XIP_ONLY_weact_f405 := altair
 XIP_ONLY_apm32f407 := altair

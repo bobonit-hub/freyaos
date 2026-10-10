@@ -15,7 +15,7 @@ make BOARD=blackpill USB=1 SD=1     # the stick and the card
 
 | Board | USB host | Core | 48 MHz clock |
 |---|---|---|---|
-| Black Pill (STM32F411) | yes | OTG_FS | PLLQ |
+| Black Pill (STM32F411), STM32F401 | yes | OTG_FS | PLLQ |
 | STM32F405, WeAct STM32F4 64-pin, APM32F407 | yes | OTG_FS | PLLQ |
 | STM32U585 | yes | OTG_FS | PLL2Q |
 | STM32H723 | yes | OTG_HS on its full speed PHY | PLL3Q |

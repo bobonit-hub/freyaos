@@ -345,8 +345,8 @@ as its own image. The size register on
 these parts often still reads 64 KiB; the region runs through the 128 KiB
 anyway. The F4 boards put the same commands to a different use: their
 region is every sector between the kernel and the kernel extension, 320 KiB
-(sectors 4..6) on the Black Pill and 832 KiB (sectors 4..10) on the 1 MiB
-STM32F405, so a program several times the size of the 56 KiB program RAM
+(sectors 4..6) on the Black Pill, 64 KiB (sector 4) on the 256 KiB
+STM32F401 and 832 KiB (sectors 4..10) on the 1 MiB STM32F405, so a program several times the size of the 56 KiB program RAM
 runs from flash there; the system settings are in sector 3 in front of it.
 `install` writes an
 image there from the card, and `make flash PROGRAM=<app>` writes the same
@@ -396,7 +396,8 @@ every app and sample both ways from the same objects: `hello.bin` to `load`,
 `hello.xip.bin` to `install`. A flash program on the Blue Pill therefore
 spends the 7 KiB RAM window entirely on its variables, and gets 24 KiB
 for code instead of 7 KiB. On the Black Pill the RAM window is still 56 KiB and
-the flash image may be up to 320 KiB; on the STM32F405, 832 KiB.
+the flash image may be up to 320 KiB; on the STM32F401 the window is 24 KiB
+and the image up to 64 KiB; on the STM32F405, 832 KiB.
 
 A program that starts no threads may have their stacks too. On the Blue
 Pill the two 1 KiB thread stacks follow the window, so such a program gets

@@ -16,6 +16,7 @@ distribution package) and `make`. Rust programs also need `cargo`; see
 ```sh
 make                   # Black Pill kernel image + example programs
 make BOARD=bluepill    # the same for the Blue Pill
+make BOARD=stm32f401   # the same for the STM32F401RCT6 (25 MHz crystal)
 make BOARD=stm32f405   # the same for the STM32F405xx
 make BOARD=weact_f405  # the same for the WeAct STM32F4 64-pin board (F405RGT6)
 make BOARD=apm32f407   # the same for an APM32F407ZGT6 board (LED on PF9)
@@ -159,8 +160,8 @@ make BOARD=stm32f405 dfu PROGRAM=basic11
                     # build/stm32f405/freya+basic11.dfu, with the settings
 ```
 
-`make bootloader` is USB DFU on the Black Pill, the STM32F405xx and the Black
-Pill 2 (hold BOOT0, tap NRST), and `make BOARD=blackpill2 dfu` packs a DfuSe
+`make bootloader` is USB DFU on the Black Pill, the STM32F401RCT6, the
+STM32F405xx and the Black Pill 2 (hold BOOT0, tap NRST), and `make BOARD=blackpill2 dfu` packs a DfuSe
 file for Artery's loader (`2e3c:df11`). That loader stalls a request now
 and then, so on the Black Pill 2 `make bootloader` writes the DfuSe file
 through `tools/dfu_flash.py`, a page per dfu-util run with retries. st-flash

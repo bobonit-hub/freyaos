@@ -13,6 +13,7 @@ H7 have in common, run from the 32.768 kHz crystal (LSE):
 | Board | `make` |
 |---|---|
 | Black Pill (STM32F411CEU6) | `make RTC=internal` |
+| STM32F401RCT6 | `make BOARD=stm32f401 RTC=internal` |
 | STM32F405xx | `make BOARD=stm32f405 RTC=internal` |
 | STM32U585 | `make BOARD=stm32u585 RTC=internal` |
 | STM32H523 | `make BOARD=stm32h523 RTC=internal` |

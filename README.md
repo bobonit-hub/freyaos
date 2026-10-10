@@ -3,7 +3,7 @@
 Freya is a 32-bit, single-user, text OS for STMicroelectronics
 STM32 small MCUs, written from scratch in C and ARM assembly. It runs bare
 metal on the STM32F411CEU6 "Black Pill", the STM32F103C8T6 "Blue Pill",
-the STM32F405xx, WeAct's STM32F4 64-pin core board with the STM32F405RGT6,
+the STM32F401RCT6, the STM32F405xx, WeAct's STM32F4 64-pin core board with the STM32F405RGT6,
 the WeAct "Black Pill 2" with Artery's AT32F403ACGU7,
 an STM32F103 at heart with a Cortex-M4F core, WeAct's STM32U585CIU6,
 STM32H523CET6 and STM32H562RGT6 core boards, all Cortex-M33, and WeAct's
@@ -49,6 +49,7 @@ freya:
 |---|---|---|---|
 | Black Pill | STM32F411CEU6 | Cortex-M4F at 96 MHz | `make` |
 | Blue Pill | STM32F103C8T6 | Cortex-M3 at 72 MHz | `make BOARD=bluepill` |
+| STM32F401RCT6 | STM32F401RCT6 | Cortex-M4F at 84 MHz | `make BOARD=stm32f401` |
 | STM32F405xx | STM32F405xx | Cortex-M4F at 168 MHz | `make BOARD=stm32f405` |
 | WeAct STM32F4 64-pin | STM32F405RGT6 | Cortex-M4F at 168 MHz | `make BOARD=weact_f405` |
 | APM32F407ZGT6 board | APM32F407ZGT6 | Cortex-M4F at 168 MHz | `make BOARD=apm32f407` |
@@ -94,7 +95,7 @@ Flash, SRAM, program regions, clock trees and memory maps are in
 ## Quick start
 
 ```sh
-make BOARD=bluepill                 # or make, BOARD=stm32f405, weact_f405, apm32f407, blackpill2, stm32u585, stm32h523, stm32h562, stm32h723
+make BOARD=bluepill                 # or make, BOARD=stm32f401, stm32f405, weact_f405, apm32f407, blackpill2, stm32u585, stm32h523, stm32h562, stm32h723
 make BOARD=bluepill flash           # st-flash; see docs/building.md for the others
 picocom -b 921600 /dev/ttyUSB0      # the console: PA2 to the adapter's RX, PA3 to its TX
 ```

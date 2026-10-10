@@ -64,8 +64,8 @@ with the card-detect switch on PA8
 ([boards.md](boards.md#weact-stm32f4-64-pin-core-board-stm32f405rgt6)). The
 APM32F407ZGT6 board, `BOARD=apm32f407`, has its slot on the same SDIO pins
 and is driven the same way ([boards.md](boards.md#apm32f407zgt6-board)). The
-`stm32f405` build keeps the Black Pill's wiring, the card on SPI1 and its
-supply on PA8, for an F405 board with a socket wired that way.
+`stm32f405` and `stm32f401` builds keep the Black Pill's wiring, the card
+on SPI1 and its supply on PA8, for a board with a socket wired that way.
 
 ## Reserved pins
 
@@ -97,9 +97,9 @@ slower when a microsecond cannot land on it.
 I2C uses two more of the spare pins, and one pair that is not. Bus 1 is PB6
 (SCL) and PB7 (SDA) on every board. Bus 2 is PB10/PB11 on the Blue Pill, the
 Black Pill 2, the STM32F405xx and the STM32H723, PB10/PB9 on the Black Pill, the
-STM32U585 and the STM32H523, which have no PB11, and PB10/PB3 on the
+STM32F401RCT6, the STM32U585 and the STM32H523, which have no PB11, and PB10/PB3 on the
 STM32H562, which has neither. Both lines are open drain and need a pull-up to 3.3 V; 4.7 kΩ is the
-usual value. The Black Pill, the STM32F405xx, the STM32U585, the STM32H523,
+usual value. The Black Pill, the STM32F401RCT6, the STM32F405xx, the STM32U585, the STM32H523,
 the STM32H562 and the STM32H723 also turn on the pin's own weak pull-up; the Blue Pill and the Black Pill 2 cannot, so the resistors are required there. A
 pin that is already a PWM output is not also an I2C pin until that channel is
 turned off. `i2c 1 scan` at the console and `samples/i2c` do the same thing;
@@ -124,8 +124,8 @@ cut; where that pin is on each board, and which cells to use, is in
 
 1-Wire runs at standard speed on any spare pin: presence, byte reads and
 writes, and the ROM search. It uses one spare pin, open drain, with a pull-up
-to 3.3 V. 4.7 kΩ is the usual value. The Black Pill, the STM32F405xx, the
-STM32U585, the STM32H523, the STM32H562 and the STM32H723 also turn on the pin's own
+to 3.3 V. 4.7 kΩ is the usual value. The Black Pill, the STM32F401RCT6, the
+STM32F405xx, the STM32U585, the STM32H523, the STM32H562 and the STM32H723 also turn on the pin's own
 weak pull-up; the Blue Pill and the
 Black Pill 2 cannot, so the resistor is required there. A
 pin that is already a PWM output or an I2C line is not also a 1-Wire pin

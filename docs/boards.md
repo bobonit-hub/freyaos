@@ -1,6 +1,6 @@
 # Boards
 
-Freya runs on ten boards. This page is everything that differs between
+Freya runs on eleven boards. This page is everything that differs between
 them: the parts, the clock trees, the console and card clocks, and the flash
 and RAM maps. It starts with a comparison table and the parts every board
 shares, then gives each board a section of its own. The wiring that is the
@@ -8,21 +8,21 @@ same on every board is in [hardware.md](hardware.md).
 
 ## Comparison
 
-|  | Black Pill | Blue Pill | STM32F405xx | WeAct F405 64-pin | APM32F407ZGT6 board | Black Pill 2 | STM32U585 | STM32H523 | STM32H562 | STM32H723 |
-|---|---|---|---|---|---|---|---|---|---|---|
-| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F405xx | STM32F405RGT6 | APM32F407ZGT6 | AT32F403ACGU7 | STM32U585CIU6 | STM32H523CET6 | STM32H562RGT6 | STM32H723VGT6 |
-| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz | Cortex-M33F at 160 MHz | Cortex-M33F at 250 MHz | Cortex-M33F at 250 MHz | Cortex-M7F at 520 MHz |
-| Crystal | 25 MHz | 8 MHz | 8 MHz | 8 MHz | 8 MHz | 8 MHz | 25 MHz | 8 MHz | 8 MHz | 25 MHz |
-| Flash | 512 KiB | 128 KiB | 1 MiB | 1 MiB | 1 MiB | 1 MiB | 2 MiB | 512 KiB | 1 MiB | 1 MiB |
-| SRAM | 128 KiB | 20 KiB | 128 KiB | 128 KiB | 128 KiB (+ 64 KiB CCM, unused) | 96 KiB | 768 KiB | 272 KiB | 640 KiB | 564 KiB (320 KiB used) |
-| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 56 KiB RAM, or 832 KiB flash | 56 KiB RAM, or 832 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash | 168 KiB RAM, or 320 KiB flash | 504 KiB RAM, or 832 KiB flash | 216 KiB RAM, or 640 KiB flash |
-| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f405` | `make BOARD=weact_f405` | `make BOARD=apm32f407` | `make BOARD=blackpill2` | `make BOARD=stm32u585` | `make BOARD=stm32h523` | `make BOARD=stm32h562` | `make BOARD=stm32h723` |
-| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 91 at 84 MHz APB2 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 | 271 at 250 MHz APB1 | 141 at 130 MHz APB1 |
-| Console rate | 923077 baud | 923077 baud | 913043 baud | 923077 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 922509 baud | 921986 baud |
-| SD identification clock | 375 kHz | 281 kHz | 328 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged |
-| SD data clock | 12 MHz | 9 MHz | 10.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured |
-| SPI flash volume (`/spi1`) | yes | no | no | no | no | no | yes | yes | no | yes, beside the card |
-| Calendar RTC (`RTC=internal`, [rtc.md](rtc.md)) | yes | no | yes | yes | yes, with the 32.768 kHz crystal fitted | no | yes | yes | yes | yes |
+|  | Black Pill | Blue Pill | STM32F401RCT6 | STM32F405xx | WeAct F405 64-pin | APM32F407ZGT6 board | Black Pill 2 | STM32U585 | STM32H523 | STM32H562 | STM32H723 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| MCU | STM32F411CEU6 | STM32F103C8T6 | STM32F401RCT6 | STM32F405xx | STM32F405RGT6 | APM32F407ZGT6 | AT32F403ACGU7 | STM32U585CIU6 | STM32H523CET6 | STM32H562RGT6 | STM32H723VGT6 |
+| Core | Cortex-M4F at 96 MHz | Cortex-M3 at 72 MHz | Cortex-M4F at 84 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 168 MHz | Cortex-M4F at 240 MHz | Cortex-M33F at 160 MHz | Cortex-M33F at 250 MHz | Cortex-M33F at 250 MHz | Cortex-M7F at 520 MHz |
+| Crystal | 25 MHz | 8 MHz | 25 MHz | 8 MHz | 8 MHz | 8 MHz | 8 MHz | 25 MHz | 8 MHz | 8 MHz | 25 MHz |
+| Flash | 512 KiB | 128 KiB | 256 KiB | 1 MiB | 1 MiB | 1 MiB | 1 MiB | 2 MiB | 512 KiB | 1 MiB | 1 MiB |
+| SRAM | 128 KiB | 20 KiB | 64 KiB | 128 KiB | 128 KiB | 128 KiB (+ 64 KiB CCM, unused) | 96 KiB | 768 KiB | 272 KiB | 640 KiB | 564 KiB (320 KiB used) |
+| Program region | 56 KiB RAM, or 320 KiB flash | 7 KiB RAM (9 KiB without threads), or 24 KiB flash | 24 KiB RAM, or 64 KiB flash | 56 KiB RAM, or 832 KiB flash | 56 KiB RAM, or 832 KiB flash | 56 KiB RAM, or 832 KiB flash | 40 KiB RAM, or 832 KiB flash | 504 KiB RAM, or 1856 KiB flash | 168 KiB RAM, or 320 KiB flash | 504 KiB RAM, or 832 KiB flash | 216 KiB RAM, or 640 KiB flash |
+| Build | `make` | `make BOARD=bluepill` | `make BOARD=stm32f401` | `make BOARD=stm32f405` | `make BOARD=weact_f405` | `make BOARD=apm32f407` | `make BOARD=blackpill2` | `make BOARD=stm32u585` | `make BOARD=stm32h523` | `make BOARD=stm32h562` | `make BOARD=stm32h723` |
+| Console divisor (USARTDIV) | 52 at 48 MHz APB1 | 39 at 36 MHz APB1 | 46 at 42 MHz APB1 | 46 at 42 MHz APB1 | 91 at 84 MHz APB2 | 46 at 42 MHz APB1 | 130 at 120 MHz APB1 | 87 at 80 MHz APB1 | 271 at 250 MHz APB1 | 271 at 250 MHz APB1 | 141 at 130 MHz APB1 |
+| Console rate | 923077 baud | 923077 baud | 913043 baud | 913043 baud | 923077 baud | 913043 baud | 923077 baud | 919540 baud | 922509 baud | 922509 baud | 921986 baud |
+| SD identification clock | 375 kHz | 281 kHz | 328 kHz | 328 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged | 234 kHz | 312.5 kHz | 390.6 kHz | about 250 kHz, bit-banged | about 250 kHz, bit-banged |
+| SD data clock | 12 MHz | 9 MHz | 10.5 MHz | 10.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured | 15 MHz | 10 MHz | 12.5 MHz | bit-banged, unmeasured | bit-banged, unmeasured |
+| SPI flash volume (`/spi1`) | yes | no | no | no | no | no | no | yes | yes | no | yes, beside the card |
+| Calendar RTC (`RTC=internal`, [rtc.md](rtc.md)) | yes | no | yes | yes | yes | yes, with the 32.768 kHz crystal fitted | no | yes | yes | yes | yes |
 
 ## What a board is
 
@@ -52,7 +52,7 @@ console USART: APB1 for USART2, APB2 for the WeAct F405 board's USART1. The
 Black Pill, the Blue Pill, the WeAct F405 board and the Black Pill 2 land
 on 923077 baud, 0.16% fast; the STM32H723 on 921986, 0.04% fast; the STM32H523 and the STM32H562
 on 922509, 0.10% fast; the STM32U585 on 919540,
-0.22% slow; the STM32F405 and the APM32F407 board
+0.22% slow; the STM32F401, the STM32F405 and the APM32F407 board
 on 913043, 0.93% slow. All of them are far inside what 8N1 tolerates. If the
 adapter is a faster one, the rate is `uart_init()` in `src/main.c` and the
 `BOARD_CONSOLE_NAME` string.
@@ -93,8 +93,9 @@ region is a build-time constant, not whatever the probe found.
 ### The F4 sector layout
 
 The F4 boards give the program flash region everything between the kernel
-and the kernel extension: 320 KiB on the Black Pill (sectors 4..6), 832 KiB
-on the 1 MiB STM32F405 (sectors 4..10). The system settings are the first
+and the kernel extension: 320 KiB on the Black Pill (sectors 4..6), 64 KiB
+on the 256 KiB STM32F401 (sector 4 alone), 832 KiB on the 1 MiB STM32F405
+(sectors 4..10). The system settings are the first
 1 KiB of sector 3, a 16 KiB sector nothing else uses, so toggling the
 auto-start flag never erases the image, and the kernel image is limited to
 the first 48 KiB so it never shares a sector with them. The thread scheduler
@@ -157,6 +158,76 @@ RAM (the STM32F405 has the same):
 
 The thread stacks are below the program window, so a program that starts no
 threads gets no more RAM here; the `NOTHREADS` flag only refuses threads.
+
+## STM32F401RCT6
+
+Build with `make BOARD=stm32f401`; `make BOARD=stm32f401 dfu` packs
+`build/stm32f401/freya.dfu` for the ROM DFU loader (see
+[building.md](building.md#flashing)).
+
+A Cortex-M4F at 84 MHz from a 25 MHz crystal, with 256 KiB of flash and
+64 KiB of SRAM, in the LQFP64. Pins follow the Black Pill: the console on
+USART2 (PA2/PA3), the card on SPI1 (PA4..PA7) with its supply switched by
+PA8, the LED on PC13, lit low; programs get ports A to C. There is no SPI
+flash footprint, so no `/spi1`. The LQFP64 puts VCAP1 where PB11 would be,
+so I2C bus 2 is PB10/PB9, as on the Black Pill.
+
+Clock tree: a 25 MHz crystal → PLL (M=25, N=336, P=4) → 84 MHz SYSCLK,
+42 MHz APB1, 84 MHz APB2, 2 flash wait states, voltage scale 2 (the
+F401's top one), prefetch and caches on; PLLQ=7 gives the 48 MHz the USB
+domain wants. Without the crystal, HSI 16 MHz with M=16 gives the same
+84 MHz.
+
+Console: USARTDIV rounds to 46 against the 42 MHz APB1, 0.93% slow. Card:
+identification at 328 kHz, then 10.5 MHz.
+
+The STM32F401RC has 256 KiB in six sectors and the Black Pill's map,
+shortened: the program flash region is sector 4 alone
+(`0x08010000`..`0x0801FFFF`, 64 KiB) and the kernel extension is sector 5
+(`0x08020000`). A write to the program region erases all of it. So
+basic11's `FSAVE` has nowhere to keep its text on this board: the text
+goes in the erase unit after the image, and there is no second one.
+
+Flash:
+
+```
+0x08000000  +--------------------------------+
+            |  Freya kernel (~39 KiB used)   |  48 KiB, sectors 0..2
+0x0800C000  +--------------------------------+
+            |  system settings               |  first 1 KiB of sector 3
+0x0800C400  +--------------------------------+
+            |  unused                        |  rest of sector 3
+0x08010000  +--------------------------------+
+            |  program flash region          |  64 KiB, sector 4
+0x08020000  +--------------------------------+
+            |  kernel extension (~76 KiB)    |  128 KiB, sector 5
+0x08040000  +--------------------------------+
+```
+
+RAM, the Black Pill's in half the SRAM. The program window is 24 KiB, and
+the heap gets about 19 KiB:
+
+```
+0x20000000  +--------------------------------+
+            |  .data + .bss + system heap    |
+0x20007000  +--------------------------------+
+            |  thread stacks, 4 x 1 KiB      |
+0x20008000  +--------------------------------+
+            |  user program region (24 KiB)  |  image + .bss, loaded from
+0x2000E000  +--------------------------------+  card, or just .data + .bss
+            |  shell stack (6 KiB)           |  the program's main thread
+0x2000F800  +--------------------------------+
+            |  interrupt stack (2 KiB)       |
+0x20010000  +--------------------------------+
+```
+
+The window shapes the samples. `altair` (48 KiB of 8080 memory) is not
+built, nor is `echo`: audio needs more than 512 KiB of flash
+([audio.md](audio.md)). `altair16` and `basic11` are built as flash images
+only. `edit` holds 16 KiB of text, not 32, and `forth`'s RAM image has a
+10 KiB dictionary. A BusFault ram dump is 64 KiB.
+
+Not yet run on the chip.
 
 ## STM32F405xx
 

@@ -147,6 +147,18 @@
 #else
 #define FREYA_APP_FLASH_SIZE     (0x080E0000UL - FREYA_APP_FLASH_ADDR)
 #endif
+#elif defined(FREYA_BOARD_STM32F401)
+#define FREYA_APP_LOAD_ADDR      0x20008000UL   /* 64 KiB of SRAM */
+#define FREYA_APP_REGION_SIZE    (24U * 1024U)
+/* The thread stacks are below the window here, not after it. */
+#define FREYA_APP_NOTHREADS_SIZE FREYA_APP_REGION_SIZE
+/* The Black Pill's map in 256 KiB, six sectors: the kernel in sectors
+ * 0..2, the settings alone in sector 3, the program in sector 4 (64 KiB)
+ * and the kernel extension in sector 5. */
+#define FREYA_SETTINGS_SIZE      1024U
+#define FREYA_SETTINGS_ADDR      0x0800C000UL
+#define FREYA_APP_FLASH_ADDR     0x08010000UL
+#define FREYA_APP_FLASH_SIZE     (0x08020000UL - FREYA_APP_FLASH_ADDR)
 #elif defined(FREYA_BOARD_BLACKPILL2)
 #define FREYA_APP_LOAD_ADDR      0x2000C000UL   /* 96 KiB of SRAM */
 #define FREYA_APP_REGION_SIZE    (40U * 1024U)
@@ -213,7 +225,7 @@
 /* The shell language as a Linux program (linux/board.h): no program
  * region, no program flash and no system settings. */
 #else
-#error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLACKPILL2, FREYA_BOARD_BLUEPILL, FREYA_BOARD_STM32F405, FREYA_BOARD_WEACT_F405, FREYA_BOARD_APM32F407, FREYA_BOARD_STM32U585, FREYA_BOARD_STM32H523, FREYA_BOARD_STM32H562 or FREYA_BOARD_STM32H723"
+#error "no board selected - define FREYA_BOARD_BLACKPILL, FREYA_BOARD_BLACKPILL2, FREYA_BOARD_BLUEPILL, FREYA_BOARD_STM32F401, FREYA_BOARD_STM32F405, FREYA_BOARD_WEACT_F405, FREYA_BOARD_APM32F407, FREYA_BOARD_STM32U585, FREYA_BOARD_STM32H523, FREYA_BOARD_STM32H562 or FREYA_BOARD_STM32H723"
 #endif
 #ifndef FREYA_LINUX
 #if (FREYA_SETTINGS_ADDR % 128U) || (FREYA_SETTINGS_SIZE % 128U) || \
